@@ -31,6 +31,47 @@ Copied from `docs/specs/2026-08-07-linkedin-toolkit-l0-l2-design.md`. Every task
 
 ---
 
+## Model assignment per task
+
+Dispatch each task to a fresh subagent on the model listed. The split is by
+*consequence of a silent bug*, not by length.
+
+**Sonnet** — fully specified, deterministic, offline, and a bug fails loudly in the
+task's own tests:
+
+| Task | Why Sonnet |
+|---|---|
+| 1 · Scaffold + receipt contract | Config files and a plain enum/class. Nothing to interpret. |
+| 5 · Tab lease | One lockfile, stale-PID check. Self-contained, ~80 lines. |
+| 6 · Event logger + run context | Append NDJSON, carry ids. Mechanical. |
+| 7 · Archive + shape hash | Pure functions, given verbatim in the plan. |
+| 13 · Supabase migration | SQL is written out in full. Runs `supabase start` and applies it. |
+| 14 · Store client | Upsert-by-URN and a freshness check. Ordinary CRUD. |
+| 18 · Bounded log queries | Reads local NDJSON files. Zero network, zero risk. |
+
+**Opus** — async correctness, account safety, or judgment against something the plan
+cannot fully specify:
+
+| Task | Why Opus |
+|---|---|
+| 2 · Chrome launcher | Must not touch port 9222. Wrong port = the operator's personal Chrome. |
+| 3 · CDP client | Request/response correlation, sessionId routing, timeouts. Race bugs here are silent and poison everything above. |
+| 4 · Browser session + worker tab | The attach surface *is* the detection surface. One stray `Runtime.enable` and the account is exposed. |
+| 8 · Human input | Anti-fingerprinting. Bugs here look fine in tests and are visible to LinkedIn. |
+| 9 · Network tap | `getResponseBody` timing vs. `loadingFinished`; the tap missing a response is the whole product failing. |
+| 10 · Challenge detection | Safety gate. A false negative keeps driving a flagged session. |
+| 11 · Budget ledger | Must fail *closed*. This is the thing standing between us and a burned account. |
+| 12 · Registry + CLI + `health.check` | First live integration of all twelve pieces. Needs whole-system reasoning. |
+| 15 · Capture fixture | Spends a real page load on the one account. No retries that are free. |
+| 16 · Profile parser | Written against a fixture whose shape nobody has seen yet. Pure judgment; the plan gives structure, not field paths. |
+| 17 · Wire `profile.get` | End-to-end integration plus drift handling. |
+
+Count: 7 Sonnet, 11 Opus. If a Sonnet task's review comes back weak, re-run it on
+Opus rather than patching it by hand — the point of the split is cost, not tolerance
+for worse code.
+
+---
+
 ## File Structure
 
 ```
