@@ -1,5 +1,9 @@
 # LinkedinLeadsOS M1–M3 Implementation Plan
 
+> **SUPERSEDED 2026-08-08 by `docs/plans/m1-m3/`** (see D12 in `DECISIONS.md`). This
+> plan dictated full code, pinned versions, and invented names, which caused drift and
+> hallucination during execution. Kept for history only — do not execute from it.
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Build the L0 core, local Supabase storage, and `profile.get` end to end — proving the whole architecture on one capability.

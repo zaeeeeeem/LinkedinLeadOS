@@ -58,3 +58,14 @@ before storage exists at all. It lives at `runs/budget.ndjson`, append-only.
 Rejected: the `budget_ledger` Supabase table as the source of truth — a safety
 check that depends on an external service can fail open, which is the one failure
 mode that is unacceptable here. The table may later mirror the file for reporting.
+
+## D12 — Plans state outcomes and constraints, never implementations
+2026-08-08. The first M1–M3 plan (`docs/plans/2026-08-07-m1-m3-core-storage-profile.md`)
+wrote out full code, pinned dependency versions, and invented exported names. Executing
+it produced drift and hallucination: the plan's guesses diverged from reality and the
+implementing agent transcribed instead of thinking. Replaced by `docs/plans/m1-m3/` —
+one outcome-driven file per task, a shared always-read context pack, and a shared
+recording contract. Cross-task interfaces come from the actual source on disk, never
+from plan text. Implementation agents design with fresh context; minor improvements are
+theirs to make and note, major deviations (new runtime dependency, interface change,
+anything touching the attach surface or safety model) require operator approval first.
