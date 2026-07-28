@@ -101,12 +101,25 @@ Chrome is instead launched by the toolkit:
 
 ```
 /Applications/Google Chrome.app/Contents/MacOS/Google Chrome \
-  --remote-debugging-port=9222 \
+  --remote-debugging-port=9223 \
   --user-data-dir="$HOME/.linkedin-os/chrome-profile" \
   --no-first-run --no-default-browser-check
 ```
 
-Verified 2026-08-07: this path shows no consent dialog and `/json/version` responds normally.
+**Port 9223, not 9222.** The operator's daily-driver Chrome holds 9222 via the
+`chrome://inspect` toggle. Rather than depend on that being switched off, the automation
+profile takes its own port and the two coexist. Attaching to the wrong Chrome would drive the
+operator's personal session — the port separation makes that impossible.
+
+**Endpoint discovery is `GET /json/version` → `webSocketDebuggerUrl`.** Verified 2026-08-07:
+the bare path `ws://host:port/devtools/browser` is accepted by Chrome 150 but **rejected by
+Chrome 151**, which the automation profile runs. The `DevToolsActivePort` file is also not
+reliably written — it was absent while the port was live. HTTP discovery is the only path
+that works on the launch-flag profile, and it works there precisely because the flag path
+does not disable those endpoints.
+
+Verified 2026-08-07: this launch shows no consent dialog, `/json/version` responds normally,
+and `Storage.getCookies` confirms `li_at` present with a 2027-08-07 expiry.
 
 The LinkedIn and Sales Navigator session is moved into this dedicated profile by **logging in
 manually, once**. Cookies are not copied from the daily-driver profile — one manual login on
@@ -505,8 +518,9 @@ loss across sessions.
 Each milestone is independently verifiable. Nothing later starts before the previous is
 proven against the real account.
 
-0. **M0 — profile migration.** Launch the dedicated profile (D9), log in to LinkedIn and
-   Sales Navigator by hand, confirm the session survives a restart. One-time, manual.
+0. **M0 — profile migration.** ✅ **Done 2026-08-07.** Dedicated profile created at
+   `~/.linkedin-os/chrome-profile`, logged into Google and LinkedIn by hand, verified over
+   CDP on port 9223 — `li_at` present, expires 2027-08-07.
 1. **M1 — core skeleton.** Chrome launcher, CDP session, worker tab, tab lease, event logger,
    run context, archive, receipt envelope, exit codes, `cap list --json`. Verified by a no-op
    capability that launches or reuses Chrome, opens a worker tab, logs, writes a receipt, and

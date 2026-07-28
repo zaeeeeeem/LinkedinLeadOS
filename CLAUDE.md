@@ -63,7 +63,8 @@ drafting) · L5 orchestration (campaigns, sequences, schedulers) · MCP surface 
   `parse.test.ts`, `README.md`.
 - Dates are absolute (`2026-08-07`), never "today" or "last week".
 - Chrome runs on the dedicated profile at `~/.linkedin-os/chrome-profile`, launched with
-  `--remote-debugging-port=9222`. Never attach to a `chrome://inspect` opt-in session.
+  `--remote-debugging-port=9223`. Never attach to a `chrome://inspect` opt-in session, and
+  never touch port 9222 — that is the operator's personal Chrome.
 
 ## Recording system
 
@@ -91,9 +92,13 @@ resume logic in `engine/run-scrape.mjs`.
 
 ## Environment gotcha
 
-Chrome 150+ returns 404 on `/json`, `/json/version`, `/json/list` when debugging was enabled
-via `chrome://inspect`. Connect directly to `ws://127.0.0.1:9222/devtools/browser`. On the
-dedicated launch-flag profile the HTTP endpoints work normally.
+Discover the CDP endpoint with `GET http://127.0.0.1:9223/json/version` and use its
+`webSocketDebuggerUrl`. Do **not** hardcode the bare `/devtools/browser` path — Chrome 150
+accepts it, Chrome 151 rejects it, and the automation profile runs 151. Do not rely on the
+`DevToolsActivePort` file either; it is not reliably written.
+
+(For context: the HTTP endpoints 404 on the operator's personal Chrome because it enabled
+debugging via `chrome://inspect`. They work normally on the launch-flag profile.)
 
 Claude Code's Bash sandbox blocks loopback TCP — probing CDP from Bash needs the sandbox
 disabled for that call.
