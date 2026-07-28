@@ -4,3 +4,4 @@ fixtures/
 .env
 .env.local
 dist/
+.supabase/
