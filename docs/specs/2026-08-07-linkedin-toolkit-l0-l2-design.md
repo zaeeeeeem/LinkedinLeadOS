@@ -90,6 +90,53 @@ Enable `Network` only. Do not send `Runtime.enable` (`consoleAPICalled` is the c
 detection leak) or `Page.enable` (`captureScreenshot` does not require it). Carried forward
 from the existing worker, which established this deliberately.
 
+### D9 — Dedicated Chrome profile launched with `--remote-debugging-port`
+
+The toolkit never attaches to Chrome opted in via `chrome://inspect`. That path shows a
+once-per-Chrome-session **"Allow remote debugging?"** consent dialog, which puts a human back
+in the loop on every browser restart, and it has HTTP discovery endpoints disabled (Chrome 150
+returns 404 on `/json`, `/json/version`, `/json/list`).
+
+Chrome is instead launched by the toolkit:
+
+```
+/Applications/Google Chrome.app/Contents/MacOS/Google Chrome \
+  --remote-debugging-port=9222 \
+  --user-data-dir="$HOME/.linkedin-os/chrome-profile" \
+  --no-first-run --no-default-browser-check
+```
+
+Verified 2026-08-07: this path shows no consent dialog and `/json/version` responds normally.
+
+The LinkedIn and Sales Navigator session is moved into this dedicated profile by **logging in
+manually, once**. Cookies are not copied from the daily-driver profile — one manual login on
+the same machine and IP is unremarkable to LinkedIn; a session cookie materializing in a fresh
+profile is not.
+
+Side benefit: the automation profile is isolated, so ordinary browsing cannot interfere with a
+run and a run cannot disturb ordinary browsing.
+
+Preflight starts Chrome if it is not already running on the debug port, and reuses it if it is.
+Chrome's own version will move underneath us — nothing may depend on version-specific behavior.
+
+### D10 — One resident worker tab, navigated between targets
+
+Capabilities own their tab entirely. Given a URL, the toolkit opens what it needs; the operator
+never pre-opens anything.
+
+Shape: `Target.createTarget { url, background: true }` once per session, then `Page.navigate`
+between targets, closed at session end. Rejected: a tab per item — 120 profiles/day is 120
+open-close cycles and a cold render each time; one tab moving between profiles is what a human
+reading them looks like.
+
+`background: true` keeps the operator's window from being yanked mid-run. Focus emulation
+(D8, `Emulation.setFocusEmulationEnabled`) must be asserted on the tab immediately after
+creation: a background tab has its timers clamped and never fires `IntersectionObserver`, which
+is precisely how LinkedIn lazy-renders. The existing worker measured a 7×`setTimeout(120)` loop
+taking 43.9s instead of 0.9s in this state.
+
+This is also why the tab lease (§8) is single-holder — there is one worker tab by construction.
+
 ---
 
 ## 3. Architecture
@@ -350,9 +397,15 @@ concurrent runs fighting one tab is a correctness bug and a detection signal.
 
 ### Session preflight
 
-Before any capability touches LinkedIn: confirm CDP reachable, confirm the target tab is
-logged in, confirm budget available. Fails fast with the right exit code rather than
-half-running.
+Before any capability touches LinkedIn, in order:
+
+1. Chrome is running on the debug port with the dedicated profile — if not, launch it (D9).
+2. CDP reachable and the browser endpoint answers.
+3. The profile is logged in to LinkedIn; if not, exit 4 `REAUTH`.
+4. Budget available for the estimated cost; if not, exit 7.
+5. Tab lease acquired.
+
+Fails fast with the right exit code rather than half-running.
 
 ---
 
@@ -362,8 +415,9 @@ Contracts live in `docs/capabilities/<name>.md`, one file each.
 
 ### L0 — core modules (not CLI capabilities)
 
-`session` · `tab-lease` · `foreground` · `human-input` · `network-tap` · `run-context`
-· `events` · `archive` · `budget` · `challenge` · `store` · `registry`
+`chrome-launcher` · `session` · `tab-lease` · `worker-tab` · `foreground` · `human-input`
+· `network-tap` · `run-context` · `events` · `archive` · `budget` · `challenge` · `store`
+· `registry`
 
 ### L1 — cheap reads
 
@@ -451,9 +505,12 @@ loss across sessions.
 Each milestone is independently verifiable. Nothing later starts before the previous is
 proven against the real account.
 
-1. **M1 — core skeleton.** CDP session, tab lease, event logger, run context, archive,
-   receipt envelope, exit codes, `cap list --json`. Verified by a no-op capability that
-   attaches, logs, writes a receipt, and detaches cleanly.
+0. **M0 — profile migration.** Launch the dedicated profile (D9), log in to LinkedIn and
+   Sales Navigator by hand, confirm the session survives a restart. One-time, manual.
+1. **M1 — core skeleton.** Chrome launcher, CDP session, worker tab, tab lease, event logger,
+   run context, archive, receipt envelope, exit codes, `cap list --json`. Verified by a no-op
+   capability that launches or reuses Chrome, opens a worker tab, logs, writes a receipt, and
+   tears down cleanly with no consent dialog and no leftover tab.
 2. **M2 — storage.** Supabase local in Docker, migrations, typed client, upsert-by-urn,
    freshness check, budget ledger.
 3. **M3 — first reader end to end: `profile.get`.** Network tap, challenge detection,
