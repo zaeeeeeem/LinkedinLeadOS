@@ -34,6 +34,9 @@ export type ErrReceipt = {
   capability: string;
   error: {
     code: string;
+    /** The process exit code this failure class maps to. Carried on the receipt
+     *  so emitReceipt never has to be told the failure class a second time. */
+    exit: ExitCode;
     retryable: boolean;
     action: FailureAction;
     message: string;
@@ -88,7 +91,8 @@ export function buildErr(o: {
   return {
     ok: false, run_id: o.run_id, capability: o.capability,
     error: {
-      code: o.err.code, retryable: o.err.retryable, action: o.err.action,
+      code: o.err.code, exit: o.err.exit,
+      retryable: o.err.retryable, action: o.err.action,
       message: o.err.message, evidence: o.err.evidence,
       retry_after_ms: o.err.retryAfterMs,
     },
@@ -96,8 +100,12 @@ export function buildErr(o: {
   };
 }
 
-/** Prints the receipt as one JSON line on stdout and exits with the right code. */
-export function emitReceipt(r: Receipt, exit: ExitCode = r.ok ? EXIT.OK : EXIT.GENERIC): never {
+/**
+ * Prints the receipt as one JSON line on stdout and exits with the failure class
+ * the receipt already carries. The exit code is decided once, at the throw site,
+ * by the CapabilityError — never re-derived here and never passed in.
+ */
+export function emitReceipt(r: Receipt): never {
   process.stdout.write(JSON.stringify(r) + "\n");
-  process.exit(exit);
+  process.exit(r.ok ? EXIT.OK : r.error.exit);
 }

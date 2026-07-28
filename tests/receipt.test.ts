@@ -29,7 +29,21 @@ describe("receipt", () => {
     expect(r.error.code).toBe("CHALLENGE_PRESENTED");
     expect(r.error.action).toBe("HALT_AND_NOTIFY");
     expect(r.error.retryable).toBe(false);
-    expect(err.exit).toBe(2);
+    expect(r.error.exit).toBe(EXIT.CHALLENGE);
+  });
+
+  it("carries the failure class onto the receipt for every exit code", () => {
+    for (const exit of [EXIT.CHALLENGE, EXIT.RATE_LIMITED, EXIT.AUTH,
+                        EXIT.PARSE_DRIFT, EXIT.TRANSIENT, EXIT.BUDGET] as const) {
+      const r = buildErr({
+        run_id: "01JQ", capability: "profile.get",
+        err: new CapabilityError({
+          code: "X", exit, action: "SKIP_ITEM", retryable: false, message: "m",
+        }),
+        cost: { search_credits: 0, page_loads: 0, elapsed_ms: 0 },
+      });
+      expect(r.error.exit).toBe(exit);
+    }
   });
 
   it("exposes every exit code from the spec", () => {
