@@ -17,8 +17,10 @@ Copied from `docs/specs/2026-08-07-linkedin-toolkit-l0-l2-design.md`. Every task
 - **Never forge a request LinkedIn's UI did not already issue (D1).** No direct Voyager calls with the session cookie.
 - **Raw-first (D2).** Archive the untouched response body before parsing. Parsed rows are a projection, never the only copy.
 - **Minimal CDP attach surface (D8).** Enable `Network` only. Never send `Runtime.enable` or `Page.enable`.
-- **Automation Chrome is port 9223**, profile `~/.linkedin-os/chrome-profile`. Port 9222 is the operator's personal Chrome and must never be touched.
-- **Endpoint discovery is `GET /json/version` → `webSocketDebuggerUrl`.** Never hardcode the bare `/devtools/browser` path (Chrome 150 accepts it, 151 rejects it). Never rely on the `DevToolsActivePort` file.
+- **No Playwright anywhere in this codebase (D7).** `connectOverCDP` enables `Runtime`, `Page`, `DOM`, `Log`, and `Performance` and injects a per-frame utility world — the exact surface D8 avoids. Raw CDP only.
+- **Automation Chrome is port 9223 (D9)**, profile `~/.linkedin-os/chrome-profile`, launched with `--remote-debugging-port`. Port 9222 is the operator's personal Chrome and must never be touched. Never attach to a `chrome://inspect` opt-in session — it shows a consent dialog, which puts a human back in the loop.
+- **Endpoint discovery is `GET /json/version` → `webSocketDebuggerUrl` (D9).** Never hardcode the bare `/devtools/browser` path (Chrome 150 accepts it, 151 rejects it). Never rely on the `DevToolsActivePort` file.
+- **Failure is exit-non-zero and stop (D6).** No notifications of any kind — no desktop alert, no Slack, no file drop.
 - **Receipt on stdout (D3).** Fixed-size envelope regardless of result size. Never print bulk data.
 - **Exit codes carry the failure class:** `0` ok · `1` generic/usage · `2` challenge · `3` rate-limited · `4` auth dead · `5` parse drift · `6` transient · `7` budget exhausted.
 - **The budget ledger cannot be bypassed by a flag.**
