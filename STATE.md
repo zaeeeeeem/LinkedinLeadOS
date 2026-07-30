@@ -6,8 +6,8 @@ Updated at every task commit. Trust this over CLAUDE.md's phase line.
 The 2026-08-07 plan file is superseded — do not execute from it.
 
 ## Built
-Task 1 — project scaffold and receipt contract (commit 1394d12; an uncommitted
-improvement carries the exit code on the error receipt — commit pending)
+Task 1 — project scaffold and receipt contract (commits 1394d12, c2bea6f).
+Reviewed 2026-08-08: `npx tsc --noEmit` clean, 4/4 tests pass.
 
 ## In progress
 _(nothing)_
