@@ -75,6 +75,7 @@ Write it down the moment it happens. Do not trust memory across sessions.
 | `CLAUDE.md` | This file — what it is, phase, rules, index | When phase or a rule changes |
 | `DECISIONS.md` | Why X over Y, dated, append-only | The moment a real decision is made |
 | `STATE.md` | Built / in progress / next | **At every checkpoint**, not at session end |
+| `BACKLOG.md` | Deferred work + the approach settled at capture time | When something is punted with a known plan |
 | `docs/specs/` | Approved designs | Per design cycle |
 | `docs/capabilities/` | One contract doc per capability | When a capability is added or changed |
 
@@ -108,4 +109,5 @@ disabled for that call.
 - Approved design → `docs/specs/2026-08-07-linkedin-toolkit-l0-l2-design.md`
 - What's built → `STATE.md`
 - Why we did something → `DECISIONS.md`
+- Deferred with a known approach → `BACKLOG.md`
 - Capability contracts → `docs/capabilities/`

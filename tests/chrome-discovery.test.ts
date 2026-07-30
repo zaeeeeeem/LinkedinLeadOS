@@ -1,6 +1,9 @@
 import { describe, it, expect, afterEach } from "vitest";
 import { createServer, type Server } from "node:http";
 import { AddressInfo } from "node:net";
+import { mkdtemp, rm } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import {
   AUTOMATION_PORT,
   PERSONAL_CHROME_PORT,
@@ -154,14 +157,33 @@ describe("ensureChrome", () => {
     expect(e.retryable).toBe(false);
   });
 
-  it("fails transiently when the binary is missing rather than hanging", async () => {
+  it("halts rather than backs off when the binary is missing — a retry cannot fix a path", async () => {
     const e = (await ensureChrome({
       port: await deadPort(),
       binary: "/nonexistent/Google Chrome",
     }).catch((x: unknown) => x)) as CapabilityError;
     expect(e).toBeInstanceOf(CapabilityError);
     expect(e.code).toBe("CHROME_BINARY_MISSING");
-    expect(e.exit).toBe(EXIT.TRANSIENT);
-    expect(e.action).toBe("RETRY_BACKOFF");
+    expect(e.retryable).toBe(false);
+    expect(e.action).toBe("HALT_AND_NOTIFY");
+  });
+
+  it("fails fast when the browser exits without opening the port, not after the timeout", async () => {
+    // /usr/bin/true stands in for the real failure: Chrome handing off to an
+    // instance already holding the profile and exiting 0. No Chrome involved.
+    const profileDir = await mkdtemp(join(tmpdir(), "linkedin-os-test-"));
+    const started = Date.now();
+    const e = (await ensureChrome({
+      port: await deadPort(),
+      binary: "/usr/bin/true",
+      profileDir,
+      launchTimeoutMs: 10_000,
+    }).catch((x: unknown) => x)) as CapabilityError;
+    expect(e).toBeInstanceOf(CapabilityError);
+    expect(e.code).toBe("CHROME_LAUNCH_FAILED");
+    expect(e.retryable).toBe(false);
+    expect(e.message).toContain(profileDir);
+    expect(Date.now() - started).toBeLessThan(5_000);
+    await rm(profileDir, { recursive: true, force: true });
   });
 });

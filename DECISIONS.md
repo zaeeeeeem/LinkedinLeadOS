@@ -70,15 +70,29 @@ from plan text. Implementation agents design with fresh context; minor improveme
 theirs to make and note, major deviations (new runtime dependency, interface change,
 anything touching the attach surface or safety model) require operator approval first.
 
-## D13 — Targeting port 9222 halts; every other launcher failure backs off
-2026-08-08. `chrome-launcher` raises transient/`RETRY_BACKOFF` errors for everything a
-retry could plausibly fix (dead endpoint, malformed `/json/version`, missing binary,
-launch timeout), so callers back off without special-casing the module. The one
-exception is a request to use port 9222: `CHROME_FORBIDDEN_PORT`, exit 1,
-`HALT_AND_NOTIFY`, non-retryable. Rejected: making it transient for uniformity — that is
-a configuration bug pointing at the operator's personal logged-in Chrome, retrying
-cannot fix it, and succeeding would be strictly worse than failing. The guard sits in
+## D13 — Launcher failures split on "will a retry change this?", not on severity
+2026-08-08, revised 2026-08-08 after review. `chrome-launcher` raises two error classes.
+
+**Transient / `RETRY_BACKOFF` / exit 6 — the endpoint is not answering *yet*:*
+`CHROME_UNREACHABLE`, `CHROME_DISCOVERY_MALFORMED`, `CHROME_LAUNCH_TIMEOUT`. Callers back
+off without special-casing the module.
+
+**Fatal / `HALT_AND_NOTIFY` / exit 1 — the environment is wrong and only a human can fix
+it:** `CHROME_FORBIDDEN_PORT` (a request pointing at the operator's personal logged-in
+Chrome), `CHROME_BINARY_MISSING` (a path that will never materialize), and
+`CHROME_LAUNCH_FAILED` (spawn failed, or Chrome exited without opening the port — usually
+another instance already holding the user-data-dir).
+
+Rejected: one uniform transient class. A caller that backs off against a wrong binary
+path or the wrong port retries forever against a condition that cannot change, and for
+the 9222 case succeeding would be strictly worse than failing. The port guard sits in
 `assertNotPersonalChrome` and runs before any I/O in both discovery and the launcher.
+
+Accepted limitation: on the reuse path the launcher attaches to whatever serves CDP on
+the port without proving it is our profile — `/json/version` does not expose the
+user-data-dir, so there is no cheap check. 9223 is ours by convention enforced at launch,
+not by proof; the unconditional 9222 guard is what keeps the dangerous mistake
+unreachable.
 
 ## D14 — The launched Chrome carries only the four flags D9 verified
 2026-08-08. `chromeLaunchArgs` emits exactly `--remote-debugging-port`, `--user-data-dir`,

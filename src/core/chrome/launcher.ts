@@ -27,12 +27,28 @@ export type EnsureChromeOptions = {
   launchTimeoutMs?: number;
 };
 
+/** The endpoint is not answering *yet* — genuinely worth another attempt. */
 function transient(code: string, message: string): CapabilityError {
   return new CapabilityError({
     code,
     exit: EXIT.TRANSIENT,
     action: "RETRY_BACKOFF",
     retryable: true,
+    message,
+  });
+}
+
+/**
+ * The environment is wrong and only a human can fix it — a missing binary, a
+ * profile another Chrome already holds. Same class as pointing at port 9222:
+ * backing off just retries forever against a condition that will not change (D13).
+ */
+function fatal(code: string, message: string): CapabilityError {
+  return new CapabilityError({
+    code,
+    exit: EXIT.GENERIC,
+    action: "HALT_AND_NOTIFY",
+    retryable: false,
     message,
   });
 }
@@ -68,6 +84,13 @@ export async function ensureChrome(opts: EnsureChromeOptions = {}): Promise<Chro
   assertNotPersonalChrome(port);
 
   // Reuse path: an endpoint already answering is the whole answer.
+  //
+  // Note the limit of this: we attach to whatever serves CDP on this port without
+  // confirming it runs *our* profile — /json/version exposes the browser version,
+  // not the user-data-dir, so there is no cheap proof. Port 9223 being ours is a
+  // convention this module enforces at launch, not something it can verify on
+  // reuse. Accepted knowingly; the 9222 guard is what keeps the dangerous
+  // mistake — the operator's personal Chrome — out of reach.
   try {
     return { port, wsUrl: await discoverBrowserWsUrl(port), launched: false };
   } catch (e) {
@@ -75,7 +98,7 @@ export async function ensureChrome(opts: EnsureChromeOptions = {}): Promise<Chro
   }
 
   if (!existsSync(binary)) {
-    throw transient(
+    throw fatal(
       "CHROME_BINARY_MISSING",
       `Chrome not found at ${binary}; set LINKEDIN_OS_CHROME_BINARY to its real path`,
     );
@@ -89,25 +112,46 @@ export async function ensureChrome(opts: EnsureChromeOptions = {}): Promise<Chro
       stdio: "ignore",
     });
   } catch (cause) {
-    throw transient("CHROME_LAUNCH_FAILED", `spawning Chrome failed: ${String(cause)}`);
+    throw fatal("CHROME_LAUNCH_FAILED", `spawning Chrome failed: ${String(cause)}`);
   }
 
-  // A spawn error surfaces asynchronously; capture it so the wait loop can report
-  // the real reason instead of a bare timeout.
+  // Both ways a launch can fail surface asynchronously, so capture each and let
+  // the wait loop report the real reason instead of a bare 30s timeout.
+  //   `error` — the spawn itself failed (ENOENT, EACCES).
+  //   `exit`  — Chrome started and died. The usual cause is another Chrome already
+  //             holding this user-data-dir: the new process hands the request to
+  //             the running instance and exits 0, so the debug port never opens.
+  //             Nothing about that improves on a retry.
   let spawnError: Error | undefined;
+  let exited: { code: number | null; signal: NodeJS.Signals | null } | undefined;
   child.on("error", (e) => {
     spawnError = e;
+  });
+  child.on("exit", (code, signal) => {
+    exited = { code, signal };
   });
   child.unref();
 
   const deadline = Date.now() + launchTimeoutMs;
   let last = "endpoint never answered";
   while (Date.now() < deadline) {
-    if (spawnError) throw transient("CHROME_LAUNCH_FAILED", `spawning Chrome failed: ${spawnError.message}`);
+    if (spawnError) {
+      throw fatal("CHROME_LAUNCH_FAILED", `spawning Chrome failed: ${spawnError.message}`);
+    }
+    // Discovery wins over the exit flag: if the endpoint answers, the launch
+    // worked, whatever the process table says.
     try {
       return { port, wsUrl: await discoverBrowserWsUrl(port), launched: true };
     } catch (e) {
       last = e instanceof Error ? e.message : String(e);
+    }
+    if (exited) {
+      throw fatal(
+        "CHROME_LAUNCH_FAILED",
+        `Chrome exited immediately (code=${exited.code} signal=${exited.signal}) without ` +
+          `opening port ${port}. Most likely another Chrome instance already holds ` +
+          `${profileDir} — quit it and retry.`,
+      );
     }
     await delay(LAUNCH_POLL_INTERVAL_MS);
   }
