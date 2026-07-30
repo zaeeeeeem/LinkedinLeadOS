@@ -69,3 +69,21 @@ recording contract. Cross-task interfaces come from the actual source on disk, n
 from plan text. Implementation agents design with fresh context; minor improvements are
 theirs to make and note, major deviations (new runtime dependency, interface change,
 anything touching the attach surface or safety model) require operator approval first.
+
+## D13 — Targeting port 9222 halts; every other launcher failure backs off
+2026-08-08. `chrome-launcher` raises transient/`RETRY_BACKOFF` errors for everything a
+retry could plausibly fix (dead endpoint, malformed `/json/version`, missing binary,
+launch timeout), so callers back off without special-casing the module. The one
+exception is a request to use port 9222: `CHROME_FORBIDDEN_PORT`, exit 1,
+`HALT_AND_NOTIFY`, non-retryable. Rejected: making it transient for uniformity — that is
+a configuration bug pointing at the operator's personal logged-in Chrome, retrying
+cannot fix it, and succeeding would be strictly worse than failing. The guard sits in
+`assertNotPersonalChrome` and runs before any I/O in both discovery and the launcher.
+
+## D14 — The launched Chrome carries only the four flags D9 verified
+2026-08-08. `chromeLaunchArgs` emits exactly `--remote-debugging-port`, `--user-data-dir`,
+`--no-first-run`, `--no-default-browser-check`. Rejected: the usual automation flag pile
+(`--disable-*`, window sizing, `--restore-last-session`). Each extra flag is a
+fingerprint change on an account that cannot be burned, and the four-flag launch is the
+combination verified dialog-free on Chrome 151. Adding a flag is a design decision, not a
+convenience.
