@@ -46,8 +46,9 @@ both hold the lease). Live holders are never preempted, same run id is re-entran
 original acquired_at, dead-pid and corrupt files are reclaimable, another host's lease is refused
 rather than judged by local pid, and a crashed acquire's scratch files are swept. Refusal is
 transient `TAB_LEASE_HELD` / `RETRY_BACKOFF` / exit 6 with `retry_after_ms`; an unwritable lease
-path is fatal `TAB_LEASE_UNWRITABLE` / exit 1 (D13's question). Proven: 64/64 tests pass offline
-(28 new; dead pids taken from exited child processes, four real racing processes on one lockfile,
+path is fatal `TAB_LEASE_UNWRITABLE` / exit 1 (D13's question). Proven: 69/69 tests pass offline
+(the entry first read 64, which counted the lease work before 868e612's reclaim fix added
+five; corrected 2026-08-08 during the Task 4 review — 28 new; dead pids taken from exited child processes, four real racing processes on one lockfile,
 and the two-reclaimers interleaving staged directly — that last one fails against the settle
 version, verified), five consecutive full runs with no flake, typecheck clean. No live check —
 the lease touches no browser and no network by design.
@@ -61,9 +62,11 @@ escalates emulation → web-lifecycle → `Target.activateTarget`, that last one
 because it steals the operator's window. Readiness is polled instead of awaiting `Page`
 events, and errors already classified by the launcher or the transport pass through unchanged
 (D17). Teardown drops emulation, closes the tab, closes the socket, and never throws past
-itself. Proven: 12 offline tests against a recording CDP double pin the attach surface and
-the escalation order (added beyond the task file, which asked for none — those two are safety
-properties a passing live check cannot see); 81/81 tests pass, typecheck clean. Live against
+itself; a tab this session closed is fatal and non-retryable while one that detached on its
+own stays transient (D17, revised after review), and teardown's timeout timers are unref'd so
+a fast close does not hold the event loop. Proven: 14 offline tests against a recording CDP
+double pin the attach surface and the escalation order (added beyond the task file, which asked for none — those two are safety
+properties a passing live check cannot see); 83/83 tests pass, typecheck clean. Live against
 the automation Chrome: worker tab created in the background, `https://example.com/` read back
 with title `Example Domain`, foreground reached at `via: "already"` without touching
 `activateTarget`, a 41,550-byte screenshot written, and a fresh reconnect saw the target count

@@ -225,3 +225,12 @@ parallelism the worktrees exist for, which costs more than the gaps this scheme 
 
 Accepted cost: numbers are no longer chronological, and a task using fewer than ten
 decisions leaves visible gaps. A gap is not a missing decision.
+
+**Revised 2026-08-08 after review**, one exception, and it is D15's exception one layer up: a
+tab this session closed itself raises `TAB_CLOSED` as `HALT_AND_NOTIFY` / exit 1 /
+`retryable: false`. The original entry made it transient, which reintroduced exactly the trap
+`891cbea` removed from the transport — `retryable` is what callers branch on, so a back-off
+loop above a deliberately closed tab spins against a condition that can never change. A tab
+that detached on its own keeps its own code, `TAB_DETACHED`, and stays transient, because a
+crashed or navigated-away tab genuinely can come back on a fresh attach. Separate codes rather
+than one code with a differing `retryable`, per the same convention.

@@ -194,13 +194,43 @@ describe("WorkerTab teardown", () => {
     await expect(tab.close()).resolves.toBeUndefined();
   });
 
-  it("refuses further commands once the tab detaches underneath it", async () => {
+  it("refuses further commands once the tab detaches underneath it, retryably", async () => {
     const cdp = new FakeCdp(ATTACH);
     const tab = await WorkerTab.attach(cdp, "T1");
 
     cdp.emit({ method: "Target.detachedFromTarget", params: { sessionId: "S1" } });
 
     await expect(tab.send("Runtime.evaluate")).rejects.toBeInstanceOf(CapabilityError);
+    // A tab that crashed or navigated away from us can come back on a fresh attach.
+    await expect(tab.send("Runtime.evaluate")).rejects.toMatchObject({
+      code: "TAB_DETACHED",
+      retryable: true,
+    });
+  });
+
+  it("refuses further commands after its own close, and not retryably", async () => {
+    const cdp = new FakeCdp(ATTACH);
+    const tab = await WorkerTab.attach(cdp, "T1");
+    await tab.close();
+
+    // The tab we closed ourselves is the one death this layer is certain about;
+    // retryable here would put a back-off loop into a permanent spin.
+    await expect(tab.send("Runtime.evaluate")).rejects.toMatchObject({
+      code: "TAB_CLOSED",
+      retryable: false,
+      action: "HALT_AND_NOTIFY",
+      exit: 1,
+    });
+  });
+
+  it("keeps the first cause when a detached tab is then closed", async () => {
+    const cdp = new FakeCdp(ATTACH);
+    const tab = await WorkerTab.attach(cdp, "T1");
+
+    cdp.emit({ method: "Target.detachedFromTarget", params: { sessionId: "S1" } });
+    await tab.close();
+
     await expect(tab.send("Runtime.evaluate")).rejects.toMatchObject({ code: "TAB_DETACHED" });
   });
+
 });

@@ -47,3 +47,20 @@ second instance on the same user-data-dir. Each additional profile gets its own 
 **Not decided yet** (decide when picked up): where the profiles config lives, whether
 per-profile pacing limits differ, and how challenge screenshots identify which profile
 they came from.
+
+## B2 — `evaluate` classifies every page-side exception as transient
+
+Captured 2026-08-08, from the Task 4 review. `WorkerTab.evaluate` maps anything with
+`exceptionDetails` to `TAB_EVAL_FAILED` / `RETRY_BACKOFF` / retryable. That is right for
+the case it was written for — an execution context torn down mid-navigation — and wrong
+for a malformed expression in our own code, which will retry forever against a typo.
+
+Harmless today because every expression evaluated is a literal in this repo, so a bad one
+fails in development, not in a run. It stops being harmless the moment an expression is
+built from a capability's arguments or from a selector that LinkedIn can change.
+
+**The approach settled here:** split on `exceptionDetails.exception.className` rather than
+on message text — `ReferenceError` / `SyntaxError` / `TypeError` on our own expression is
+a fatal `TAB_EVAL_INVALID` (`HALT_AND_NOTIFY`, exit 1), while a context-destroyed error
+stays transient. Message-text matching is explicitly rejected: it is Chrome-version
+wording, and D15 already refused that kind of guessing one layer down.

@@ -64,7 +64,11 @@ function fatal(code: string, message: string, evidence?: string): CapabilityErro
 /** Best-effort teardown step: never throws, never outlives its budget. */
 async function attempt(run: () => Promise<unknown>): Promise<void> {
   try {
-    await Promise.race([run(), delay(TEARDOWN_STEP_TIMEOUT_MS)]);
+    // Unref'd, because the loser of this race is never cancelled: a teardown that
+    // finished in 3ms would otherwise hold the event loop open for the rest of the
+    // budget. Invisible under the CLI, where emitReceipt exits the process, and
+    // exactly the kind of thing that makes a module unusable as a library.
+    await Promise.race([run(), delay(TEARDOWN_STEP_TIMEOUT_MS, undefined, { ref: false })]);
   } catch {
     /* teardown reports nothing; the run's outcome was decided before this */
   }
@@ -308,7 +312,14 @@ export class WorkerTab {
     }
     await attempt(() => this.#cdp.send("Target.closeTarget", { targetId: this.targetId }));
     this.#unsubscribe();
-    this.#gone ??= transient("TAB_CLOSED", `the worker tab ${this.targetId} was closed`);
+    // Fatal, not transient, and for the same reason `CDP_CLIENT_CLOSED` is: a tab
+    // we closed ourselves is permanently gone, and `retryable` is what callers
+    // branch on, so a transient class here spins a back-off loop against a
+    // condition that can never change. `TAB_DETACHED` stays transient on purpose —
+    // a tab that crashed or navigated out from under us may well come back on a
+    // fresh attach — which is why these are separate codes rather than one code
+    // with a different `retryable`.
+    this.#gone ??= fatal("TAB_CLOSED", `the worker tab ${this.targetId} was closed by this session`);
   }
 }
 
