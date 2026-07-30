@@ -35,6 +35,23 @@ the automation Chrome, `Browser.getVersion` round-tripped in 7ms returning
 killing the connection, and a send after `close()` returned
 `CDP_CLIENT_CLOSED` / `retryable: false` / exit 1.
 
+Task 5 — single-holder tab lease. `src/core/lease/{constants,tab-lease}.ts`:
+`acquireLease({runId, capability, path?})` / `releaseLease({runId, path?})` / `inspectLease(path?)`
+over a lockfile at `runs/tab.lock` carrying run_id, pid, host, capability and acquired_at (§8, D10).
+A free lease is claimed with exclusive create; a reclaimable one is taken by renaming it to a
+unique quarantine name, confirming the bytes are still the ones judged reclaimable, then claiming
+with `wx` — so exactly one of several racers wins by filesystem semantics rather than by timing
+(D16, revised after review: the first version used a settle-and-read-back that let two reclaimers
+both hold the lease). Live holders are never preempted, same run id is re-entrant and keeps its
+original acquired_at, dead-pid and corrupt files are reclaimable, another host's lease is refused
+rather than judged by local pid, and a crashed acquire's scratch files are swept. Refusal is
+transient `TAB_LEASE_HELD` / `RETRY_BACKOFF` / exit 6 with `retry_after_ms`; an unwritable lease
+path is fatal `TAB_LEASE_UNWRITABLE` / exit 1 (D13's question). Proven: 64/64 tests pass offline
+(28 new; dead pids taken from exited child processes, four real racing processes on one lockfile,
+and the two-reclaimers interleaving staged directly — that last one fails against the settle
+version, verified), five consecutive full runs with no flake, typecheck clean. No live check —
+the lease touches no browser and no network by design.
+
 ## In progress
 _(nothing)_
 

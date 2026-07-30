@@ -130,3 +130,45 @@ inventing a taxonomy.
 Also settled here: `ws` is a **dev dependency only**, used to run the fake CDP server in
 tests. Production code uses Node's built-in `WebSocket` (D7 — no CDP wrapper library ever
 touches the real account's socket).
+
+## D16 — The tab lease trusts pid liveness, but only on its own host, and never a clock
+2026-08-08, revised 2026-08-08 after review. `tab-lease` decides reclaimability from
+`process.kill(pid, 0)` alone. A record written on a different `hostname()` is refused
+outright rather than reclaimed: asking this machine about a foreign pid answers a different
+question, and a wrong answer preempts a live run driving the tab — the exact thing §8 exists
+to prevent.
+
+Rejected: a TTL / max-lease-age, the usual staleness heuristic (`proper-lockfile` uses mtime
+plus a heartbeat). Any age-based rule preempts a holder that is merely slow, and the
+constraint is absolute — a live holder is never preempted. A long capability run is normal
+here, so the heuristic would fire on the healthy case. The cost of that choice is pid reuse:
+a crashed run whose pid is recycled by an unrelated process wedges the tab forever. The
+remedy is an explicit operator action, not a timer — Task 12's CLI carries a
+`--force-release` alongside a lease inspection, so the escape hatch is discoverable instead
+of being tribal knowledge.
+
+**Reclaim is a filesystem proof, not a timing heuristic.** Taking a reclaimable lease is:
+`rename(lock, quarantine-unique)` → confirm the quarantined bytes are still the exact bytes
+that were judged reclaimable → `open(lock, "wx")`. Of several processes that judged the same
+lease reclaimable, exactly one renames the original inode away; a loser either finds nothing
+to rename, or quarantines a record that is not the one it judged — in which case it renames
+that record straight back, untouched, and refuses.
+
+Rejected, and the reason this entry was revised: replacing the lock with a `rename` and
+confirming by reading it back after a settle delay. The delay bounds nothing. A racer's write
+can land *after* an earlier racer's read-back has already returned — 50ms of ordinary
+scheduling is enough — and then both processes believe they hold the lease and both drive the
+tab. Randomizing the delay decorrelates racers that collide in lockstep; it does not bound
+how late a separate process's write arrives. `tests/tab-lease.test.ts` stages that
+interleaving directly and it fails against the settle version.
+
+Also rejected earlier, and wrongly: unlink-then-exclusive-create, on the grounds that the
+window with no lock lets a fresh acquirer in. It does, and that is harmless — an absent lock
+is claimable, which is the correct state for a stale lease, and the reclaimer's own `wx` then
+fails `EEXIST` and it refuses. One winner either way. The real hazard on that path is two
+reclaimers where the second's unlink deletes the first's fresh lock, which is what the
+content-checked quarantine rename closes.
+
+Also settled: an unwritable lease path (`EACCES`, `EROFS`, `ENOTDIR`, `ENOSPC`) is fatal
+`TAB_LEASE_UNWRITABLE` / `HALT_AND_NOTIFY` / exit 1, not transient. Per D13 the question is
+"will a retry change this?" — a read-only directory answers no. Only contention is transient.

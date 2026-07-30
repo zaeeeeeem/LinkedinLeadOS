@@ -30,6 +30,10 @@ future capability means adding one directory with zero hand-written CLI wiring.
   4) → budget available (else exit 7) → tab lease acquired. Fail fast with the right
   exit code rather than half-running. Login state must be determined within D1/D8
   limits — no forged requests, no extra CDP domains.
+- The tab lease never expires on age (D16), so a crashed run whose pid gets recycled by
+  an unrelated process wedges the tab with no way out but deleting the file by hand. The
+  CLI must expose the remedy: a lease inspection in the listing/health surface and a
+  `--force-release` that drops the lock after showing the operator whose it is.
 - Every exit path — success, any failure class, crash — emits exactly one receipt on
   stdout and releases the lease and tab. No leftover tab, ever.
 - `health.check` exercises the stack without touching LinkedIn: launch/reuse Chrome,
