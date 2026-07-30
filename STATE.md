@@ -42,6 +42,15 @@ latest-wins (D16); `screenshot()` writes zero-padded, collision-free names under
 `shots/`; `artifacts()` matches spec §5's `runs/<id>/events.ndjson` / `runs/<id>/raw/`
 shape; `finish()` writes `summary.json` and is idempotent. Proven: 58/58 tests pass
 offline (22 new, all in `fs.mkdtempSync` temp dirs), typecheck clean.
+Reviewed 2026-08-08 — screenshot counter now seeds from the highest surviving `NNN-`
+prefix instead of the file count (a triaged-away screenshot no longer causes the next
+one to overwrite a survivor); `run.json`/`checkpoint.json` parse failures are now
+classified `CapabilityError`s (`RUN_META_CORRUPT` / `RUN_CHECKPOINT_CORRUPT`, exit 1)
+instead of raw `SyntaxError`s escaping; all three archive writes (`run.json` on create,
+`run.json` on resume, `summary.json` on finish) go through the same atomic tmp+rename
+path; added a doc comment on `RunContext`/`EventLogger` stating that `seq` is unique
+only within one process's hold on a run id and nothing enforces single-writer access.
+Proven: 61/61 tests pass offline (3 new), typecheck clean.
 
 ## In progress
 _(nothing)_

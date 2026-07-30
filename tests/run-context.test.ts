@@ -1,4 +1,6 @@
-import { existsSync, mkdtempSync, readdirSync, readFileSync, rmSync } from "node:fs";
+import {
+  existsSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
@@ -265,5 +267,66 @@ describe("screenshot", () => {
 
     const files = readdirSync(second.paths.shots);
     expect(files.length).toBe(3);
+  });
+
+  it("seeds the counter from the highest surviving NNN- prefix, not the file count", async () => {
+    const ctx = RunContext.open({ capability: "health.check", runsDir });
+    const fakeTab = {
+      async screenshot(filePath: string): Promise<void> {
+        writeFileSync(filePath, Buffer.from("original-003"));
+      },
+    };
+    await ctx.screenshot(fakeTab, "a"); // 001-a.png
+    await ctx.screenshot(fakeTab, "b"); // 002-b.png
+    await ctx.screenshot(fakeTab, "c"); // 003-c.png
+
+    rmSync(join(ctx.paths.shots, "002-b.png"));
+
+    const fakeTab2 = {
+      async screenshot(filePath: string): Promise<void> {
+        writeFileSync(filePath, Buffer.from("new"));
+      },
+    };
+    const p4 = await ctx.screenshot(fakeTab2, "d");
+
+    expect(p4).toMatch(/004-d\.png$/);
+    const survivor = join(ctx.paths.shots, "003-c.png");
+    expect(existsSync(survivor)).toBe(true);
+    expect(readFileSync(survivor, "utf8")).toBe("original-003");
+  });
+});
+
+describe("corrupt archive files", () => {
+  it("classifies a truncated run.json as a CapabilityError, not a raw SyntaxError", () => {
+    const first = RunContext.open({ capability: "health.check", runsDir });
+    const raw = readFileSync(first.paths.meta, "utf8");
+    writeFileSync(first.paths.meta, raw.slice(0, Math.floor(raw.length / 2)));
+
+    expect.assertions(3);
+    try {
+      RunContext.open({ runId: first.runId, runsDir });
+    } catch (err: unknown) {
+      const e = err as { name: string; code: string; exit: number };
+      expect(e.name).toBe("CapabilityError");
+      expect(e.code).toBe("RUN_META_CORRUPT");
+      expect(e.exit).toBe(EXIT.GENERIC);
+    }
+  });
+
+  it("classifies a truncated checkpoint.json as a CapabilityError, not a raw SyntaxError", () => {
+    const ctx = RunContext.open({ capability: "health.check", runsDir });
+    ctx.checkpoint({ page: 1 });
+    const raw = readFileSync(ctx.paths.checkpoint, "utf8");
+    writeFileSync(ctx.paths.checkpoint, raw.slice(0, Math.floor(raw.length / 2)));
+
+    expect.assertions(3);
+    try {
+      ctx.lastCheckpoint();
+    } catch (err: unknown) {
+      const e = err as { name: string; code: string; exit: number };
+      expect(e.name).toBe("CapabilityError");
+      expect(e.code).toBe("RUN_CHECKPOINT_CORRUPT");
+      expect(e.exit).toBe(EXIT.GENERIC);
+    }
   });
 });

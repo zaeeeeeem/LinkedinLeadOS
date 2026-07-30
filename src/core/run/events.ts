@@ -83,7 +83,13 @@ export class EventLogger {
     return new EventLogger(filePath, runId, fd, startSeq);
   }
 
-  /** The seq the next `log()` call will use. */
+  /**
+   * The seq the next `log()` call will use. Unique only within this process's hold on
+   * this run id — two `EventLogger`s opened independently against the same run id
+   * (e.g. two `RunContext`s resuming concurrently) each compute their own starting
+   * seq from the file on disk and will mint colliding numbers. Nothing here enforces
+   * single-writer access; see the concurrency note on `RunContext`.
+   */
   get seq(): number {
     return this.nextSeq;
   }

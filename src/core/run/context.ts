@@ -52,6 +52,14 @@ export type OpenOptions = {
  * Owns one run's identity, directory tree, event log, checkpoints, and artifact
  * paths. Every capability invocation opens exactly one of these and calls `finish()`
  * once at the end.
+ *
+ * Concurrency note: `seq` (see EventLogger) is unique only within a single process
+ * holding a given run id. Two `RunContext`s resuming the same run id independently
+ * compute the same starting seq and mint colliding seq numbers on the event log —
+ * `O_APPEND` keeps the lines themselves intact, but ordering by seq is corrupted.
+ * Nothing in this module (or the tab lease, which only guards the CDP tab) enforces
+ * single-writer access to a run directory. This is acceptable under the current
+ * operating assumption of one process per run at a time, but it is not enforced.
  */
 export class RunContext {
   readonly runId: string;
@@ -106,7 +114,7 @@ export class RunContext {
     const meta: RunMeta = {
       run_id: runId, capability, args, created_at: new Date().toISOString(), resumed_at: [],
     };
-    writeFileSync(paths.meta, JSON.stringify(meta, null, 2) + "\n");
+    writeAtomic(paths.meta, JSON.stringify(meta, null, 2) + "\n");
 
     const logger = EventLogger.open(paths.events, runId);
     return new RunContext({ runId, capability, args, resumed: false, dir, paths, logger });
@@ -127,7 +135,9 @@ export class RunContext {
       });
     }
 
-    const meta = JSON.parse(readFileSync(paths.meta, "utf8")) as RunMeta;
+    const meta = parseJsonFile<RunMeta>(
+      paths.meta, runId, "run.json", "RUN_META_CORRUPT",
+    );
 
     if (capability && capability !== meta.capability) {
       // Appending one capability's events into another capability's run corrupts the
@@ -170,17 +180,28 @@ export class RunContext {
 
   lastCheckpoint<T = unknown>(): T | null {
     if (!existsSync(this.paths.checkpoint)) return null;
-    const payload = JSON.parse(readFileSync(this.paths.checkpoint, "utf8")) as CheckpointFile;
+    const payload = parseJsonFile<CheckpointFile>(
+      this.paths.checkpoint, this.runId, "checkpoint.json", "RUN_CHECKPOINT_CORRUPT",
+    );
     return payload.state as T;
   }
 
   /**
    * Writes into shots/ as `NNN-<sanitized-name>.png`. The counter seeds from the
-   * existing file count so a resumed run never overwrites a prior run's screenshot.
+   * highest `NNN-` prefix already present in shots/ (not the file count), so a
+   * screenshot deleted during triage — a normal thing for a human resolving a
+   * challenge to do — never causes the next number to overwrite a survivor.
    */
   async screenshot(tab: Screenshotter, name: string): Promise<string> {
     const existing = existsSync(this.paths.shots) ? readdirSync(this.paths.shots) : [];
-    const seq = existing.length + 1;
+    let maxSeq = 0;
+    for (const fileName of existing) {
+      const match = /^(\d+)-/.exec(fileName);
+      if (!match) continue;
+      const n = Number(match[1]);
+      if (n > maxSeq) maxSeq = n;
+    }
+    const seq = maxSeq + 1;
     const safeName = name.replace(/[^a-zA-Z0-9_-]+/g, "-");
     const fileName = `${String(seq).padStart(3, "0")}-${safeName}.png`;
     const filePath = join(this.paths.shots, fileName);
@@ -208,7 +229,7 @@ export class RunContext {
   finish(receipt: Receipt): void {
     if (this.finished) return;
     this.finished = true;
-    writeFileSync(this.paths.summary, JSON.stringify(receipt, null, 2) + "\n");
+    writeAtomic(this.paths.summary, JSON.stringify(receipt, null, 2) + "\n");
     this.logger.close();
   }
 }
@@ -230,4 +251,25 @@ function writeAtomic(filePath: string, contents: string): void {
   const tmp = `${filePath}.tmp-${process.pid}-${Date.now()}`;
   writeFileSync(tmp, contents);
   renameSync(tmp, filePath);
+}
+
+/**
+ * Parses a JSON archive file, classifying a truncated/corrupt file as a halt rather
+ * than letting a bare `SyntaxError` escape. A killed process is exactly what leaves
+ * run.json or checkpoint.json mid-write, and there is no safe way to retry past
+ * corrupt local state — the operator has to look at it. Not EXIT.PARSE_DRIFT: that
+ * code means LinkedIn's response shape changed, not that our own archive file is
+ * damaged.
+ */
+function parseJsonFile<T>(filePath: string, runId: string, label: string, code: string): T {
+  const raw = readFileSync(filePath, "utf8");
+  try {
+    return JSON.parse(raw) as T;
+  } catch (err) {
+    throw new CapabilityError({
+      code, exit: EXIT.GENERIC, action: "HALT_AND_NOTIFY", retryable: false,
+      message: `run ${runId}: ${label} is corrupt and cannot be parsed`,
+      evidence: err instanceof Error ? err.message : String(err),
+    });
+  }
 }
