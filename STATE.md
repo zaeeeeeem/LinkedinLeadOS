@@ -52,8 +52,26 @@ and the two-reclaimers interleaving staged directly — that last one fails agai
 version, verified), five consecutive full runs with no flake, typecheck clean. No live check —
 the lease touches no browser and no network by design.
 
+Task 4 — browser session and worker tab. `src/core/session/{constants,session,tab}.ts`:
+`BrowserSession.open()` (ensureChrome + CdpClient.connect) → `listPageTargets()`,
+`openWorkerTab()`, `close()`; `WorkerTab` with session-scoped `send`, `evaluate`, `navigate`,
+`currentUrl`, `screenshot`, `ensureForeground`, `close`. Attach enables `Network` and nothing
+else, ever (D8), and asserts focus emulation before anything can render (D10); foregrounding
+escalates emulation → web-lifecycle → `Target.activateTarget`, that last one strictly last
+because it steals the operator's window. Readiness is polled instead of awaiting `Page`
+events, and errors already classified by the launcher or the transport pass through unchanged
+(D17). Teardown drops emulation, closes the tab, closes the socket, and never throws past
+itself. Proven: 12 offline tests against a recording CDP double pin the attach surface and
+the escalation order (added beyond the task file, which asked for none — those two are safety
+properties a passing live check cannot see); 81/81 tests pass, typecheck clean. Live against
+the automation Chrome: worker tab created in the background, `https://example.com/` read back
+with title `Example Domain`, foreground reached at `via: "already"` without touching
+`activateTarget`, a 41,550-byte screenshot written, and a fresh reconnect saw the target count
+back at its starting value. A second live probe confirmed emulation is load-bearing — with it
+`hidden: false`, with it dropped `hidden: true`, and `ensureForeground` recovered at step one.
+
 ## In progress
 _(nothing)_
 
 ## Next
-Task 4 — session and worker tab (`docs/plans/m1-m3/tasks/task-04-session-worker-tab.md`)
+Task 6 — events and run context (`docs/plans/m1-m3/tasks/task-06-events-run-context.md`)

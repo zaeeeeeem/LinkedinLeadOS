@@ -172,3 +172,31 @@ content-checked quarantine rename closes.
 Also settled: an unwritable lease path (`EACCES`, `EROFS`, `ENOTDIR`, `ENOSPC`) is fatal
 `TAB_LEASE_UNWRITABLE` / `HALT_AND_NOTIFY` / exit 1, not transient. Per D13 the question is
 "will a retry change this?" — a read-only directory answers no. Only contention is transient.
+
+## D17 — The session layer polls for page readiness, and re-classifies nothing it did not cause
+2026-08-08. Two choices the task file left open, both of which a later session would
+otherwise re-open.
+
+**Navigation completion is polled, not awaited.** `navigate()` sends `Page.navigate` and
+then polls `document.readyState` every 100ms until `"complete"`. The obvious alternative —
+`Page.enable` and await `Page.loadEventFired` — is forbidden by D8, and the cost of the
+polling version is one cheap `Runtime.evaluate` per 100ms against a local socket. Evaluation
+failures during the poll are treated as "not ready yet", never as an error: the execution
+context is genuinely torn down and rebuilt mid-navigation, so an error there is the expected
+observation, not a fault. The same reasoning covers screenshots (`Page.captureScreenshot`
+needs no enable) and evaluation (`Runtime.evaluate` needs no `Runtime.enable`, which is the
+`consoleAPICalled` leak). Nothing above this layer consumes a `Page` or `Runtime` event, so
+the domains stay off.
+
+**A `CapabilityError` passes through this layer untouched.** The launcher classified its
+failures with knowledge of the environment (D13) and the transport classified its own with
+knowledge of the socket (D15); re-coding either here would throw away a decision made with
+more context and would, for instance, turn `CDP_CLIENT_CLOSED`'s `retryable: false` back
+into a spin. The session layer only invents a code for a failure it is the first to see: a
+command that *succeeded* at the protocol level while carrying a failure payload
+(`Runtime.evaluate` with `exceptionDetails` → `TAB_EVAL_FAILED`, `Page.navigate` with
+`errorText` → `TAB_NAVIGATE_FAILED`), a tab that detached underneath it (`TAB_DETACHED`),
+or a non-CDP failure of its own such as an unwritable screenshot path
+(`TAB_SCREENSHOT_UNWRITABLE`, fatal per D13's question). That is what "no raw CDP errors
+escape to capabilities" means here — a resolved-but-failed reply is exactly the shape that
+would otherwise reach a capability as a silent `undefined`.
