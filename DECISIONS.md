@@ -122,3 +122,40 @@ inventing a taxonomy.
 Also settled here: `ws` is a **dev dependency only**, used to run the fake CDP server in
 tests. Production code uses Node's built-in `WebSocket` (D7 — no CDP wrapper library ever
 touches the real account's socket).
+
+## D16 — Checkpoint state lives in `checkpoint.json`, not replayed from `checkpoint.save` events
+2026-08-08. `RunContext.checkpoint()` writes the full state to `checkpoint.json` (atomic
+tmp+rename, latest write wins) and logs a `checkpoint.save` event as a breadcrumb only —
+the event carries no state, `lastCheckpoint()` never reads the event log.
+
+Rejected: treating the last `checkpoint.save` event as the source of truth and putting the
+state in its `detail`. That would make resume an O(events-in-run) linear scan of a file
+that is also the forensic log, and it would force every event line to be large enough to
+hold arbitrary pagination state instead of a few fixed fields — the NDJSON shape in spec §5
+stops being uniform. A dedicated file makes "what do I resume from" an O(1) read
+independent of how long the run has been running.
+
+## D17 — The event log is written with synchronous appends
+2026-08-08 (already implemented in `events.ts`; recorded here because Task 6 is what makes
+the trade-off visible end to end). `EventLogger.log()` calls `writeSync` on a held fd, once
+per event, no batching.
+
+Rejected: a buffered async writer flushing on an interval or on `n` events. The event log
+exists specifically to explain a run that died mid-invocation — a challenge, a crash, an
+operator kill. A buffered writer loses exactly the events written in the last flush window,
+which are the ones adjacent to the death and therefore the most diagnostic. Synchronous
+per-event writes cost a syscall per event, which is acceptable because event volume is
+bounded by page loads and CDP round-trips, not by anything hot.
+
+## D18 — Resuming a nonexistent run id is a usage error, not a create
+2026-08-08. `RunContext.open({ runId })` throws `RUN_NOT_FOUND` (`HALT_AND_NOTIFY`, exit 1)
+when the directory for that id does not exist, rather than creating it and proceeding as a
+fresh run.
+
+Rejected: silent create-on-resume. A run id reaching `open()` almost always came from a
+prior receipt or a `--run-id` flag typed by an agent continuing earlier work; silently
+starting a new, empty run under that id would make the agent believe it resumed a
+checkpoint that was never written, and the two calls would produce a directory whose
+`run.json.created_at` lies about when the run actually started. A missing id is either a
+typo or a deleted archive — both are for a human or a higher-level caller to resolve, not
+for the run context to paper over.
