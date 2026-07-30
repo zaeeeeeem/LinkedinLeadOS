@@ -101,3 +101,24 @@ unreachable.
 fingerprint change on an account that cannot be burned, and the four-flag launch is the
 combination verified dialog-free on Chrome 151. Adding a flag is a design decision, not a
 convenience.
+
+## D15 — The CDP transport reports every failure as transient, and preserves the cause
+2026-08-08. `CdpClient` maps connect failure, connect timeout, command timeout, protocol
+`error` replies, and connection death all to `RETRY_BACKOFF` / exit 6, and puts the raw CDP
+error object on the receipt's `evidence`.
+
+This does not contradict D13, it is where D13's question gets answered. D13 splits on "will a
+retry change this?" — the launcher can answer that, because it knows a missing binary from a
+slow start. A transport cannot: `-32601 method not found` and "Cannot find context with
+specified id" arrive down the same pipe, and the second one clears on its own. Classifying
+JSON-RPC codes inside the transport would be guessing on behalf of a caller that has the
+context to decide properly.
+
+Rejected: a fatal class for protocol errors. A transport that halts the run on a reply it
+cannot interpret makes the whole toolkit brittle to Chrome-version wording. `evidence`
+carrying the untouched CDP error is what lets a caller split it later without the transport
+inventing a taxonomy.
+
+Also settled here: `ws` is a **dev dependency only**, used to run the fake CDP server in
+tests. Production code uses Node's built-in `WebSocket` (D7 — no CDP wrapper library ever
+touches the real account's socket).

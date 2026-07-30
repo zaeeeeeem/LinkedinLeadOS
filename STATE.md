@@ -20,8 +20,18 @@ devtools/browser/259ef368-…","launched":true}` with no dialog, an immediate se
 the same URL with `"launched":false`, and launching against an in-use profile failed in 272ms with
 `CHROME_LAUNCH_FAILED` naming the holding profile instead of burning the 30s timeout.
 
+Task 3 — CDP transport client. `src/core/cdp/{constants,client}.ts`: `CdpClient.connect(url, opts)`
+→ `send(method, params, sessionId?, timeoutMs?)`, `on()`/`off()` event fan-out preserving
+`sessionId`, `dead` flag, idempotent `close()`, and a keepalive that stays silent while traffic
+flows. Transport only — it enables no CDP domain, ever; callers decide (D8). Every failure is
+transient with the raw CDP error kept as `evidence` (D15). Proven: 36/36 tests pass offline
+(15 new, fake CDP server on the dev-only `ws` package), typecheck clean; live against the
+automation Chrome, `Browser.getVersion` round-tripped in 7ms returning `Chrome/151.0.7922.76`
+protocol 1.3, an unknown method mapped to `CDP_PROTOCOL_ERROR` without killing the connection,
+and `dead` was true after `close()`.
+
 ## In progress
 _(nothing)_
 
 ## Next
-Task 3 — CDP transport client (`docs/plans/m1-m3/tasks/task-03-cdp-client.md`, Opus)
+Task 4 — session and worker tab (`docs/plans/m1-m3/tasks/task-04-session-worker-tab.md`)
