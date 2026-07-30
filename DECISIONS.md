@@ -122,3 +122,28 @@ inventing a taxonomy.
 Also settled here: `ws` is a **dev dependency only**, used to run the fake CDP server in
 tests. Production code uses Node's built-in `WebSocket` (D7 — no CDP wrapper library ever
 touches the real account's socket).
+
+## D16 — The tab lease trusts pid liveness, but only on its own host, and never a clock
+2026-08-08. `tab-lease` decides reclaimability from `process.kill(pid, 0)` alone. A record
+written on a different `hostname()` is refused outright rather than reclaimed: asking this
+machine about a foreign pid answers a different question, and a wrong answer preempts a live
+run driving the tab — the exact thing §8 exists to prevent.
+
+Rejected: a TTL / max-lease-age, the usual staleness heuristic (`proper-lockfile` uses mtime
+plus a heartbeat). Any age-based rule preempts a holder that is merely slow, and the task's
+constraint is absolute — a live holder is never preempted. A long capability run is normal
+here, so the heuristic would fire on the healthy case.
+
+Rejected: unlink-then-exclusive-create for reclaim. It leaves a window where the lock is
+absent, during which an unrelated fresh acquirer takes it through the create path and holds it
+alongside the reclaimer. Reclaim replaces the file with `rename`, which is atomic and never
+absent, and is then confirmed by a settle-and-read-back: several processes may all judge the
+same dead lease reclaimable, they all write, and the read-back leaves exactly one believing it
+holds the lease. Accepted residual: the settle window (40–80ms, randomized) is a heuristic, not
+a proof. It is bounded by the real exposure — one operator, one machine, capabilities that
+start seconds apart — and the dangerous case, preempting a live holder, is closed by the pid
+check regardless.
+
+Also settled: an unwritable lease path (`EACCES`, `EROFS`, `ENOTDIR`, `ENOSPC`) is fatal
+`TAB_LEASE_UNWRITABLE` / `HALT_AND_NOTIFY` / exit 1, not transient. Per D13 the question is
+"will a retry change this?" — a read-only directory answers no. Only contention is transient.

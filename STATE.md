@@ -30,6 +30,18 @@ automation Chrome, `Browser.getVersion` round-tripped in 7ms returning `Chrome/1
 protocol 1.3, an unknown method mapped to `CDP_PROTOCOL_ERROR` without killing the connection,
 and `dead` was true after `close()`.
 
+Task 5 — single-holder tab lease. `src/core/lease/{constants,tab-lease}.ts`:
+`acquireLease({runId, capability, path?})` / `releaseLease({runId, path?})` / `inspectLease(path?)`
+over a lockfile at `runs/tab.lock` carrying run_id, pid, host, capability and acquired_at (§8, D10).
+Exclusive-create for a free lease, `rename`-replace plus a settle-and-read-back for reclaim, so
+exactly one of several racing acquirers ends up the holder. Live holders are never preempted, same
+run id is re-entrant, dead-pid and corrupt files are reclaimable, another host's lease is refused
+rather than judged by local pid (D16). Refusal is transient `TAB_LEASE_HELD` / `RETRY_BACKOFF` /
+exit 6 with `retry_after_ms`; an unwritable lease path is fatal `TAB_LEASE_UNWRITABLE` / exit 1
+(D13's question). Proven: 57/57 tests pass offline (21 new, temp dirs, dead pids taken from
+exited child processes), five consecutive runs with no flake, typecheck clean. No live check —
+the lease touches no browser and no network by design.
+
 ## In progress
 _(nothing)_
 
