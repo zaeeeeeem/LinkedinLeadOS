@@ -200,3 +200,28 @@ or a non-CDP failure of its own such as an unwritable screenshot path
 (`TAB_SCREENSHOT_UNWRITABLE`, fatal per D13's question). That is what "no raw CDP errors
 escape to capabilities" means here — a resolved-but-failed reply is exactly the shape that
 would otherwise reach a capability as a silent `undefined`.
+
+## D18 — Each task reserves a decision-number range up front
+2026-08-08. Decision numbers are allocated to a task **before** it starts, ten at a time:
+task N owns `D(10 × (N − 4))` through `D(10 × (N − 4) + 9)`. Task 6 owns D20–D29, Task 7
+owns D30–D39, Task 8 D40–D49, and so on. D19 is spare. A task writes only into its own
+range, so two worktrees never append the same line of this file.
+
+Rejected: renumbering at merge, which is what we had been doing implicitly. Parallel
+worktrees all branch from the same tip, all read the same "last used" number, and all claim
+the next one — Tasks 5, 6 and 7 each independently wrote a `D16`. The cost is not the
+renumber itself but everything downstream of it: the merging branch's commit body, its
+`STATE.md` line, and any cross-reference from another decision all still name the old
+number, and nothing catches a stale reference. Append-only files with sequential ids do not
+survive concurrent authors; reservation is the cheapest thing that makes them survive.
+
+Rejected: per-task decision files with `DECISIONS.md` as an index. Structurally
+conflict-free and needs no bookkeeping, but it gives up the property D12 and `CLAUDE.md`
+both lean on — that a decision made on turn 6 is still visible by scrolling one file on
+turn 400. Findability is the whole point of the file.
+
+Rejected: serializing the merges. It removes the collision at its source but gives up the
+parallelism the worktrees exist for, which costs more than the gaps this scheme leaves.
+
+Accepted cost: numbers are no longer chronological, and a task using fewer than ten
+decisions leaves visible gaps. A gap is not a missing decision.
