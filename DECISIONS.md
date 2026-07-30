@@ -114,6 +114,14 @@ specified id" arrive down the same pipe, and the second one clears on its own. C
 JSON-RPC codes inside the transport would be guessing on behalf of a caller that has the
 context to decide properly.
 
+Revised 2026-08-08 after review, one exception: a client the caller closed itself
+(`CDP_CLIENT_CLOSED`) is `HALT_AND_NOTIFY` / exit 1 / `retryable: false`. This is the one
+death cause the transport is certain about — it caused it — and `retryable` is what callers
+branch on, so leaving it true would spin a back-off loop against a condition that cannot
+change. Remote death stays transient and keeps its own codes (`CDP_CONNECTION_CLOSED` for a
+close frame, `CDP_SOCKET_ERROR` for an abrupt drop); a shared code with a differing
+`retryable` would reintroduce exactly the ambiguity the split removes.
+
 Rejected: a fatal class for protocol errors. A transport that halts the run on a reply it
 cannot interpret makes the whole toolkit brittle to Chrome-version wording. `evidence`
 carrying the untouched CDP error is what lets a caller split it later without the transport

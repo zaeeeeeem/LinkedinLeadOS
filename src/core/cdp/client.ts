@@ -54,6 +54,22 @@ function transient(code: string, message: string, evidence?: string): Capability
   });
 }
 
+/**
+ * The exception to D15's "everything is transient": a client we closed ourselves
+ * is permanently gone. `retryable` is what callers actually branch on, so leaving
+ * it true here would put a back-off loop into a spin against a condition that can
+ * never change — the same trap D13 avoids in the launcher.
+ */
+function fatal(code: string, message: string): CapabilityError {
+  return new CapabilityError({
+    code,
+    exit: EXIT.GENERIC,
+    action: "HALT_AND_NOTIFY",
+    retryable: false,
+    message,
+  });
+}
+
 function protocolError(method: string, err: unknown): CapabilityError {
   const e = err as { code?: unknown; message?: unknown; data?: unknown };
   const detail = typeof e?.message === "string" ? e.message : JSON.stringify(err);
@@ -62,6 +78,14 @@ function protocolError(method: string, err: unknown): CapabilityError {
     `${method} was rejected by Chrome: ${detail}`,
     JSON.stringify(err),
   );
+}
+
+/** Shape only, never content — a frame may hold captured LinkedIn data. */
+function describeFrame(data: unknown): string {
+  const kind = (data as object)?.constructor?.name ?? typeof data;
+  const size = (data as { size?: number; byteLength?: number })?.size ??
+    (data as { byteLength?: number })?.byteLength;
+  return size === undefined ? kind : `${kind}, ${size} bytes`;
 }
 
 /**
@@ -82,7 +106,7 @@ export class CdpClient {
   #nextId = 0;
   readonly #pending = new Map<number, Pending>();
   readonly #listeners = new Set<CdpEventListener>();
-  #listenerErrorHandler: ((error: unknown, event: CdpEvent) => void) | undefined;
+  #listenerErrorHandler: ((error: unknown, event?: CdpEvent) => void) | undefined;
 
   #deathCause: CapabilityError | undefined;
   #lastActivity = Date.now();
@@ -95,7 +119,14 @@ export class CdpClient {
     this.#keepaliveIntervalMs = opts.keepaliveIntervalMs ?? KEEPALIVE_INTERVAL_MS;
     this.#keepaliveTimeoutMs = opts.keepaliveTimeoutMs ?? KEEPALIVE_TIMEOUT_MS;
 
+    // Both are wired, because relying on one implies the other is an unstated
+    // dependency on the runtime: Node emits `close` after `error` today, and a
+    // transport whose death detection rests on that is one release from silence.
+    // `#die` is first-cause-wins, so the pair never double-reports.
     ws.addEventListener("message", (ev) => this.#onMessage(ev));
+    ws.addEventListener("error", () =>
+      this.#die(transient("CDP_SOCKET_ERROR", `CDP connection to ${url} errored`)),
+    );
     ws.addEventListener("close", () =>
       this.#die(transient("CDP_CONNECTION_CLOSED", `CDP connection to ${url} closed`)),
     );
@@ -225,13 +256,15 @@ export class CdpClient {
    * have to choose between swallowing it and letting one bad subscriber take
    * down the read loop for everybody else.
    */
-  onListenerError(handler: (error: unknown, event: CdpEvent) => void): void {
+  onListenerError(handler: (error: unknown, event?: CdpEvent) => void): void {
     this.#listenerErrorHandler = handler;
   }
 
   /** Stops the timers, closes the socket, and fails anything still in flight. */
   close(): void {
-    this.#die(transient("CDP_CONNECTION_CLOSED", `CDP connection to ${this.url} was closed locally`));
+    // A distinct code from the remote closes on purpose: same code with different
+    // `retryable` would be the very ambiguity this split exists to remove.
+    this.#die(fatal("CDP_CLIENT_CLOSED", `CDP connection to ${this.url} was closed locally`));
     try {
       this.#ws.close();
     } catch {
@@ -242,11 +275,22 @@ export class CdpClient {
   #onMessage(ev: MessageEvent): void {
     this.#lastActivity = Date.now();
 
+    // A frame we cannot read is not worth killing the connection over, but it is
+    // never worth swallowing either: if it was a reply, the `send` waiting on it
+    // now burns its whole timeout with nothing to explain why.
+    if (typeof ev.data !== "string") {
+      this.#report(new Error(`dropped a non-text CDP frame (${describeFrame(ev.data)})`));
+      return;
+    }
+
     let msg: { id?: number; method?: string; params?: unknown; sessionId?: string; error?: unknown; result?: unknown };
     try {
-      msg = JSON.parse(typeof ev.data === "string" ? ev.data : String(ev.data));
+      msg = JSON.parse(ev.data);
     } catch {
-      return; // a frame we cannot parse is not worth killing the connection over
+      // Never the body itself: a frame may carry captured LinkedIn data, and this
+      // goes to a log line.
+      this.#report(new Error(`a ${ev.data.length}-char CDP frame could not be parsed as JSON`));
+      return;
     }
 
     if (typeof msg.id === "number") {
@@ -274,8 +318,17 @@ export class CdpClient {
       try {
         listener(event);
       } catch (error) {
-        this.#listenerErrorHandler?.(error, event);
+        this.#report(error, event);
       }
+    }
+  }
+
+  /** Anything the transport could not deliver: a bad frame, or a throwing listener. */
+  #report(error: unknown, event?: CdpEvent): void {
+    try {
+      this.#listenerErrorHandler?.(error, event);
+    } catch {
+      /* a handler that throws is out of options; never let it break the read loop */
     }
   }
 

@@ -24,11 +24,16 @@ Task 3 — CDP transport client. `src/core/cdp/{constants,client}.ts`: `CdpClien
 → `send(method, params, sessionId?, timeoutMs?)`, `on()`/`off()` event fan-out preserving
 `sessionId`, `dead` flag, idempotent `close()`, and a keepalive that stays silent while traffic
 flows. Transport only — it enables no CDP domain, ever; callers decide (D8). Every failure is
-transient with the raw CDP error kept as `evidence` (D15). Proven: 36/36 tests pass offline
-(15 new, fake CDP server on the dev-only `ws` package), typecheck clean; live against the
-automation Chrome, `Browser.getVersion` round-tripped in 7ms returning `Chrome/151.0.7922.76`
-protocol 1.3, an unknown method mapped to `CDP_PROTOCOL_ERROR` without killing the connection,
-and `dead` was true after `close()`.
+transient with the raw CDP error kept as `evidence`, except a locally-closed client, which is
+fatal and non-retryable (D15). Reviewed 2026-08-08 — local close split from remote close on
+both code and `retryable`, a socket-`error` handler added so death detection no longer rests on
+Node emitting `close` afterwards, and undispatchable frames now surface through
+`onListenerError` (shape only, never the body) instead of vanishing. Proven: 41/41 tests pass
+offline (20 new, fake CDP server on the dev-only `ws` package), typecheck clean; live against
+the automation Chrome, `Browser.getVersion` round-tripped in 7ms returning
+`Chrome/151.0.7922.76` protocol 1.3, an unknown method mapped to `CDP_PROTOCOL_ERROR` without
+killing the connection, and a send after `close()` returned
+`CDP_CLIENT_CLOSED` / `retryable: false` / exit 1.
 
 ## In progress
 _(nothing)_

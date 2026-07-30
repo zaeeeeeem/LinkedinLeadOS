@@ -16,6 +16,8 @@ type Fake = {
   push(frame: unknown): void;
   /** Drop the connection the way a dying Chrome does. */
   drop(): void;
+  /** Close it the polite way, with a close frame and no error. */
+  closeGracefully(): void;
   stop(): Promise<void>;
 };
 
@@ -56,6 +58,9 @@ async function fakeCdp(
     },
     drop: () => {
       for (const s of sockets) s.terminate();
+    },
+    closeGracefully: () => {
+      for (const s of sockets) s.close();
     },
     stop: () =>
       new Promise<void>((ok) => {
@@ -212,12 +217,31 @@ describe("CdpClient.send", () => {
     cdp.close();
   });
 
-  it("rejects a send issued after close", async () => {
+  it("rejects a send issued after close, without inviting a retry", async () => {
     const fake = await fakeCdp();
     const cdp = await CdpClient.connect(fake.url);
     cdp.close();
     const e = asCapabilityError(await cdp.send("Browser.getVersion").catch((x: unknown) => x));
-    expect(e.code).toBe("CDP_CONNECTION_CLOSED");
+    expect(e.code).toBe("CDP_CLIENT_CLOSED");
+    // A client we closed ourselves never comes back. Retryable here would put a
+    // back-off loop above us into a spin against a condition that cannot change.
+    expect(e.retryable).toBe(false);
+    expect(e.action).toBe("HALT_AND_NOTIFY");
+    expect(e.exit).toBe(EXIT.GENERIC);
+  });
+
+  it("fails an in-flight send with the local-close cause, not the remote-drop one", async () => {
+    const fake = await fakeCdp(() => {
+      /* never answers */
+    });
+    const cdp = await CdpClient.connect(fake.url);
+    const inflight = cdp.send("Never.answered", {}, undefined, 10_000).catch((e: unknown) => e);
+    await new Promise((r) => setTimeout(r, 30));
+    cdp.close();
+
+    const e = asCapabilityError(await inflight);
+    expect(e.code).toBe("CDP_CLIENT_CLOSED");
+    expect(e.retryable).toBe(false);
   });
 });
 
@@ -289,10 +313,28 @@ describe("CdpClient connection death", () => {
     fake.drop();
 
     for (const e of [asCapabilityError(await a), asCapabilityError(await b)]) {
-      expect(e.code).toBe("CDP_CONNECTION_CLOSED");
+      // An abrupt drop surfaces as an error, a close, or both depending on the
+      // runtime. Which one raced ahead is diagnosis; that it is transient death
+      // is the contract.
+      expect(["CDP_SOCKET_ERROR", "CDP_CONNECTION_CLOSED"]).toContain(e.code);
       expect(e.exit).toBe(EXIT.TRANSIENT);
       expect(e.retryable).toBe(true);
     }
+    expect(cdp.dead).toBe(true);
+  });
+
+  it("treats a polite server close as transient death, not as our own close", async () => {
+    const fake = await fakeCdp(() => {
+      /* never answers */
+    });
+    const cdp = await CdpClient.connect(fake.url);
+    const inflight = cdp.send("Never.answered", {}, undefined, 10_000).catch((e: unknown) => e);
+    await new Promise((r) => setTimeout(r, 30));
+    fake.closeGracefully();
+
+    const e = asCapabilityError(await inflight);
+    expect(e.code).toBe("CDP_CONNECTION_CLOSED");
+    expect(e.retryable).toBe(true); // remote close: worth reconnecting. Ours: not.
     expect(cdp.dead).toBe(true);
   });
 
@@ -328,6 +370,72 @@ describe("CdpClient connection death", () => {
 
     await new Promise((r) => setTimeout(r, 200)); // now go idle past the interval
     expect(fake.seen.some((m) => m.method !== "Some.work")).toBe(true);
+    cdp.close();
+  });
+});
+
+describe("CdpClient socket errors", () => {
+  it("dies on a socket error even if no close event ever follows", async () => {
+    const fake = await fakeCdp(() => {
+      /* never answers */
+    });
+    // Capture the socket the client builds so the test can raise a bare `error`.
+    // Node happens to emit `close` after `error` today; the point of this test is
+    // that the client does not depend on that.
+    const real = globalThis.WebSocket;
+    let socket: WebSocket | undefined;
+    class Recording extends real {
+      constructor(url: string | URL, protocols?: string | string[]) {
+        super(url, protocols);
+        socket = this as unknown as WebSocket;
+      }
+    }
+    globalThis.WebSocket = Recording as unknown as typeof WebSocket;
+    let cdp: CdpClient;
+    try {
+      cdp = await CdpClient.connect(fake.url);
+    } finally {
+      globalThis.WebSocket = real;
+    }
+
+    const inflight = cdp.send("Never.answered", {}, undefined, 10_000).catch((e: unknown) => e);
+    await new Promise((r) => setTimeout(r, 30));
+    socket?.dispatchEvent(new Event("error"));
+
+    const e = asCapabilityError(await inflight);
+    expect(e.code).toBe("CDP_SOCKET_ERROR");
+    expect(e.retryable).toBe(true);
+    expect(cdp.dead).toBe(true);
+  });
+});
+
+describe("CdpClient undispatchable frames", () => {
+  it("reports a non-text frame instead of dropping it silently", async () => {
+    const fake = await fakeCdp((_msg, sock) => sock.send(Buffer.from([0x00, 0x01, 0x02])));
+    const cdp = await CdpClient.connect(fake.url);
+    const problems: unknown[] = [];
+    cdp.onListenerError((e) => problems.push(e));
+
+    const err = await cdp.send("Any.command", {}, undefined, 150).catch((x: unknown) => x);
+    expect(asCapabilityError(err).code).toBe("CDP_TIMEOUT");
+    expect(problems).toHaveLength(1);
+    expect(String(problems[0])).toContain("non-text");
+    expect(cdp.dead).toBe(false);
+    cdp.close();
+  });
+
+  it("reports an unparseable text frame, and never echoes its contents", async () => {
+    const secret = "urn:li:fs_profile:SECRET-MEMBER-ID";
+    const fake = await fakeCdp((_msg, sock) => sock.send(`{"broken": ${secret}`));
+    const cdp = await CdpClient.connect(fake.url);
+    const problems: unknown[] = [];
+    cdp.onListenerError((e) => problems.push(e));
+
+    await cdp.send("Any.command", {}, undefined, 150).catch(() => undefined);
+    expect(problems).toHaveLength(1);
+    // The frame body may be captured LinkedIn data; it never reaches a log line.
+    expect(String(problems[0])).not.toContain(secret);
+    expect(String(problems[0])).toContain("could not be parsed");
     cdp.close();
   });
 });
