@@ -1,9 +1,14 @@
-import { mkdir, open, readFile, rename, unlink, writeFile } from "node:fs/promises";
+import { mkdir, open, readdir, readFile, rename, stat, unlink, writeFile } from "node:fs/promises";
 import { hostname } from "node:os";
 import { dirname, join } from "node:path";
 import { randomUUID } from "node:crypto";
 import { CapabilityError, EXIT } from "../run/receipt.js";
-import { defaultLeasePath, LEASE_RETRY_AFTER_MS, LEASE_SETTLE_MS } from "./constants.js";
+import {
+  defaultLeasePath,
+  LEASE_RETRY_AFTER_MS,
+  LEASE_SCRATCH_PREFIX,
+  LEASE_SCRATCH_TTL_MS,
+} from "./constants.js";
 
 /** What the lockfile holds. Enough to answer "who has the tab, and are they alive?". */
 export type LeaseRecord = {
@@ -65,6 +70,13 @@ function isMissing(e: unknown): boolean {
   return (e as NodeJS.ErrnoException)?.code === "ENOENT";
 }
 
+/** Rethrows, turning a "this path will never be writable" errno into the fatal class. */
+function rethrow(path: string, e: unknown): never {
+  const err = e as NodeJS.ErrnoException;
+  if (err.code && UNWRITABLE.has(err.code)) throw unwritable(path, err);
+  throw e;
+}
+
 /** Alive if signalling it is permitted or refused; only ESRCH means the pid is gone. */
 function pidAlive(pid: number): boolean {
   if (!Number.isInteger(pid) || pid <= 0) return false;
@@ -100,51 +112,133 @@ function parseRecord(text: string): LeaseRecord | { bad: string } {
   };
 }
 
-/** Reads the lease without changing anything. Safe to call from a health check. */
-export async function inspectLease(path: string = defaultLeasePath()): Promise<LeaseState> {
-  let text: string;
-  try {
-    text = await readFile(path, "utf8");
-  } catch (e) {
-    if (isMissing(e)) return { state: "free" };
-    throw e;
-  }
+function classify(text: string): Exclude<LeaseState, { state: "free" }> {
   const parsed = parseRecord(text);
   if ("bad" in parsed) return { state: "corrupt", reason: parsed.bad };
   if (parsed.host !== hostname()) return { state: "foreign", holder: parsed };
   return pidAlive(parsed.pid) ? { state: "held", holder: parsed } : { state: "stale", holder: parsed };
 }
 
-const serialize = (r: LeaseRecord) => JSON.stringify(r) + "\n";
-
-const settle = (ms: number) => new Promise<void>((ok) => setTimeout(ok, ms));
-
 /**
- * Replaces whatever is at `path` atomically. `rename` rather than unlink-then-create
- * so the lock is never briefly absent — an absent lock would let an unrelated fresh
- * acquirer slip in through the exclusive-create path and hold it alongside us.
+ * Reads the lease and keeps the exact bytes alongside the verdict. The bytes are
+ * what makes reclaim provable: they are the evidence that the file being taken
+ * away is still the one that was judged reclaimable.
  */
-async function replaceWith(path: string, rec: LeaseRecord): Promise<void> {
-  const tmp = join(dirname(path), `.tab.lock.${process.pid}.${randomUUID()}`);
-  await writeFile(tmp, serialize(rec), "utf8");
+async function readLease(path: string): Promise<{ state: LeaseState; text: string | undefined }> {
+  let text: string;
   try {
-    await rename(tmp, path);
+    text = await readFile(path, "utf8");
   } catch (e) {
-    await unlink(tmp).catch(() => {});
+    if (isMissing(e)) return { state: { state: "free" }, text: undefined };
     throw e;
   }
+  return { state: classify(text), text };
 }
 
-/** True when the file on disk is still exactly the record we wrote. */
-async function confirmHolder(path: string, rec: LeaseRecord): Promise<boolean> {
-  const state = await inspectLease(path);
-  if (state.state !== "held") return false;
-  return (
-    state.holder.run_id === rec.run_id &&
-    state.holder.pid === rec.pid &&
-    state.holder.host === rec.host &&
-    state.holder.acquired_at === rec.acquired_at
+/** Reads the lease without changing anything. Safe to call from a health check. */
+export async function inspectLease(path: string = defaultLeasePath()): Promise<LeaseState> {
+  return (await readLease(path)).state;
+}
+
+const serialize = (r: LeaseRecord) => JSON.stringify(r) + "\n";
+
+const scratchPath = (path: string, kind: string) =>
+  join(dirname(path), `${LEASE_SCRATCH_PREFIX}${kind}.${process.pid}.${randomUUID()}`);
+
+/**
+ * Removes temp and quarantine files a crashed acquire left behind. Nothing else
+ * ever cleans them, and an untouched one is garbage by definition — the sequences
+ * that create them finish in milliseconds.
+ */
+async function sweepScratch(path: string): Promise<void> {
+  const dir = dirname(path);
+  let names: string[];
+  try {
+    names = await readdir(dir);
+  } catch {
+    return;
+  }
+  const cutoff = Date.now() - LEASE_SCRATCH_TTL_MS;
+  await Promise.all(
+    names
+      .filter((n) => n.startsWith(LEASE_SCRATCH_PREFIX))
+      .map(async (n) => {
+        const p = join(dir, n);
+        try {
+          if ((await stat(p)).mtimeMs < cutoff) await unlink(p);
+        } catch {
+          /* raced with its owner, or already gone */
+        }
+      }),
   );
+}
+
+/** Claims an absent lock exclusively. Returns false when someone else got there first. */
+async function claim(path: string, rec: LeaseRecord): Promise<boolean> {
+  let fh;
+  try {
+    fh = await open(path, "wx");
+  } catch (e) {
+    if ((e as NodeJS.ErrnoException).code === "EEXIST") return false;
+    rethrow(path, e);
+  }
+  try {
+    await fh.writeFile(serialize(rec), "utf8");
+  } finally {
+    await fh.close();
+  }
+  return true;
+}
+
+/**
+ * Takes a reclaimable lease away and claims the space it occupied. `observed` is
+ * the exact file content that was judged reclaimable.
+ *
+ * Exported for the tests: the race this closes is two callers that both read the
+ * same stale record before either writes, which cannot be staged by starting
+ * processes at different times — by then the first one's record is already on
+ * disk and the second is refused before it ever reaches here.
+ *
+ * The removal is a `rename` to a unique quarantine name, which is atomic: of
+ * several processes that judged the same lease reclaimable, exactly one moves the
+ * original file. A loser either finds nothing to rename, or quarantines a record
+ * that is not the one it judged — in which case it puts the file back untouched
+ * and refuses, because that record belongs to whoever won.
+ *
+ * That is what makes single-holder a property of the filesystem rather than of
+ * timing. An earlier version replaced the lock with `rename` and read it back after
+ * a settle delay; the delay bounded nothing, since a racer's write can land after
+ * an earlier racer's read-back has already returned, leaving both believing they
+ * hold the lease.
+ */
+export async function reclaimObserved(path: string, observed: string, mine: LeaseRecord): Promise<LeaseRecord> {
+  const quarantine = scratchPath(path, "quarantine");
+  try {
+    await rename(path, quarantine);
+  } catch (e) {
+    if (isMissing(e)) throw held("tab lease was reclaimed by another run first");
+    rethrow(path, e);
+  }
+
+  let taken: string | undefined;
+  try {
+    taken = await readFile(quarantine, "utf8");
+  } catch {
+    taken = undefined;
+  }
+
+  if (taken !== observed) {
+    // Someone replaced the lock between the read that judged it and this rename.
+    // The record now in hand is a live holder's, so restore it and stand down.
+    await rename(quarantine, path).catch(() => {});
+    throw held("tab lease changed hands while it was being reclaimed");
+  }
+
+  await unlink(quarantine).catch(() => {});
+  if (!(await claim(path, mine))) {
+    throw held("tab lease was taken by another run while it was being reclaimed");
+  }
+  return mine;
 }
 
 /**
@@ -172,27 +266,14 @@ export async function acquireLease(
   try {
     await mkdir(dirname(path), { recursive: true });
   } catch (e) {
-    const err = e as NodeJS.ErrnoException;
-    if (err.code && UNWRITABLE.has(err.code)) throw unwritable(path, err);
-    throw e;
+    rethrow(path, e);
   }
+  if (attempt === 0) await sweepScratch(path);
 
   // Fast path: nothing there. Exclusive create is the only atomic "claim if free".
-  try {
-    const fh = await open(path, "wx");
-    try {
-      await fh.writeFile(serialize(mine), "utf8");
-    } finally {
-      await fh.close();
-    }
-    return mine;
-  } catch (e) {
-    const err = e as NodeJS.ErrnoException;
-    if (err.code && UNWRITABLE.has(err.code)) throw unwritable(path, err);
-    if (err.code !== "EEXIST") throw e;
-  }
+  if (await claim(path, mine)) return mine;
 
-  const state = await inspectLease(path);
+  const { state, text } = await readLease(path);
 
   if (state.state === "free") {
     // It vanished between the create attempt and the read. Someone released it;
@@ -216,29 +297,24 @@ export async function acquireLease(
     );
   }
 
-  // Re-entry keeps the original acquisition time; the pid may have changed if the
-  // run is being resumed by a new process.
-  const record: LeaseRecord =
-    state.state === "held"
-      ? { ...mine, acquired_at: state.holder.acquired_at, renewed_at: now }
-      : mine;
-
-  try {
-    await replaceWith(path, record);
-  } catch (e) {
-    const err = e as NodeJS.ErrnoException;
-    if (err.code && UNWRITABLE.has(err.code)) throw unwritable(path, err);
-    throw e;
+  // Re-entry. The holder is this run, so no other run can be competing for the
+  // file: replacing it in place is safe, and keeps the original acquisition time
+  // while picking up the current pid for a run resumed by a new process.
+  if (state.state === "held") {
+    const renewed: LeaseRecord = { ...mine, acquired_at: state.holder.acquired_at, renewed_at: now };
+    const tmp = scratchPath(path, "renew");
+    try {
+      await writeFile(tmp, serialize(renewed), "utf8");
+      await rename(tmp, path);
+    } catch (e) {
+      await unlink(tmp).catch(() => {});
+      rethrow(path, e);
+    }
+    return renewed;
   }
 
-  // Two processes can judge the same lease reclaimable at the same moment and both
-  // replace it. Waiting, then reading back, is what makes exactly one of them the
-  // holder: the losers see someone else's record and refuse.
-  await settle(LEASE_SETTLE_MS + Math.floor(Math.random() * LEASE_SETTLE_MS));
-  if (!(await confirmHolder(path, record))) {
-    throw held(`tab lease was taken by another run while reclaiming it`);
-  }
-  return record;
+  // Stale or corrupt: reclaimable, and `text` is the evidence of what was judged.
+  return reclaimObserved(path, text!, mine);
 }
 
 /**

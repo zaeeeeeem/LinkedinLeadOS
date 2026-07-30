@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, afterEach } from "vitest";
-import { mkdtemp, rm, writeFile, readFile, mkdir, chmod } from "node:fs/promises";
+import { mkdtemp, rm, writeFile, readFile, readdir, mkdir, chmod, utimes } from "node:fs/promises";
 import { tmpdir, hostname } from "node:os";
 import { join } from "node:path";
 import { spawn } from "node:child_process";
@@ -7,9 +7,11 @@ import {
   acquireLease,
   releaseLease,
   inspectLease,
+  reclaimObserved,
   type LeaseRecord,
 } from "../src/core/lease/tab-lease.js";
 import { CapabilityError, EXIT } from "../src/core/run/receipt.js";
+import { LEASE_SCRATCH_PREFIX } from "../src/core/lease/constants.js";
 
 let dir: string;
 let path: string;
@@ -211,5 +213,135 @@ describe("exclusion under concurrency", () => {
       ),
     );
     expect(results.filter((r) => r.status === "fulfilled")).toHaveLength(1);
+  });
+});
+
+/**
+ * Runs one acquire in its own process. `offset` staggers it past the shared start,
+ * which is how the tests reproduce a racer whose write lands after an earlier
+ * racer has already finished checking.
+ */
+function child(runId: string, startAt: number, offset: number, hold = 2_000) {
+  return new Promise<{ runId: string; code: number; out: string }>((ok) => {
+    const p = spawn(
+      process.execPath,
+      ["--import", "tsx", helper, path, runId, String(startAt), String(offset), String(hold)],
+      { stdio: ["ignore", "pipe", "ignore"] },
+    );
+    let out = "";
+    p.stdout.on("data", (d) => (out += String(d)));
+    p.on("exit", (code) => ok({ runId, code: code ?? -1, out }));
+  });
+}
+
+const helper = new URL("./helpers/acquire-child.ts", import.meta.url).pathname;
+
+describe("exclusion across processes", () => {
+  /** tsx has to boot in each child before the barrier means anything. */
+  const BOOT_MS = 2_000;
+
+  it(
+    "hands a reclaimable lease to exactly one process, however the racers are staggered",
+    { timeout: 30_000 },
+    async () => {
+      await plant({ run_id: "dead-run", pid: await deadPid() });
+      const startAt = Date.now() + BOOT_MS;
+      // 0/20/50/80ms apart: the interleaving where a settle-and-read-back check
+      // returns before a later racer has written at all.
+      const results = await Promise.all(
+        [0, 20, 50, 80].map((offset, i) => child(`p${i}`, startAt, offset)),
+      );
+      const winners = results.filter((r) => r.code === 0);
+      expect(winners).toHaveLength(1);
+      expect((await read()).run_id).toBe(winners[0]!.runId);
+      for (const loser of results.filter((r) => r.code !== 0)) {
+        expect(loser.code).toBe(EXIT.TRANSIENT);
+        expect(loser.out).toBe("TAB_LEASE_HELD");
+      }
+    },
+  );
+
+  it(
+    "hands a free lease to exactly one process",
+    { timeout: 30_000 },
+    async () => {
+      const startAt = Date.now() + BOOT_MS;
+      const results = await Promise.all(
+        [0, 15, 40, 70].map((offset, i) => child(`p${i}`, startAt, offset)),
+      );
+      expect(results.filter((r) => r.code === 0)).toHaveLength(1);
+    },
+  );
+});
+
+describe("scratch file hygiene", () => {
+  it("sweeps temp files a crashed acquire left behind", async () => {
+    const orphan = join(dir, `${LEASE_SCRATCH_PREFIX}quarantine.999.abandoned`);
+    await writeFile(orphan, "{}", "utf8");
+    const old = new Date(Date.now() - 10 * 60_000);
+    await utimes(orphan, old, old);
+    await acquireLease({ runId: "run-a", capability: "profile.get", path });
+    expect(await readdir(dir)).not.toContain(orphan.split("/").pop());
+  });
+
+  it("leaves a recent scratch file alone — it may belong to a live acquire", async () => {
+    const inflight = `${LEASE_SCRATCH_PREFIX}quarantine.999.inflight`;
+    await writeFile(join(dir, inflight), "{}", "utf8");
+    await acquireLease({ runId: "run-a", capability: "profile.get", path });
+    expect(await readdir(dir)).toContain(inflight);
+  });
+
+  it("leaves no scratch file behind on a clean reclaim", async () => {
+    await plant({ run_id: "run-a", pid: await deadPid() });
+    await acquireLease({ runId: "run-b", capability: "profile.get", path });
+    expect((await readdir(dir)).filter((n) => n.startsWith(LEASE_SCRATCH_PREFIX))).toEqual([]);
+  });
+});
+
+describe("two reclaimers that observed the same stale lease", () => {
+  /**
+   * The interleaving a settle-and-read-back check cannot close: both racers read
+   * the stale record before either writes, and the second one's write lands after
+   * the first has already finished checking. Staged directly, because process
+   * start times cannot stage it — the loser would be refused long before reclaim.
+   */
+  it("gives the lease to the first, and the second refuses without disturbing it", async () => {
+    await plant({ run_id: "dead-run", pid: await deadPid() });
+    const observed = await readFile(path, "utf8");
+
+    const winner = await reclaimObserved(path, observed, {
+      run_id: "run-a",
+      pid: process.pid,
+      host: hostname(),
+      capability: "profile.get",
+      acquired_at: new Date().toISOString(),
+    });
+    expect((await read()).run_id).toBe("run-a");
+
+    const err = await reclaimObserved(path, observed, {
+      run_id: "run-b",
+      pid: process.pid,
+      host: hostname(),
+      capability: "profile.posts",
+      acquired_at: new Date().toISOString(),
+    }).then(() => undefined, (e: unknown) => e as CapabilityError);
+
+    expect(err).toBeInstanceOf(CapabilityError);
+    expect(err!.code).toBe("TAB_LEASE_HELD");
+    // The winner's record is intact: the loser put back what it briefly took away.
+    expect(await read()).toEqual(winner);
+    expect((await readdir(dir)).filter((n) => n.startsWith(LEASE_SCRATCH_PREFIX))).toEqual([]);
+  });
+
+  it("refuses when the stale lease is already gone", async () => {
+    const err = await reclaimObserved(path, "{}", {
+      run_id: "run-b",
+      pid: process.pid,
+      host: hostname(),
+      capability: "profile.get",
+      acquired_at: new Date().toISOString(),
+    }).then(() => undefined, (e: unknown) => e as CapabilityError);
+    expect(err!.code).toBe("TAB_LEASE_HELD");
+    expect(await inspectLease(path)).toEqual({ state: "free" });
   });
 });

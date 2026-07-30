@@ -18,11 +18,12 @@ export function defaultLeasePath(): string {
 export const LEASE_RETRY_AFTER_MS = 5_000;
 
 /**
- * Reclaim settle window. Reclaiming replaces the lock with `rename`, which is
- * last-writer-wins: several processes may all replace it before any of them
- * looks. Waiting this long before the read-back check lets every racer's write
- * land first, so the read-back sees the final winner and the losers refuse
- * instead of all believing they hold it. Randomized so racers do not re-collide
- * in lockstep.
+ * How long a leftover temp or quarantine file must have gone untouched before an
+ * acquire sweeps it away. A crash between writing a temp file and renaming it
+ * leaves one behind forever otherwise. Comfortably longer than any single
+ * rename sequence, so a concurrent acquire's in-flight file is never swept.
  */
-export const LEASE_SETTLE_MS = 40;
+export const LEASE_SCRATCH_TTL_MS = 60_000;
+
+/** Prefix every temp / quarantine file shares, so the sweep can recognise them. */
+export const LEASE_SCRATCH_PREFIX = ".tab.lock.";
