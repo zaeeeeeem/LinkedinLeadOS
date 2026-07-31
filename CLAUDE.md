@@ -22,12 +22,19 @@ There is exactly **one** LinkedIn account and it cannot be burned.
 Every design decision that looks paranoid exists because of this. When a trade-off is between
 speed and account safety, safety wins — do not re-open that argument.
 
-## Current phase
+## Explanations and reviews
 
-**M1 — core skeleton.** Nothing is implemented yet. The design is approved and frozen at
-`docs/specs/2026-08-07-linkedin-toolkit-l0-l2-design.md`.
+Write to transfer understanding, not to record conclusions.
 
-Check `STATE.md` for what is actually built right now. Trust `STATE.md` over this line.
+- Lead with a 3-5 line summary that stands alone. Assume the rest is skipped.
+- Label every finding: [BUG] / [DECISION NEEDED] / [FYI]. Order by that.
+- Before naming any identifier (#foo, D31, a flag), say in plain words what it
+  is and what it's for. Once per conversation is enough.
+- State impact before mechanism. What breaks, then why.
+- Prefer numbers to adjectives. "39px per call", not "a real improvement".
+- Keep paragraphs to 3 sentences. Use headers and bullets.
+- End with: "Needs your decision:" and a short list, or "Nothing blocking."
+- Do not narrate what you verified unless it changed something.
 
 ## Scope
 
