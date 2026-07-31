@@ -176,6 +176,7 @@ describe("NetworkTap capture", () => {
     const url = "https://x/salesApiProfiles/1";
 
     cdp.bodies.set("R1", () => ({ body: '{"out":"of order"}', base64Encoded: false }));
+    cdp.emit("Network.requestWillBeSent", { requestId: "R1", request: { url, method: "GET" } });
     cdp.emit("Network.loadingFinished", { requestId: "R1" });
     cdp.emit("Network.responseReceived", { requestId: "R1", response: { url, status: 200 } });
     await tap.drain();
@@ -189,6 +190,7 @@ describe("NetworkTap capture", () => {
     const url = "https://x/salesApiProfiles/1";
 
     cdp.bodies.set("R1", () => ({ body: "{}", base64Encoded: false }));
+    cdp.emit("Network.requestWillBeSent", { requestId: "R1", request: { url, method: "GET" } });
     cdp.emit("Network.loadingFinished", { requestId: "R1" });
     cdp.emit("Network.responseReceived", { requestId: "R1", response: { url, status: 200 } });
     cdp.emit("Network.loadingFinished", { requestId: "R1" });
@@ -293,6 +295,10 @@ describe("NetworkTap misses", () => {
   it("records a miss when loadingFailed arrives before the response", async () => {
     const { cdp, tap } = build();
 
+    cdp.emit("Network.requestWillBeSent", {
+      requestId: "R1",
+      request: { url: "https://x/salesApiProfiles/1", method: "GET" },
+    });
     cdp.emit("Network.loadingFailed", { requestId: "R1", errorText: "net::ERR_ABORTED" });
     cdp.emit("Network.responseReceived", {
       requestId: "R1",
@@ -402,6 +408,24 @@ describe("NetworkTap.waitFor", () => {
     const err = (await pending.catch((e: unknown) => e)) as CapabilityError;
     expect(err.code).toBe("CAPTURE_TIMEOUT");
     expect(err.message).toContain("1 miss");
+  });
+
+  it("looks back over history for an inline pattern too", async () => {
+    const { cdp, tap } = build();
+
+    const mark = tap.cursor;
+    cdp.respond("R1", "https://x/salesApiProfiles/9", "{}");
+    await tap.drain();
+
+    // The capture landed (under the "profile" watch) before this pattern
+    // existed, so it carries none of this pattern's names — a lookback that
+    // matched on recorded names would quietly degrade into "wait for the next
+    // one" and time out on a body already sitting in the archive.
+    const capture = await tap.waitFor(
+      { name: "one-off", match: /salesApiProfiles/ },
+      { since: mark, timeoutMs: 1_000 },
+    );
+    expect(capture.requestId).toBe("R1");
   });
 
   it("accepts an inline pattern and unregisters it once settled", async () => {
@@ -516,14 +540,72 @@ describe("NetworkTap.stop", () => {
 });
 
 describe("NetworkTap bookkeeping", () => {
-  it("does not grow its per-request memory without bound", async () => {
+  it("remembers no early finish at all for traffic it does not watch", async () => {
     const { cdp, tap } = build();
 
-    // Finish events for requests whose responses never arrive: the leak shape.
+    // A LinkedIn feed issues thousands of these. None of them are ours, and
+    // none of them may take up a slot in the early-finish map.
     for (let i = 0; i < 2_000; i++) cdp.emit("Network.loadingFinished", { requestId: `R${i}` });
     await tap.drain();
 
-    expect(tap.stats().pendingFinish).toBeLessThanOrEqual(500);
+    expect(tap.stats().pendingFinish).toBe(0);
+  });
+
+  it("keeps our own early finish through a flood of unwatched traffic", async () => {
+    const { cdp, tap } = build();
+    const url = "https://x/salesApiProfiles/1";
+
+    // The silent-drop regression: our finish arrives first, thousands of
+    // unrelated finishes follow, and only then does our response show up. If
+    // the flood can evict our entry, this response is lost with no capture, no
+    // miss, and a waitFor that times out reporting nothing went wrong.
+    cdp.bodies.set("OURS", () => ({ body: '{"kept":true}', base64Encoded: false }));
+    cdp.emit("Network.requestWillBeSent", { requestId: "OURS", request: { url, method: "GET" } });
+    cdp.emit("Network.loadingFinished", { requestId: "OURS" });
+    for (let i = 0; i < 2_000; i++) cdp.emit("Network.loadingFinished", { requestId: `R${i}` });
+    cdp.emit("Network.responseReceived", { requestId: "OURS", response: { url, status: 200 } });
+    await tap.drain();
+
+    expect(tap.captures()).toHaveLength(1);
+    expect(tap.captures()[0]!.body).toBe('{"kept":true}');
+    expect(tap.misses()).toHaveLength(0);
+  });
+
+  it("accounts for a matched response still in flight when it stops", async () => {
+    const { cdp, tap } = build();
+
+    // Also the residual of the early-finish gate: a request with no
+    // requestWillBeSent of its own whose finish beat its response parks here.
+    cdp.emit("Network.responseReceived", {
+      requestId: "R1",
+      response: { url: "https://x/salesApiProfiles/1", status: 200 },
+    });
+    tap.stop();
+    await tap.drain();
+
+    expect(tap.misses()).toHaveLength(1);
+    expect(tap.misses()[0]!.reason).toBe("abandoned");
+  });
+
+  it("caps matched responses awaiting an outcome, and says so when it drops one", async () => {
+    const { cdp, tap } = build();
+
+    // Matched responses that never get a loading outcome — a navigation
+    // mid-flight does this. Unbounded, this map grows for the life of the run.
+    for (let i = 0; i < 600; i++) {
+      cdp.emit("Network.responseReceived", {
+        requestId: `R${i}`,
+        response: { url: `https://x/salesApiProfiles/${i}`, status: 200 },
+      });
+    }
+    await tap.drain();
+
+    expect(tap.stats().inflight).toBeLessThanOrEqual(500);
+    // Dropped, but never silently: an untracked response would otherwise be
+    // indistinguishable from one that never arrived.
+    expect(tap.misses()).toHaveLength(100);
+    expect(tap.misses()[0]!.reason).toBe("abandoned");
+    expect(tap.misses()[0]!.requestId).toBe("R0");
   });
 
   it("reports what it is still waiting on", async () => {

@@ -62,7 +62,13 @@ export type MissReason =
   /** The request finished but the body was gone — an evicted buffer, most often. */
   | "body-unavailable"
   /** The body arrived but could not be written to the archive; nothing may use it (D2). */
-  | "archive-failed";
+  | "archive-failed"
+  /** The tap gave up tracking it: `SEEN_REQUEST_CAP` matched responses were
+   *  outstanding at once, so the oldest was dropped. Recorded rather than
+   *  silently forgotten — an untracked response is indistinguishable from one
+   *  that never arrived, which is the report that sends an operator to the
+   *  browser over a bug in here. */
+  | "abandoned";
 
 /** A watched response the tap saw and could not deliver. Never a throw: a lost
  *  body is a fact about one response, not a reason to end a run. */
@@ -144,14 +150,16 @@ function compile(pattern: WatchPattern): Compiled {
 }
 
 /** Insertion-ordered, capped: remembering request ids for a run that lasts hours
- *  is a leak unless something drops the oldest. */
-function remember<V>(map: Map<string, V>, key: string, value: V): void {
+ *  is a leak unless something drops the oldest. `onEvict` is how a map whose
+ *  entries mean something to a caller reports what it dropped. */
+function remember<V>(map: Map<string, V>, key: string, value: V, onEvict?: (evicted: V) => void): void {
   map.delete(key);
   map.set(key, value);
   while (map.size > SEEN_REQUEST_CAP) {
-    const oldest = map.keys().next();
+    const oldest = map.entries().next();
     if (oldest.done) break;
-    map.delete(oldest.value);
+    map.delete(oldest.value[0]);
+    onEvict?.(oldest.value[1]);
   }
 }
 
@@ -239,6 +247,17 @@ export class NetworkTap {
     if (!this.#unsubscribe) return;
     this.#unsubscribe();
     this.#unsubscribe = undefined;
+
+    // Anything still waiting for a loading outcome is a watched response this
+    // tap saw and never delivered. Recording them here is what makes the
+    // `#methods` gate above safe: the case it drops — an early finish for a
+    // request with no `requestWillBeSent` of its own — parks in `#inflight`,
+    // and without this it would only surface if 500 newer matched responses
+    // happened to push it out. A capability's receipt now accounts for every
+    // matched response either way.
+    for (const entry of [...this.#inflight.values()]) {
+      this.#recordMiss(entry, "abandoned", "the tap was stopped before this response finished loading");
+    }
     this.#inflight.clear();
     this.#earlyFinish.clear();
     this.#methods.clear();
@@ -331,7 +350,13 @@ export class NetworkTap {
       return Promise.reject(fatal("TAP_STOPPED", `the network tap is not running; cannot wait for "${name}"`));
     }
 
-    const already = this.#captures.slice(since).find((c) => c.patterns.includes(name));
+    // Matched by URL, not by the names recorded on the capture: a pattern
+    // registered after a capture landed (every inline pattern, and any watch
+    // added mid-run) is absent from that capture's `patterns`, so a name-based
+    // lookback would silently never match and `since` would quietly degrade
+    // into "wait for the next one".
+    const matcher = this.#watches.get(name);
+    const already = this.#captures.slice(since).find((c) => matcher?.test(c.url) ?? false);
     if (already) {
       cleanup();
       return Promise.resolve(already);
@@ -417,7 +442,17 @@ export class NetworkTap {
       patterns,
       claimed: false,
     };
-    this.#inflight.set(requestId, entry);
+    // Capped like everything else here, and loudly: a matched response that
+    // never gets a loading outcome (the tab navigated away mid-flight, a
+    // service worker answered it) would otherwise sit in this map for the life
+    // of the process.
+    remember(this.#inflight, requestId, entry, (evicted) => {
+      this.#recordMiss(
+        evicted,
+        "abandoned",
+        `no loading outcome arrived before ${SEEN_REQUEST_CAP} newer matched responses did`,
+      );
+    });
 
     // The out-of-order case: the request already finished (or failed) before we
     // learned what its URL was, so the outcome is waiting for us rather than
@@ -433,10 +468,26 @@ export class NetworkTap {
     if (!requestId) return;
     const entry = this.#inflight.get(requestId);
     if (!entry) {
-      // Either not ours, or ours and early. We cannot tell yet, so remember it
-      // cheaply and let `#onResponse` decide. Bounded, so the overwhelming
-      // majority — the not-ours ones — age out.
-      remember(this.#earlyFinish, requestId, { failed, ...(errorText !== undefined ? { errorText } : {}) });
+      // Ours, arriving before its `responseReceived` — or not ours at all. The
+      // `#methods` set answers that: it is populated at `requestWillBeSent`,
+      // for matching URLs only, and `requestWillBeSent` always precedes
+      // `loadingFinished` for the same request.
+      //
+      // Remembering every finish instead is what the first version did, and it
+      // was a silent data-loss bug: a feed issues thousands of requests, so the
+      // cap churned constantly, and one of *our* early finishes could be
+      // evicted before its response arrived. The response then parked in
+      // `#inflight` waiting for a finish that had already happened and been
+      // thrown away — no capture, no miss, and a `waitFor` timing out with zero
+      // misses to explain it.
+      //
+      // Residual, and now visible rather than silent: a request with no
+      // `requestWillBeSent` of its own (served by a service worker, say) whose
+      // finish beats its response is dropped here, and its `#inflight` entry
+      // ages out as an `abandoned` miss.
+      if (this.#methods.has(requestId)) {
+        remember(this.#earlyFinish, requestId, { failed, ...(errorText !== undefined ? { errorText } : {}) });
+      }
       return;
     }
     this.#settleInflight(entry, failed, errorText);

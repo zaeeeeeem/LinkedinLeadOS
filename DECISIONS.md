@@ -431,3 +431,34 @@ Also settled here: a body still on the wire when `stop()` lands is dropped rathe
 archived and delivered. It belongs to a phase the capability has already left, and appending
 to a result set nobody is reading is worse than losing one response the caller did not wait
 for.
+
+## D52 — The tap remembers an early finish only for requests it already matched
+2026-08-08 (Task 9 review fix). `Network.loadingFinished` for a request the tap has no
+`#inflight` entry for is remembered **only** when `#methods` already holds that request id —
+that map is populated at `requestWillBeSent`, for URL-matching requests only, and
+`requestWillBeSent` always precedes `loadingFinished` for the same request.
+
+The first version remembered every finish in a 500-entry capped map and let the non-matching
+ones age out. That was silent data loss, not merely waste: a LinkedIn feed issues thousands of
+requests, so the cap churned constantly, and one of *our* early finishes could be evicted
+before its `responseReceived` arrived. The response then parked in `#inflight` waiting for a
+finish that had already happened and been thrown away — no capture, no miss, no
+`capture.miss` event, and a `waitFor` timing out while reporting zero misses. That receipt
+reads as "LinkedIn did not respond", which sends the operator to the browser to debug a bug
+in this file. A tap that silently drops a response is the one failure the whole task exists to
+prevent.
+
+`#inflight` is now capped by the same `remember()` as everything else, and both of its loss
+paths record an `abandoned` miss: eviction under the cap, and anything still in flight when
+`stop()` runs. The second one is what makes the gate safe — the case it deliberately drops (a
+request with no `requestWillBeSent` of its own, e.g. one served by a service worker, whose
+finish beats its response) parks in `#inflight` and is accounted for at stop, rather than
+waiting on 500 newer matched responses to push it out.
+
+Rejected: remembering every finish in a much larger map. It moves the cliff without removing
+it, and the map that needs bounding is the one holding entries that *mean* something, not the
+one holding noise.
+
+Accepted cost: `stop()` reports as misses those matched responses that were genuinely still
+loading when a capability finished — real, but the correct accounting. A watched response the
+tap never delivered is a miss regardless of whose fault the timing was.

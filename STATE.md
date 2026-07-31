@@ -159,15 +159,27 @@ have been seen, in either order, because CDP orders events within a type and not
 a duplicate finish cannot re-fetch a claimed body. Every body is archived (D2) before the
 capture is handed to anyone or a waiter wakes. Events are filtered on `sessionId`, so another
 target's traffic cannot leak in, and the per-request bookkeeping is capped at
-`SEEN_REQUEST_CAP` so an hours-long run cannot leak. Lost bodies (evicted buffer,
+`SEEN_REQUEST_CAP` so an hours-long run cannot leak. Reviewed 2026-08-08 — the cap did not
+cover the map that actually accumulates and the overflow was invisible: `#inflight` was
+unbounded, and because *every* unmatched `loadingFinished` took a slot in the early-finish
+map, one of our own early finishes could be evicted before its response arrived and the
+response was then dropped with no capture, no miss, and a `waitFor` timing out reporting zero
+misses. Early finishes are now remembered only for requests already matched at
+`requestWillBeSent`, `#inflight` is capped, and both of its loss paths (cap eviction, and
+anything still in flight at `stop()`) record an `abandoned` miss (D52). Also fixed: `waitFor`'s
+`since` lookback matches captures by URL rather than by the pattern names recorded on them, so
+a pattern registered after a capture landed — every inline pattern — can actually look back
+instead of silently degrading into "wait for the next one". Lost bodies (evicted buffer,
 `loadingFailed`, archive write failure) are recorded misses + `capture.miss`, never throws,
 and they do not fail a pending wait — the `CAPTURE_TIMEOUT` message names how many misses that
 pattern saw instead (D51). `waitFor` defaults to the *next* capture and takes a `since` cursor
 for the click-then-await race (D50); it fails as transient `CAPTURE_TIMEOUT` (exit 6), fatal
 `TAP_UNKNOWN_PATTERN` on a typo'd name, and fatal `TAP_STOPPED` when the tap is stopped under
-it (same reasoning as `CDP_CLIENT_CLOSED` / `TAB_CLOSED`). Proven: 33 new offline tests against
-a fake CDP emitting synthetic protocol sequences (197/197 across the suite, three consecutive
-runs with no flake), typecheck clean. No live check — the task file assigns real-traffic proof
+it (same reasoning as `CDP_CLIENT_CLOSED` / `TAB_CLOSED`). Proven: 37 offline tests against
+a fake CDP emitting synthetic protocol sequences, four of them regressions for the review
+findings — our early finish survives a 2,000-request flood, unwatched traffic takes no
+early-finish slot at all, the inflight cap reports what it drops, and an inline pattern looks
+back over history (201/201 across the suite, three consecutive runs with no flake), typecheck clean. No live check — the task file assigns real-traffic proof
 to Task 15's live capture.
 
 ## In progress
