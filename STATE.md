@@ -95,8 +95,25 @@ path; added a doc comment on `RunContext`/`EventLogger` stating that `seq` is un
 only within one process's hold on a run id and nothing enforces single-writer access.
 Proven: 61/61 tests pass offline (3 new), typecheck clean.
 
+Task 7 — raw archive and structural shape hashing. `src/core/archive/shape.ts` (pre-existing):
+`canonicalShape`/`shapeHash`/`shapeHashOfBody`/`NON_JSON_SHAPE`. `src/core/archive/raw.ts`
+(new): `RawArchive` over a plain directory string — `archive(input)` gzips the body, writes it
+first as `<seq>-<shapeHash>.json.gz` with metadata beside it in a `.meta.json` sidecar (D30),
+then `list()`, `read()`, `readText()`. `seq` seeds from the directory so a resumed run keeps
+numbering; writes claim their filename with `wx` so two instances over one directory can't
+clobber each other. Errors are `ARCHIVE_WRITE_FAILED` / `ARCHIVE_ENTRY_MISSING`, both
+`HALT_AND_NOTIFY`/non-retryable, via the shared `CapabilityError`. No Task 6 event logging
+yet — the branch forked before Task 6 reached main; Task 9's network tap is the natural place
+to emit `capture.hit`/`capture.miss`, and wiring it there rather than here stays the plan.
+Proven: 27 new tests pass offline (135/135 across the suite after merging into main; 16 in
+`tests/archive-shape.test.ts` pinning every shape-hash rule, 11 in `tests/archive-raw.test.ts`
+covering gzip-on-disk, byte-identical read-back of string/`Uint8Array`/emoji bodies,
+no-dedupe on identical shapes, `list()` metadata and empty/missing-directory cases,
+seed-from-disk resume, and `ARCHIVE_ENTRY_MISSING` on an unknown id), all in `mkdtemp` temp
+dirs cleaned up per test; typecheck clean.
+
 ## In progress
 _(nothing)_
 
 ## Next
-Task 7 — archive shape hash (`docs/plans/m1-m3/tasks/task-07-archive-shape-hash.md`)
+Task 8 — human input (`docs/plans/m1-m3/tasks/task-08-human-input.md`)

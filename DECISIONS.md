@@ -286,3 +286,34 @@ changes.
 Rejected: a retryable class. The file is on the local disk and will read back identically
 forever; the only thing that resolves it is a human deciding whether to repair the run
 directory or abandon the id.
+
+## D30 — Shape hash covers structure only, and archives use a sidecar over an index
+2026-08-08. Two parts, one commit. (Written as `D16` on the Task 7 branch, which forked
+before D18 reserved a range per task; renumbered into Task 7's D30–D39 range at merge.)
+
+**Shape hashing.** `canonicalShape` reduces a JSON value to key paths and value *types*,
+never values: object keys sorted so key order is irrelevant; adding/removing a key changes
+the hash; a value changing type changes the hash; an array collapses to the sorted set of
+its *distinct* element shapes, so a 1-item and a 100-item list of the same element shape
+hash identically and element order within a heterogeneous array does not matter; `null` is
+its own type, distinct from a string, a number, or a missing key; `[]` is its own shape,
+distinct from `[num]`. This is deliberate under-discrimination: two responses describing
+different people with the same fields collide on purpose, because the point is grouping
+captures by structure for fixture promotion and drift detection, not fingerprinting content.
+A non-JSON body (HTML error page, redirect stub) is not an error — it archives fine under a
+single fixed non-JSON shape rather than throwing.
+
+**Archive layout: sidecar metadata, not an index file.** Each capture is
+`<seq>-<shapeHash>.json.gz` (the gzipped body) plus `<seq>-<shapeHash>.meta.json` (url,
+status, method, capturedAt, uncompressed byte count) written beside it. `list()` scans the
+directory for `*.json.gz` and attaches the sidecar when present. Rejected: a single
+`index.ndjson` appended to after each write. A crash between the body write and the index
+append makes an archived body invisible to every later step (fixture promotion, receipts,
+retries) — exactly the failure raw-first storage (D2) exists to prevent. The sidecar layout
+fails the other way: the body write happens first and is always enumerable by directory
+listing; only its metadata can go missing, and a missing sidecar still yields a listable
+entry with just a thinner record. `seq` is an instance counter seeded lazily by scanning the
+directory for the highest existing sequence number, so a resumed run over the same directory
+continues numbering instead of restarting at 0; each write claims its filename with the `wx`
+(exclusive-create) flag and moves to the next `seq` on `EEXIST`, so two `RawArchive`
+instances racing over one directory cannot clobber each other's body.
