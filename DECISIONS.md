@@ -462,3 +462,79 @@ one holding noise.
 Accepted cost: `stop()` reports as misses those matched responses that were genuinely still
 loading when a capability finished — real, but the correct accounting. A watched response the
 tap never delivered is a miss regardless of whose fault the timing was.
+
+## D60 — The challenge gate denies by default: an unrecognized LinkedIn page is a halt
+2026-08-08. `classifyUrl` checks a deny list of challenge paths, then an allowlist of
+app paths, and **anything left over on a linkedin.com host is `unrecognized`** —
+`CHALLENGE_UNRECOGNIZED`, exit 2, `HALT_AND_NOTIFY`. Clean is a positive
+identification, never a default.
+
+The obvious design is the reference worker's: match the known challenge shapes, and
+treat everything else as fine. It is also the design that cannot see the one failure
+that matters. LinkedIn changes its challenge surface on its own schedule; the first
+time it serves an interstitial at a path this file has never heard of, a
+match-challenges-only gate returns clean, the capability parses an interstitial as a
+profile, and the toolkit keeps driving a session LinkedIn has already flagged. There
+is exactly one account and it cannot be burned, so the asymmetry in the cost is the
+whole argument: a false positive is a manual restart and a one-line addition to
+`APP_PATH_PREFIXES`; a false negative can cost the account.
+
+The friction the task file warns about is real and is paid for structurally rather
+than by weakening the rule: the allowlist is one entry per *product area*
+(`/in/`, `/feed`, `/search/`, `/sales/`, `/jobs/`, …), not per page, so ordinary
+navigation is covered by a coarse list that changes rarely. A URL that will not parse
+is likewise `unrecognized` rather than clean.
+
+The same reasoning covers an unreadable page. `detectChallenge` contributes an
+`unrecognized` signal when the DOM read fails, so a page the gate could not read is
+never certified — but a URL that already named a specific challenge still wins, since
+that is a positive identification and `unrecognized` is the absence of one.
+
+Rejected: `unknown` as a third, non-halting state the caller decides about. It moves
+the decision to every call site, and the call sites are capabilities in the middle of
+a parse, which is exactly where "probably fine" gets chosen.
+
+## D61 — The page-URL gate and the response gate ask different questions, so only one denies by default
+2026-08-08. `classifyUrl` (D60) denies by default. `classifyResponse` runs the **deny
+list only**, and treats an unlisted URL as clean, deciding on HTTP status instead.
+
+They look like the same check and are not. "Is the page we are sitting on a
+challenge" is answerable by allowlist, because the app surface is a dozen product
+areas. "Is this API response a challenge" is not: LinkedIn serves hundreds of
+Voyager and `salesApi*` paths, no allowlist of them could be kept current, and
+denying by default would halt the run on the first normal request — a gate that
+fires constantly gets turned off, which is a worse outcome than the one D60 avoids.
+
+What the deny list still buys on the response path is the case that matters: a
+request *redirected* onto `/checkpoint/…` or `/uas/login` is caught even when it
+carries a 200.
+
+Status mapping: 429 → `rate-limited` (exit 3, `RETRY_BACKOFF`, `retry_after_ms` from
+`Retry-After` when present) · 999, LinkedIn's own "request denied" → `restricted`
+(exit 2) · 401/403 → `login` (exit 4, `REAUTH`) · everything else, 5xx included,
+clean. A 5xx is a broken server, not a challenge; classifying it here would file a
+transient outage under exit 2 and stop a run that should retry.
+
+Known imprecision, deliberately kept: a 403 from LinkedIn can mean "you may not view
+this member" as well as "you are logged out". The task file's contract is that
+401/403 means the session is dead, and the error direction is the safe one — a halt
+for reauth. Task 15's live run is where a real 403 gets looked at.
+
+## D62 — `RunContext`'s `Screenshotter` returns `Promise<unknown>`
+2026-08-08. Task 6's `Screenshotter` was `{ screenshot(filePath): Promise<void> }`
+and Task 4's `WorkerTab.screenshot` returns `Promise<string>`. `Promise<string>` is
+not assignable to `Promise<void>`, so `runContext.screenshot(workerTab, name)` did
+not typecheck — the two modules had never been composed, because the challenge path
+("screenshot, checkpoint, exit 2", spec §8) is the first caller that needs both.
+
+Widened to `Promise<unknown>`. The position is an input, so nothing that satisfied
+the old type stops satisfying the new one, and no call site changes. Rejected:
+narrowing `WorkerTab.screenshot` to return `void` instead — the path it returns is
+what lands on the receipt's `evidence`, and throwing it away to satisfy a structural
+type would cost a real thing to fix a bookkeeping one.
+
+Pinned by compile-time assertions in `tests/challenge-detect.test.ts` (`WorkerTab
+extends ChallengeTab & ShotTab & Screenshotter`, `RunContext extends
+ChallengeArchive`), verified to fail when the widening is reverted. A structural
+seam between two modules that never appear in the same file is otherwise proven by
+nothing until the first caller shows up, which is how this one survived two reviews.

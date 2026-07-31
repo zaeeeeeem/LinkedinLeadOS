@@ -26,8 +26,14 @@ export type RunMeta = {
 /**
  * Structural on purpose. Task 4's CDP tab handle satisfies this without context.ts
  * importing anything from Task 4 — the run context stays ignorant of CDP entirely.
+ *
+ * The return is `Promise<unknown>`, not `Promise<void>`: `WorkerTab.screenshot`
+ * resolves the path it wrote, and `Promise<string>` is not assignable to
+ * `Promise<void>`, so the two modules did not actually compose. This position is
+ * an input, so widening it cannot break anything that satisfied it before.
+ * Pinned by `tests/challenge-detect.test.ts`.
  */
-export type Screenshotter = { screenshot(filePath: string): Promise<void> };
+export type Screenshotter = { screenshot(filePath: string): Promise<unknown> };
 
 type CheckpointFile = { saved_at: string; state: unknown };
 

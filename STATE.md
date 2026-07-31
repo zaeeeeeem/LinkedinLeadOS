@@ -182,8 +182,41 @@ early-finish slot at all, the inflight cap reports what it drops, and an inline 
 back over history (201/201 across the suite, three consecutive runs with no flake), typecheck clean. No live check — the task file assigns real-traffic proof
 to Task 15's live capture.
 
+Task 10 — challenge and auth detection. `src/core/challenge/{constants,classify,detect}.ts`:
+pure classifiers `classifyUrl` / `classifyText` / `classifyResponse` / `worstVerdict` /
+`challengeError`, plus a live-tab detector `probeTab` / `detectChallenge` and the halt
+helpers `recordChallenge` / `assertNoChallenge`. Seven kinds — `clean`, `captcha`,
+`checkpoint`, `login`, `rate-limited`, `restricted`, `unrecognized` — each with its own
+code and one operator action: exit 2 `HALT_AND_NOTIFY` for captcha/checkpoint/restricted/
+unrecognized, exit 4 `REAUTH` for login, exit 3 `RETRY_BACKOFF` (the only `retryable`
+one) for rate limiting. The gate **denies by default** (D60): a linkedin.com path that is
+neither a known challenge nor on the coarse app allowlist, an unparseable URL, and a page
+whose body could not be read all classify `unrecognized` and halt, because a false
+positive costs a manual restart and a false negative costs the account. `classifyResponse`
+deliberately does not deny by default (D61) — it runs the deny list plus HTTP status, since
+no allowlist of LinkedIn's API paths could be kept current. The DOM read is a single
+`Runtime.evaluate` so URL, text and captcha-widget presence describe the same instant, and
+only a matched marker ever reaches a verdict, never page text. `recordChallenge` guards
+every evidence step individually and checkpoints before it screenshots, so a read-only
+shots/ or a dying browser degrades the receipt and never the halt. Also fixed here:
+`RunContext`'s `Screenshotter` returned `Promise<void>` while `WorkerTab.screenshot`
+returns `Promise<string>`, so Task 4 and Task 6 did not actually compose (D62) — widened
+to `Promise<unknown>`.
+Proven: 80 new offline tests (281/281 across the suite), typecheck clean. Among them:
+every URL, status and text classification above pinned both ways; three unseen-challenge
+cases (`/verify/identity`, `/security/hold`, an unparseable URL) proven not to read as a
+normal page; an unreadable body proven not to certify clean; `PROBE_EXPRESSION` executed
+as real JS against a stub document to pin its shape and its 20,000-char cap; the
+screenshot-fails, checkpoint-fails, no-run-context and hostile-run-context paths all
+proven to still return the halt; and compile-time assertions that `WorkerTab` and
+`RunContext` satisfy the structural types, verified to fail when D62's widening is
+reverted. Live against the automation Chrome on local `file://` probe pages, never
+LinkedIn: `PROBE_EXPRESSION` ran in a real page and read back `readable: true`,
+`captcha: true`, 60 chars of text; the blocked page classified `captcha` and the clean
+page `clean`.
+
 ## In progress
 _(nothing)_
 
 ## Next
-Task 10 — challenge detection (`docs/plans/m1-m3/tasks/`)
+Task 11 — see `docs/plans/m1-m3/tasks/`
