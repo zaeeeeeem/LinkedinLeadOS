@@ -38,7 +38,7 @@ ULID run and `raw/`/`shots/` dirs on create, or reuses the directory and appends
 `resumed_at` timestamp + logs `checkpoint.resume` on resume; rejects an unknown run id as
 `RUN_NOT_FOUND` and a capability swap as `RUN_CAPABILITY_MISMATCH` (both exit 1);
 `checkpoint()`/`lastCheckpoint()` round-trip arbitrary state via atomic tmp+rename with
-latest-wins (D16); `screenshot()` writes zero-padded, collision-free names under
+latest-wins (D20); `screenshot()` writes zero-padded, collision-free names under
 `shots/`; `artifacts()` matches spec §5's `runs/<id>/events.ndjson` / `runs/<id>/raw/`
 shape; `finish()` writes `summary.json` and is idempotent. Proven: 58/58 tests pass
 offline (22 new, all in `fs.mkdtempSync` temp dirs), typecheck clean.

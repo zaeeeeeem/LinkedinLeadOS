@@ -123,7 +123,7 @@ Also settled here: `ws` is a **dev dependency only**, used to run the fake CDP s
 tests. Production code uses Node's built-in `WebSocket` (D7 — no CDP wrapper library ever
 touches the real account's socket).
 
-## D16 — Checkpoint state lives in `checkpoint.json`, not replayed from `checkpoint.save` events
+## D20 — Checkpoint state lives in `checkpoint.json`, not replayed from `checkpoint.save` events
 2026-08-08. `RunContext.checkpoint()` writes the full state to `checkpoint.json` (atomic
 tmp+rename, latest write wins) and logs a `checkpoint.save` event as a breadcrumb only —
 the event carries no state, `lastCheckpoint()` never reads the event log.
@@ -135,7 +135,7 @@ hold arbitrary pagination state instead of a few fixed fields — the NDJSON sha
 stops being uniform. A dedicated file makes "what do I resume from" an O(1) read
 independent of how long the run has been running.
 
-## D17 — The event log is written with synchronous appends
+## D21 — The event log is written with synchronous appends
 2026-08-08 (already implemented in `events.ts`; recorded here because Task 6 is what makes
 the trade-off visible end to end). `EventLogger.log()` calls `writeSync` on a held fd, once
 per event, no batching.
@@ -147,7 +147,7 @@ which are the ones adjacent to the death and therefore the most diagnostic. Sync
 per-event writes cost a syscall per event, which is acceptable because event volume is
 bounded by page loads and CDP round-trips, not by anything hot.
 
-## D18 — Resuming a nonexistent run id is a usage error, not a create
+## D22 — Resuming a nonexistent run id is a usage error, not a create
 2026-08-08. `RunContext.open({ runId })` throws `RUN_NOT_FOUND` (`HALT_AND_NOTIFY`, exit 1)
 when the directory for that id does not exist, rather than creating it and proceeding as a
 fresh run.
@@ -159,3 +159,18 @@ checkpoint that was never written, and the two calls would produce a directory w
 `run.json.created_at` lies about when the run actually started. A missing id is either a
 typo or a deleted archive — both are for a human or a higher-level caller to resolve, not
 for the run context to paper over.
+
+## D23 — A corrupt local archive file is a usage-class halt, never parse drift
+2026-08-08. A truncated or unparseable `run.json` / `checkpoint.json` raises
+`RUN_META_CORRUPT` / `RUN_CHECKPOINT_CORRUPT` as `HALT_AND_NOTIFY` / exit 1, with the
+underlying parse message on `evidence`.
+
+Rejected: `EXIT.PARSE_DRIFT` (5). That code has one meaning for the agent — LinkedIn changed
+a response shape, go re-derive a parser against fixtures. Pointing it at our own file
+integrity would send the agent to the parsers over a half-written local file that no parser
+change can fix, and it would poison `log:drift`, whose entire job is counting real shape
+changes.
+
+Rejected: a retryable class. The file is on the local disk and will read back identically
+forever; the only thing that resolves it is a human deciding whether to repair the run
+directory or abandon the id.
