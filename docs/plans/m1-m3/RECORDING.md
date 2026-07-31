@@ -18,6 +18,11 @@ leave accurate files behind.
   the design didn't already settle (new dependency, approach the task file didn't
   anticipate, resolved ambiguity another session could re-litigate). One entry per
   decision, why the alternative lost, never edit old entries.
+
+  **Use your task's reserved number range (D18).** Task N owns `D(10 × (N − 4))` through
+  `D(10 × (N − 4) + 9)` — Task 6 owns D20–D29, Task 7 D30–D39, Task 8 D40–D49. Never take
+  "the next free number": every parallel worktree reads the same last-used number and they
+  all collide (Tasks 5, 6 and 7 each wrote a `D16`). Gaps are expected and fine.
 - **Capability README** (`src/capabilities/<name>/README.md`) — required by the task
   files that create a capability: what it returns, its flags, cost, failure modes, and
   example Supabase queries against what it stores.

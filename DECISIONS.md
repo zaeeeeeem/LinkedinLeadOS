@@ -114,6 +114,14 @@ specified id" arrive down the same pipe, and the second one clears on its own. C
 JSON-RPC codes inside the transport would be guessing on behalf of a caller that has the
 context to decide properly.
 
+Revised 2026-08-08 after review, one exception: a client the caller closed itself
+(`CDP_CLIENT_CLOSED`) is `HALT_AND_NOTIFY` / exit 1 / `retryable: false`. This is the one
+death cause the transport is certain about — it caused it — and `retryable` is what callers
+branch on, so leaving it true would spin a back-off loop against a condition that cannot
+change. Remote death stays transient and keeps its own codes (`CDP_CONNECTION_CLOSED` for a
+close frame, `CDP_SOCKET_ERROR` for an abrupt drop); a shared code with a differing
+`retryable` would reintroduce exactly the ambiguity the split removes.
+
 Rejected: a fatal class for protocol errors. A transport that halts the run on a reply it
 cannot interpret makes the whole toolkit brittle to Chrome-version wording. `evidence`
 carrying the untouched CDP error is what lets a caller split it later without the transport
@@ -122,6 +130,101 @@ inventing a taxonomy.
 Also settled here: `ws` is a **dev dependency only**, used to run the fake CDP server in
 tests. Production code uses Node's built-in `WebSocket` (D7 — no CDP wrapper library ever
 touches the real account's socket).
+
+## D16 — The tab lease trusts pid liveness, but only on its own host, and never a clock
+2026-08-08, revised 2026-08-08 after review. `tab-lease` decides reclaimability from
+`process.kill(pid, 0)` alone. A record written on a different `hostname()` is refused
+outright rather than reclaimed: asking this machine about a foreign pid answers a different
+question, and a wrong answer preempts a live run driving the tab — the exact thing §8 exists
+to prevent.
+
+Rejected: a TTL / max-lease-age, the usual staleness heuristic (`proper-lockfile` uses mtime
+plus a heartbeat). Any age-based rule preempts a holder that is merely slow, and the
+constraint is absolute — a live holder is never preempted. A long capability run is normal
+here, so the heuristic would fire on the healthy case. The cost of that choice is pid reuse:
+a crashed run whose pid is recycled by an unrelated process wedges the tab forever. The
+remedy is an explicit operator action, not a timer — Task 12's CLI carries a
+`--force-release` alongside a lease inspection, so the escape hatch is discoverable instead
+of being tribal knowledge.
+
+**Reclaim is a filesystem proof, not a timing heuristic.** Taking a reclaimable lease is:
+`rename(lock, quarantine-unique)` → confirm the quarantined bytes are still the exact bytes
+that were judged reclaimable → `open(lock, "wx")`. Of several processes that judged the same
+lease reclaimable, exactly one renames the original inode away; a loser either finds nothing
+to rename, or quarantines a record that is not the one it judged — in which case it renames
+that record straight back, untouched, and refuses.
+
+Rejected, and the reason this entry was revised: replacing the lock with a `rename` and
+confirming by reading it back after a settle delay. The delay bounds nothing. A racer's write
+can land *after* an earlier racer's read-back has already returned — 50ms of ordinary
+scheduling is enough — and then both processes believe they hold the lease and both drive the
+tab. Randomizing the delay decorrelates racers that collide in lockstep; it does not bound
+how late a separate process's write arrives. `tests/tab-lease.test.ts` stages that
+interleaving directly and it fails against the settle version.
+
+Also rejected earlier, and wrongly: unlink-then-exclusive-create, on the grounds that the
+window with no lock lets a fresh acquirer in. It does, and that is harmless — an absent lock
+is claimable, which is the correct state for a stale lease, and the reclaimer's own `wx` then
+fails `EEXIST` and it refuses. One winner either way. The real hazard on that path is two
+reclaimers where the second's unlink deletes the first's fresh lock, which is what the
+content-checked quarantine rename closes.
+
+Also settled: an unwritable lease path (`EACCES`, `EROFS`, `ENOTDIR`, `ENOSPC`) is fatal
+`TAB_LEASE_UNWRITABLE` / `HALT_AND_NOTIFY` / exit 1, not transient. Per D13 the question is
+"will a retry change this?" — a read-only directory answers no. Only contention is transient.
+
+## D17 — The session layer polls for page readiness, and re-classifies nothing it did not cause
+2026-08-08. Two choices the task file left open, both of which a later session would
+otherwise re-open.
+
+**Navigation completion is polled, not awaited.** `navigate()` sends `Page.navigate` and
+then polls `document.readyState` every 100ms until `"complete"`. The obvious alternative —
+`Page.enable` and await `Page.loadEventFired` — is forbidden by D8, and the cost of the
+polling version is one cheap `Runtime.evaluate` per 100ms against a local socket. Evaluation
+failures during the poll are treated as "not ready yet", never as an error: the execution
+context is genuinely torn down and rebuilt mid-navigation, so an error there is the expected
+observation, not a fault. The same reasoning covers screenshots (`Page.captureScreenshot`
+needs no enable) and evaluation (`Runtime.evaluate` needs no `Runtime.enable`, which is the
+`consoleAPICalled` leak). Nothing above this layer consumes a `Page` or `Runtime` event, so
+the domains stay off.
+
+**A `CapabilityError` passes through this layer untouched.** The launcher classified its
+failures with knowledge of the environment (D13) and the transport classified its own with
+knowledge of the socket (D15); re-coding either here would throw away a decision made with
+more context and would, for instance, turn `CDP_CLIENT_CLOSED`'s `retryable: false` back
+into a spin. The session layer only invents a code for a failure it is the first to see: a
+command that *succeeded* at the protocol level while carrying a failure payload
+(`Runtime.evaluate` with `exceptionDetails` → `TAB_EVAL_FAILED`, `Page.navigate` with
+`errorText` → `TAB_NAVIGATE_FAILED`), a tab that detached underneath it (`TAB_DETACHED`),
+or a non-CDP failure of its own such as an unwritable screenshot path
+(`TAB_SCREENSHOT_UNWRITABLE`, fatal per D13's question). That is what "no raw CDP errors
+escape to capabilities" means here — a resolved-but-failed reply is exactly the shape that
+would otherwise reach a capability as a silent `undefined`.
+
+## D18 — Each task reserves a decision-number range up front
+2026-08-08. Decision numbers are allocated to a task **before** it starts, ten at a time:
+task N owns `D(10 × (N − 4))` through `D(10 × (N − 4) + 9)`. Task 6 owns D20–D29, Task 7
+owns D30–D39, Task 8 D40–D49, and so on. D19 is spare. A task writes only into its own
+range, so two worktrees never append the same line of this file.
+
+Rejected: renumbering at merge, which is what we had been doing implicitly. Parallel
+worktrees all branch from the same tip, all read the same "last used" number, and all claim
+the next one — Tasks 5, 6 and 7 each independently wrote a `D16`. The cost is not the
+renumber itself but everything downstream of it: the merging branch's commit body, its
+`STATE.md` line, and any cross-reference from another decision all still name the old
+number, and nothing catches a stale reference. Append-only files with sequential ids do not
+survive concurrent authors; reservation is the cheapest thing that makes them survive.
+
+Rejected: per-task decision files with `DECISIONS.md` as an index. Structurally
+conflict-free and needs no bookkeeping, but it gives up the property D12 and `CLAUDE.md`
+both lean on — that a decision made on turn 6 is still visible by scrolling one file on
+turn 400. Findability is the whole point of the file.
+
+Rejected: serializing the merges. It removes the collision at its source but gives up the
+parallelism the worktrees exist for, which costs more than the gaps this scheme leaves.
+
+Accepted cost: numbers are no longer chronological, and a task using fewer than ten
+decisions leaves visible gaps. A gap is not a missing decision.
 
 ## D20 — Checkpoint state lives in `checkpoint.json`, not replayed from `checkpoint.save` events
 2026-08-08. `RunContext.checkpoint()` writes the full state to `checkpoint.json` (atomic
