@@ -201,6 +201,15 @@ or a non-CDP failure of its own such as an unwritable screenshot path
 escape to capabilities" means here — a resolved-but-failed reply is exactly the shape that
 would otherwise reach a capability as a silent `undefined`.
 
+**Revised 2026-08-08 after review**, one exception, and it is D15's exception one layer up: a
+tab this session closed itself raises `TAB_CLOSED` as `HALT_AND_NOTIFY` / exit 1 /
+`retryable: false`. The original entry made it transient, which reintroduced exactly the trap
+`891cbea` removed from the transport — `retryable` is what callers branch on, so a back-off
+loop above a deliberately closed tab spins against a condition that can never change. A tab
+that detached on its own keeps its own code, `TAB_DETACHED`, and stays transient, because a
+crashed or navigated-away tab genuinely can come back on a fresh attach. Separate codes rather
+than one code with a differing `retryable`, per the same convention.
+
 ## D18 — Each task reserves a decision-number range up front
 2026-08-08. Decision numbers are allocated to a task **before** it starts, ten at a time:
 task N owns `D(10 × (N − 4))` through `D(10 × (N − 4) + 9)`. Task 6 owns D20–D29, Task 7
@@ -226,11 +235,54 @@ parallelism the worktrees exist for, which costs more than the gaps this scheme 
 Accepted cost: numbers are no longer chronological, and a task using fewer than ten
 decisions leaves visible gaps. A gap is not a missing decision.
 
-**Revised 2026-08-08 after review**, one exception, and it is D15's exception one layer up: a
-tab this session closed itself raises `TAB_CLOSED` as `HALT_AND_NOTIFY` / exit 1 /
-`retryable: false`. The original entry made it transient, which reintroduced exactly the trap
-`891cbea` removed from the transport — `retryable` is what callers branch on, so a back-off
-loop above a deliberately closed tab spins against a condition that can never change. A tab
-that detached on its own keeps its own code, `TAB_DETACHED`, and stays transient, because a
-crashed or navigated-away tab genuinely can come back on a fresh attach. Separate codes rather
-than one code with a differing `retryable`, per the same convention.
+## D20 — Checkpoint state lives in `checkpoint.json`, not replayed from `checkpoint.save` events
+2026-08-08. `RunContext.checkpoint()` writes the full state to `checkpoint.json` (atomic
+tmp+rename, latest write wins) and logs a `checkpoint.save` event as a breadcrumb only —
+the event carries no state, `lastCheckpoint()` never reads the event log.
+
+Rejected: treating the last `checkpoint.save` event as the source of truth and putting the
+state in its `detail`. That would make resume an O(events-in-run) linear scan of a file
+that is also the forensic log, and it would force every event line to be large enough to
+hold arbitrary pagination state instead of a few fixed fields — the NDJSON shape in spec §5
+stops being uniform. A dedicated file makes "what do I resume from" an O(1) read
+independent of how long the run has been running.
+
+## D21 — The event log is written with synchronous appends
+2026-08-08 (already implemented in `events.ts`; recorded here because Task 6 is what makes
+the trade-off visible end to end). `EventLogger.log()` calls `writeSync` on a held fd, once
+per event, no batching.
+
+Rejected: a buffered async writer flushing on an interval or on `n` events. The event log
+exists specifically to explain a run that died mid-invocation — a challenge, a crash, an
+operator kill. A buffered writer loses exactly the events written in the last flush window,
+which are the ones adjacent to the death and therefore the most diagnostic. Synchronous
+per-event writes cost a syscall per event, which is acceptable because event volume is
+bounded by page loads and CDP round-trips, not by anything hot.
+
+## D22 — Resuming a nonexistent run id is a usage error, not a create
+2026-08-08. `RunContext.open({ runId })` throws `RUN_NOT_FOUND` (`HALT_AND_NOTIFY`, exit 1)
+when the directory for that id does not exist, rather than creating it and proceeding as a
+fresh run.
+
+Rejected: silent create-on-resume. A run id reaching `open()` almost always came from a
+prior receipt or a `--run-id` flag typed by an agent continuing earlier work; silently
+starting a new, empty run under that id would make the agent believe it resumed a
+checkpoint that was never written, and the two calls would produce a directory whose
+`run.json.created_at` lies about when the run actually started. A missing id is either a
+typo or a deleted archive — both are for a human or a higher-level caller to resolve, not
+for the run context to paper over.
+
+## D23 — A corrupt local archive file is a usage-class halt, never parse drift
+2026-08-08. A truncated or unparseable `run.json` / `checkpoint.json` raises
+`RUN_META_CORRUPT` / `RUN_CHECKPOINT_CORRUPT` as `HALT_AND_NOTIFY` / exit 1, with the
+underlying parse message on `evidence`.
+
+Rejected: `EXIT.PARSE_DRIFT` (5). That code has one meaning for the agent — LinkedIn changed
+a response shape, go re-derive a parser against fixtures. Pointing it at our own file
+integrity would send the agent to the parsers over a half-written local file that no parser
+change can fix, and it would poison `log:drift`, whose entire job is counting real shape
+changes.
+
+Rejected: a retryable class. The file is on the local disk and will read back identically
+forever; the only thing that resolves it is a human deciding whether to repair the run
+directory or abandon the id.

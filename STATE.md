@@ -73,8 +73,30 @@ with title `Example Domain`, foreground reached at `via: "already"` without touc
 back at its starting value. A second live probe confirmed emulation is load-bearing — with it
 `hidden: false`, with it dropped `hidden: true`, and `ensureForeground` recovered at step one.
 
+Task 6 — event logger and run context (Tasks 4/5 were being built in parallel worktrees;
+see their own entries for status when merged, not restated here). `src/core/run/
+{events,paths,context}.ts`: `EventLogger` appends NDJSON synchronously over a held fd
+(closed set of event names, seq continuing past resumes); `RunContext.open()` mints a
+ULID run and `raw/`/`shots/` dirs on create, or reuses the directory and appends a
+`resumed_at` timestamp + logs `checkpoint.resume` on resume; rejects an unknown run id as
+`RUN_NOT_FOUND` and a capability swap as `RUN_CAPABILITY_MISMATCH` (both exit 1);
+`checkpoint()`/`lastCheckpoint()` round-trip arbitrary state via atomic tmp+rename with
+latest-wins (D20); `screenshot()` writes zero-padded, collision-free names under
+`shots/`; `artifacts()` matches spec §5's `runs/<id>/events.ndjson` / `runs/<id>/raw/`
+shape; `finish()` writes `summary.json` and is idempotent. Proven: 58/58 tests pass
+offline (22 new, all in `fs.mkdtempSync` temp dirs), typecheck clean.
+Reviewed 2026-08-08 — screenshot counter now seeds from the highest surviving `NNN-`
+prefix instead of the file count (a triaged-away screenshot no longer causes the next
+one to overwrite a survivor); `run.json`/`checkpoint.json` parse failures are now
+classified `CapabilityError`s (`RUN_META_CORRUPT` / `RUN_CHECKPOINT_CORRUPT`, exit 1)
+instead of raw `SyntaxError`s escaping; all three archive writes (`run.json` on create,
+`run.json` on resume, `summary.json` on finish) go through the same atomic tmp+rename
+path; added a doc comment on `RunContext`/`EventLogger` stating that `seq` is unique
+only within one process's hold on a run id and nothing enforces single-writer access.
+Proven: 61/61 tests pass offline (3 new), typecheck clean.
+
 ## In progress
 _(nothing)_
 
 ## Next
-Task 6 — events and run context (`docs/plans/m1-m3/tasks/task-06-events-run-context.md`)
+Task 7 — archive shape hash (`docs/plans/m1-m3/tasks/task-07-archive-shape-hash.md`)
