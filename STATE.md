@@ -30,6 +30,23 @@ automation Chrome, `Browser.getVersion` round-tripped in 7ms returning `Chrome/1
 protocol 1.3, an unknown method mapped to `CDP_PROTOCOL_ERROR` without killing the connection,
 and `dead` was true after `close()`.
 
+Task 7 — raw archive and structural shape hashing. `src/core/archive/shape.ts` (pre-existing):
+`canonicalShape`/`shapeHash`/`shapeHashOfBody`/`NON_JSON_SHAPE`. `src/core/archive/raw.ts`
+(new): `RawArchive` over a plain directory string — `archive(input)` gzips the body, writes it
+first as `<seq>-<shapeHash>.json.gz` with metadata beside it in a `.meta.json` sidecar (D16),
+then `list()`, `read()`, `readText()`. `seq` seeds from the directory so a resumed run keeps
+numbering; writes claim their filename with `wx` so two instances over one directory can't
+clobber each other. Errors are `ARCHIVE_WRITE_FAILED` / `ARCHIVE_ENTRY_MISSING`, both
+`HALT_AND_NOTIFY`/non-retryable, via the shared `CapabilityError`. No Task 6 event logging
+yet — Task 6 isn't on main; Task 9's network tap is the natural place to emit
+`capture.hit`/`capture.miss`. Proven: 27 new tests pass offline (63/63 on this branch, which forked before Task 3's
+review added five; 16 in
+`tests/archive-shape.test.ts` pinning every shape-hash rule, 11 in `tests/archive-raw.test.ts`
+covering gzip-on-disk, byte-identical read-back of string/`Uint8Array`/emoji bodies,
+no-dedupe on identical shapes, `list()` metadata and empty/missing-directory cases,
+seed-from-disk resume, and `ARCHIVE_ENTRY_MISSING` on an unknown id), all in `mkdtemp` temp
+dirs cleaned up per test; typecheck clean.
+
 ## In progress
 _(nothing)_
 
