@@ -20,9 +20,12 @@ type Dispatch = { method: string; params: Record<string, unknown> };
 class FakeTab implements InputTarget {
   readonly calls: Dispatch[] = [];
   fail: Error | undefined;
+  /** Start failing once this many dispatches have been recorded. */
+  failAfter = Number.POSITIVE_INFINITY;
 
   async send<T = unknown>(method: string, params: Record<string, unknown> = {}): Promise<T> {
     if (this.fail) throw this.fail;
+    if (this.calls.length >= this.failAfter) throw new Error("transport died mid-path");
     this.calls.push({ method, params });
     return undefined as T;
   }
@@ -163,6 +166,41 @@ describe("HumanCursor.moveTo", () => {
     });
     await expect(c.moveTo(10, Number.POSITIVE_INFINITY)).rejects.toBeInstanceOf(CapabilityError);
     expect(tab.calls).toHaveLength(0);
+  });
+
+  it("keeps the recorded position in sync with the last dispatch that landed", async () => {
+    // A mid-path failure strands the real pointer partway along the curve. If
+    // the cursor still believed it was at the origin, the next moveTo would
+    // plan from a position the browser does not share and its first dispatch
+    // would teleport — right after a retryable failure, which is when a caller
+    // retries.
+    const { tab, c } = cursor({ start: { x: 0, y: 0 } });
+    tab.failAfter = 5;
+
+    await expect(c.moveTo(500, 300)).rejects.toThrow("transport died mid-path");
+
+    const landed = tab.points().at(-1)!;
+    expect(tab.points()).toHaveLength(5);
+    expect(c.position).toEqual(landed);
+    expect(c.position).not.toEqual({ x: 0, y: 0 });
+
+    // The retry therefore starts from where the pointer actually is.
+    tab.failAfter = Number.POSITIVE_INFINITY;
+    const before = tab.calls.length;
+    await c.moveTo(500, 300);
+    const resumed = tab.points().slice(before)[0]!;
+    expect(Math.hypot(resumed.x - landed.x, resumed.y - landed.y)).toBeLessThan(
+      Math.hypot(500 - landed.x, 300 - landed.y),
+    );
+  });
+
+  it("dispatches nothing when the pointer is already on the target", async () => {
+    const { tab, c } = cursor({ start: { x: 0, y: 0 } });
+    await c.moveTo(250, 150);
+    const settled = tab.calls.length;
+
+    expect(await c.moveTo(250, 150)).toEqual({ x: 250, y: 150 });
+    expect(tab.calls).toHaveLength(settled);
   });
 
   it("lets a transport failure through untouched", async () => {

@@ -138,6 +138,11 @@ export class HumanCursor {
     assertFinite("x coordinate", x);
     assertFinite("y coordinate", y);
 
+    // Already there: dispatch nothing. Twenty identical mousemoves at one pixel
+    // is a stranger signal than the single one a naive implementation sends,
+    // and it is what `dist || 1` would otherwise produce for a no-op move.
+    if (this.#at && this.#at.x === x && this.#at.y === y) return { x, y };
+
     const from = this.#at ?? this.#seedOrigin(x, y);
     const dx = x - from.x;
     const dy = y - from.y;
@@ -172,7 +177,6 @@ export class HumanCursor {
 
     // Settle exactly on target — unjittered, unconditional, always last.
     await this.#dispatchMove(x, y);
-    this.#at = { x, y };
     return { x, y };
   }
 
@@ -304,6 +308,17 @@ export class HumanCursor {
     };
   }
 
+  /**
+   * Dispatches one point and records it as the new position.
+   *
+   * Per dispatch, not once per completed path: a mid-path failure (a transport
+   * hiccup, a tab detaching) leaves the real pointer stranded partway along the
+   * curve, and a `#at` still holding the origin would make the next `moveTo`
+   * plan from a position the browser does not share — its first dispatch would
+   * then jump from the true location onto the new curve. That is a teleport,
+   * the one thing this module exists never to emit, and it would land right
+   * after a retryable failure, which is exactly when a caller retries.
+   */
   async #dispatchMove(x: number, y: number): Promise<void> {
     await this.#target.send("Input.dispatchMouseEvent", {
       type: "mouseMoved",
@@ -313,5 +328,6 @@ export class HumanCursor {
       buttons: 0,
       modifiers: 0,
     });
+    this.#at = { x, y };
   }
 }

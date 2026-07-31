@@ -134,7 +134,13 @@ on `mouseReleased`, matching a real mouseup (the reference sent 1). No delay any
 constant. `rng` and `sleep` are injectable seams so the statistical properties are provable
 offline (D41); nothing in production passes them. Non-finite coordinates are refused before
 dispatch as fatal `INPUT_INVALID_COORDINATE`; transport errors pass through unclassified (D17).
-Proven: 23 offline tests against a recording fake tab (162/162 across the suite), typecheck
+Reviewed 2026-08-08 — the recorded position now updates after *each* successful dispatch rather
+than once the whole path completes: a mid-path transport failure used to leave `#at` on the
+origin while the real pointer sat partway along the curve, so the next `moveTo` planned from a
+position the browser did not share and opened with a teleport — right after a retryable failure,
+which is when a caller retries. Also, a `moveTo` to the point the pointer is already on now
+dispatches nothing, instead of emitting 8–20 identical one-pixel moves via the `dist || 1` path.
+Proven: 25 offline tests against a recording fake tab (164/164 across the suite), typecheck
 clean, no browser involved. Live against the automation Chrome on a local `file://` probe page,
 never LinkedIn: one click produced 21 real `mousemove` events, all `isTrusted`, starting at
 (623, 320) and settling on exactly (360, 230), with the button receiving a trusted `click` at
