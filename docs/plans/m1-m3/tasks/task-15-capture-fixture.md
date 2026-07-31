@@ -50,3 +50,8 @@ offline tests for URL normalization. The capture itself is verified live.
   at least one fixture in `fixtures/profile.get/` with a field map that names real
   paths into the captured JSON. If a pattern mismatch or challenge occurs, stop and
   report rather than retrying.
+- **Discipline gate** — `CONTEXT.md`, "What review actually catches". Partial-failure
+  state walked, failures classified against the layer below, every claimed property
+  pinned by a test. Sharpest here: this is the tap's first real traffic, so compare what
+  the live run captured against what the Task 9 tests assume. Any sequence real Chrome
+  emits that no test double produces is a finding — report it rather than absorbing it.

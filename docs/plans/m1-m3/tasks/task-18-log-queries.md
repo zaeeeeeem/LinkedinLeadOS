@@ -31,3 +31,9 @@ since-window filtering of run summaries, and drift grouping.
 
 All tests pass offline; typecheck clean; each capability invocable through the CLI and
 present in the manifest.
+
+**Discipline gate** — `CONTEXT.md`, "What review actually catches". Every claimed property
+pinned by a test. Sharpest here: `log:why` is what an operator reads when something has
+already gone wrong, so prove it against a run that failed and a run that partly succeeded,
+not only a clean one. A query that silently returns nothing for a truncated event log is
+the bug this capability exists to prevent.

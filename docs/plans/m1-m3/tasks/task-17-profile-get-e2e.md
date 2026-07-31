@@ -38,3 +38,9 @@ store layer, offline tests for the freshness short-circuit and failure mapping.
   person and experience rows are queryable in Supabase, the raw bodies are archived,
   the budget ledger shows the spend. An immediate second invocation returns from cache
   with zero page loads. That is M1–M3 proven end to end.
+- **Discipline gate** — `CONTEXT.md`, "What review actually catches". Partial-failure
+  state walked, failures classified against the layer below, every claimed property
+  pinned by a test. Sharpest here: the receipt must stay truthful when the run only
+  half-succeeds. Prove that a failure after some rows are stored reports what was
+  actually stored — the `partial` field exists for exactly that, and a receipt claiming
+  counts it did not achieve is worse than a failed run.

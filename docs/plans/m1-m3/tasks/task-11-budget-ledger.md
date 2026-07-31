@@ -39,3 +39,10 @@ failing closed rather than being skipped toward a lower count.
 ## Acceptance criteria
 
 All tests pass offline in temp directories; typecheck clean.
+
+**Discipline gate** — `CONTEXT.md`, "What review actually catches". Partial-failure state
+walked, failures classified against the layer below, every claimed property pinned by a
+test. Sharpest here: the ledger is the one thing a flag must not bypass, so prove the
+crash paths. A spend recorded but not committed, or committed twice on a retry, is the
+failure mode — and the tab lease (Task 5) is the worked example of a concurrent claim that
+looked correct and was not.

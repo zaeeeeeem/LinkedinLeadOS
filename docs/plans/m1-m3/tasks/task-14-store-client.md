@@ -34,3 +34,8 @@ last-seen bump, experience replacement, and both lookups against local Supabase.
 
 Offline suite green with Docker off (integration skipped, visibly); full suite green
 with Supabase up; typecheck clean.
+
+**Discipline gate** — `CONTEXT.md`, "What review actually catches". Partial-failure state
+walked, failures classified against the layer below, every claimed property pinned by a
+test. Sharpest here: a write that half-lands. Say what is in the store when a multi-row
+insert fails partway, and make a retry that re-sends rows already written provably safe.

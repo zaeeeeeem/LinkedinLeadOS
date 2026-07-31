@@ -12,6 +12,13 @@ leave accurate files behind.
   body says what exists now and names any deliberate deviation from the task file with
   its reason.
 
+  **Every property the body asserts is one a test proves.** If you cannot point at the
+  test, cut the sentence — do not soften it. This is not a documentation standard; the
+  claim being false is the usual outcome. A tap commit stated that per-request
+  bookkeeping was capped so a long run could not leak. The cap was on the wrong map, the
+  map that actually grew was unbounded, and nothing tested either. Same rule for
+  `STATE.md`: "proven" names what was run.
+
 ## When they apply
 
 - **`DECISIONS.md`** — append a dated entry the moment you make a real X-over-Y choice

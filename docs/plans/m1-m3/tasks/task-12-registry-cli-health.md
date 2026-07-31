@@ -54,3 +54,8 @@ the rest.
   Chrome down, once with it already up) produces ok receipts with correct
   launched/reused evidence, exit 0, events on disk, no consent dialog, no leftover tab,
   operator's window untouched. The listing command returns the manifest.
+- **Discipline gate** — `CONTEXT.md`, "What review actually catches". Partial-failure
+  state walked, failures classified against the layer below, every claimed property
+  pinned by a test. Sharpest here: this is where exit codes become real. Prove each
+  failure class reaches the process exit code the receipt names, and that a capability
+  throwing mid-run still releases the lease.

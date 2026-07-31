@@ -50,6 +50,61 @@ All rules in `CLAUDE.md` apply. These are the ones tasks trip over:
 - Exit codes: `0` ok · `2` challenge · `3` rate-limited · `4` auth dead · `5` parse drift
   · `6` transient · `7` budget exhausted · `1` anything else.
 
+## What review actually catches — hold yourself to these before you commit
+
+Tasks 1–9 were all reviewed. Every finding — all of them — was one of three shapes, and
+none was a design error, a missed deliverable, or a bug on the happy path. The
+implementations do what their task file asks. These three are what the task file *didn't*
+ask, so they are asked here once, for every task.
+
+**1. Partial-failure state. What is left behind when step 3 of 5 throws?**
+
+Most findings were this. A field assigned after the work instead of alongside it; a
+listener attached too late; a resource claimed and not released on the failing path.
+
+Before you commit, for every operation with more than one step:
+
+- Walk each step and name the state that survives if it throws. A field that is only
+  true once the whole operation completes will be read while it is false.
+- Every mutable field: say when it is *written* versus when it becomes *true*. Those
+  differing is the bug. (`HumanCursor` recorded the pointer position after a whole path
+  completed, so a mid-path transport failure left it describing a position the browser
+  did not share, and the next call opened with a teleport.)
+- Anything acquired must be released on every path out, including the throwing ones.
+
+**2. Failure classification, checked against the layer below.**
+
+`retryable` is what callers branch on, and it splits on one question only: *will a retry
+change this?* — never on severity (D13). Two rules:
+
+- Errors already classified by a module you consume pass through **unchanged**. Do not
+  re-wrap and re-decide. (Task 4 re-marked a locally-closed tab retryable after Task 3
+  had already settled that it is fatal.)
+- One code per distinct operator action. If a truncated file and a failed write share a
+  code, the receipt cannot tell someone which thing to go fix.
+
+**3. Every property you claim in prose is pinned by a test that names it.**
+
+If the commit message, a doc comment, or `STATE.md` asserts a property, a test proves it
+or the sentence comes out. This is not paperwork — the claim being *false* is the usual
+outcome. The network tap's message said per-request bookkeeping was capped so an
+hours-long run could not leak; the cap was on the wrong map, the one that actually grew
+was unbounded, and no test touched either.
+
+Specifically:
+
+- **Every map, buffer, or list that grows gets a stated bound and a test that exceeds
+  it.** A bound nothing has ever crossed is a guess.
+- **Every silent-loss path is made visible.** If data can be dropped, something records
+  it. A response the tap forgot and one that never arrived must not produce the same
+  receipt — that is how an operator ends up debugging LinkedIn over a bug in here.
+- **A fake that emits sequences the real protocol never produces will certify a bug as
+  fixed.** Check your test doubles against what actually happens on the wire.
+
+Findings of these three shapes are cheap to catch here and expensive to catch in review.
+Bring judgment calls to review instead — a real X-over-Y with a defensible case each way
+is exactly what review is for, and what `DECISIONS.md` exists to record.
+
 ## Environment gotchas (verified 2026-08-07)
 
 - Chrome 151 rejects the bare `ws://…/devtools/browser` path; only `/json/version`

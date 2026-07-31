@@ -35,3 +35,7 @@ applies cleanly on a fresh `supabase start`, and a smoke query shows the tables 
 
 `supabase start` + migration apply cleanly from scratch; every §7 table queryable;
 `.env` absent from git; decisions recorded.
+
+**Discipline gate** — `CONTEXT.md`, "What review actually catches". Every property claimed
+in prose pinned by something that runs. Sharpest here: a migration that applies cleanly
+once is not proven — prove it from scratch, and prove re-applying it is safe.

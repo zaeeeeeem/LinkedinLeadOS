@@ -40,3 +40,9 @@ test layers, living in the capability's directory per the repo convention.
 Contract tests green everywhere; fixture tests green on this machine (fixtures exist
 from Task 15) and extract at minimum URN, name, headline, location, and a non-empty,
 correctly-ordered experience list from the real capture; typecheck clean.
+
+**Discipline gate** — `CONTEXT.md`, "What review actually catches". Every claimed property
+pinned by a test. Sharpest here: prove what happens when a field the parser expects is
+absent or moved. Parse drift has its own exit code (`5`) because silently returning a
+half-empty row is the failure that reaches a customer — a missing field must be
+distinguishable from a field that is genuinely empty.

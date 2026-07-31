@@ -42,3 +42,10 @@ All tests pass offline; typecheck clean. The classifier's URL patterns are groun
 LinkedIn's real challenge/login paths (verify against the reference worker's experience
 and current knowledge, and note any pattern you are unsure of as a comment — Task 15's
 live run is the first real-world check).
+
+**Discipline gate** — `CONTEXT.md`, "What review actually catches". Partial-failure state
+walked, failures classified against the layer below, every claimed property pinned by a
+test. Sharpest here: a false negative costs the account, so the test that matters is the
+one proving an *unrecognized* challenge page does not read as a normal page. Say what
+happens on a challenge shape this classifier has never seen — silence is the wrong answer,
+and "tests pass" cannot see it.
