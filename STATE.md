@@ -147,8 +147,31 @@ never LinkedIn: one click produced 21 real `mousemove` events, all `isTrusted`, 
 that point; `wheel(…, 640)` produced 9 notches, every delta inside the band, summing to exactly
 640, and the page's `scrollY` read back 640.
 
+Task 9 — network tap. `src/core/tap/{constants,network-tap}.ts`: `NetworkTap` over a
+structural `TapTransport` (the Task 3 `CdpClient`) plus the worker tab's `sessionId`, a
+`RawArchive`, and an optional event sink — `watch`/`unwatch`/`watching`, `start`/`stop`/
+`running`, `captures()`/`misses()`/`cursor`/`stats()`, `waitFor(pattern, {timeoutMs, since})`
+and `drain()`. Purely passive (D1): it enables no CDP domain — `Network` is already on from
+`WorkerTab.attach`, which stays the one place the attach surface is decided (D8) — and it
+only ever reads bodies the page fetched itself. A response is fetched only once both its
+`responseReceived` (which carries the URL, and so whether we care) and its `loadingFinished`
+have been seen, in either order, because CDP orders events within a type and not across them;
+a duplicate finish cannot re-fetch a claimed body. Every body is archived (D2) before the
+capture is handed to anyone or a waiter wakes. Events are filtered on `sessionId`, so another
+target's traffic cannot leak in, and the per-request bookkeeping is capped at
+`SEEN_REQUEST_CAP` so an hours-long run cannot leak. Lost bodies (evicted buffer,
+`loadingFailed`, archive write failure) are recorded misses + `capture.miss`, never throws,
+and they do not fail a pending wait — the `CAPTURE_TIMEOUT` message names how many misses that
+pattern saw instead (D51). `waitFor` defaults to the *next* capture and takes a `since` cursor
+for the click-then-await race (D50); it fails as transient `CAPTURE_TIMEOUT` (exit 6), fatal
+`TAP_UNKNOWN_PATTERN` on a typo'd name, and fatal `TAP_STOPPED` when the tap is stopped under
+it (same reasoning as `CDP_CLIENT_CLOSED` / `TAB_CLOSED`). Proven: 33 new offline tests against
+a fake CDP emitting synthetic protocol sequences (197/197 across the suite, three consecutive
+runs with no flake), typecheck clean. No live check — the task file assigns real-traffic proof
+to Task 15's live capture.
+
 ## In progress
 _(nothing)_
 
 ## Next
-Task 9 — network tap (`docs/plans/m1-m3/tasks/`)
+Task 10 — challenge detection (`docs/plans/m1-m3/tasks/`)

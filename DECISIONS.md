@@ -388,3 +388,46 @@ result, but the seam becomes global state two tests can fight over.
 Consequence worth stating: `sleep` is a real seam, not a formality. A caller that passes a
 no-op `sleep` in production would strip every pacing delay while leaving the paths intact,
 which is the one way to misuse this class badly. Only tests pass it.
+
+## D50 — `waitFor` waits for the *next* capture, and takes a cursor to look further back
+2026-08-08. `NetworkTap.waitFor(pattern, { since })` resolves on the first matching capture
+whose tap-local `seq` is at or past `since`, which defaults to the tap's current `cursor`.
+Callers that need the response caused by an action they are about to take snapshot
+`tap.cursor` first and pass it.
+
+The race is real and it is the default failure mode of the naive API: a click causes a
+fetch, the response and its `loadingFinished` can both land before the awaiting code runs,
+and a `waitFor` that only looks forward then burns its whole timeout waiting for a capture
+that already happened. That failure presents as "LinkedIn did not respond", which sends the
+operator to the browser instead of to the code.
+
+Rejected: resolving from the whole history by default. It makes the common case work and the
+loop case silently wrong — a paginated crawl would re-resolve page 2's wait with page 1's
+capture forever, and every row after the first would be a duplicate the parser cannot tell
+from a real one. Rejected: consuming captures (each one resolves at most one waiter). Two
+capabilities legitimately watch overlapping patterns over the same traffic, and a consumed
+capture makes which one wins depend on registration order.
+
+## D51 — A lost body is a recorded miss; it never throws and never fails a pending wait
+2026-08-08. `Network.getResponseBody` failing (an evicted buffer), `Network.loadingFailed`,
+and an archive write failing all append to `misses()` and log `capture.miss`. Nothing is
+thrown: these happen inside a CDP event handler, where there is no caller to throw to and an
+escaping rejection would be unhandled.
+
+A miss also does not fail a `waitFor` on the same pattern, which is the less obvious half. A
+lost body says nothing about whether the *next* matching response will arrive — pages retry
+their own fetches, and a hard fail here would end a run over a recoverable event. The cost is
+that a genuinely lost capture is only learned at the timeout, so the `CAPTURE_TIMEOUT` message
+names how many misses were recorded for that pattern; a timeout that was really an eviction is
+diagnosable from the receipt alone, without reading the event log.
+
+An archive failure is a miss and not a delivery-with-a-warning, unlike
+`ARCHIVE_SIDECAR_FAILED` (D31), which stays a warning on the capture: a body no one archived
+is a body no one may parse, because there is no copy left to re-parse when the parser turns
+out to be wrong (D2). A missing sidecar loses metadata that can be reconstructed; a missing
+body cannot.
+
+Also settled here: a body still on the wire when `stop()` lands is dropped rather than
+archived and delivered. It belongs to a phase the capability has already left, and appending
+to a result set nobody is reading is worse than losing one response the caller did not wait
+for.
