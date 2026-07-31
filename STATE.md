@@ -112,8 +112,37 @@ no-dedupe on identical shapes, `list()` metadata and empty/missing-directory cas
 seed-from-disk resume, and `ARCHIVE_ENTRY_MISSING` on an unknown id), all in `mkdtemp` temp
 dirs cleaned up per test; typecheck clean.
 
+Task 7 follow-up (2026-08-08, in the Task 8 commit) — three review findings closed, see D31:
+a failed sidecar write is now `warning: ARCHIVE_SIDECAR_FAILED` on the returned
+`ArchivedCapture` (message states the body is archived and readable) instead of a run-halting
+`ARCHIVE_WRITE_FAILED`; read paths split into `ARCHIVE_READ_FAILED` (`readFile`/`readdir`) and
+`ARCHIVE_CORRUPT` (not valid gzip) so `log:why` stops counting corrupt reads as write failures;
+the pre-write shape hash stays as it is, with the reasoning written down rather than left implicit.
+Proven: 4 new tests (degraded sidecar keeps a readable body and warns, clean path warns nothing,
+`EISDIR` read → `ARCHIVE_READ_FAILED`, non-gzip body → `ARCHIVE_CORRUPT`).
+
+Task 8 — human input primitives. `src/core/input/{constants,random,cursor}.ts`:
+`HumanCursor` over a structural `InputTarget` (the Task 4 `WorkerTab`'s `send`), with
+`moveTo`, `click`, `wheel`, `pause` and a `position` getter. Moves are quadratic Bézier paths
+with a randomly signed bow, eased timing, 8–20 points, ±3px per-point jitter and a corrected
+overshoot on ~20% of moves, always settling on a final unjittered dispatch at the exact target
+so hit-testing is unchanged. Wheel dispatches real `Input.dispatchMouseEvent` `mouseWheel`
+notches in the 40–120px band, planned so they sum exactly to the request rather than rounding
+the last one up (D40 — deviation from the reference worker, which overshot by up to 39px); an
+ask below one notch still rounds up and `WheelResult.scrolled` reports the truth. `buttons: 0`
+on `mouseReleased`, matching a real mouseup (the reference sent 1). No delay anywhere is a
+constant. `rng` and `sleep` are injectable seams so the statistical properties are provable
+offline (D41); nothing in production passes them. Non-finite coordinates are refused before
+dispatch as fatal `INPUT_INVALID_COORDINATE`; transport errors pass through unclassified (D17).
+Proven: 23 offline tests against a recording fake tab (162/162 across the suite), typecheck
+clean, no browser involved. Live against the automation Chrome on a local `file://` probe page,
+never LinkedIn: one click produced 21 real `mousemove` events, all `isTrusted`, starting at
+(623, 320) and settling on exactly (360, 230), with the button receiving a trusted `click` at
+that point; `wheel(…, 640)` produced 9 notches, every delta inside the band, summing to exactly
+640, and the page's `scrollY` read back 640.
+
 ## In progress
 _(nothing)_
 
 ## Next
-Task 8 — human input (`docs/plans/m1-m3/tasks/task-08-human-input.md`)
+Task 9 — network tap (`docs/plans/m1-m3/tasks/`)

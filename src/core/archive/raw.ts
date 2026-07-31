@@ -23,6 +23,9 @@ export type CaptureInput = {
   capturedAt?: string;
 };
 
+/** A capture that landed, but not intact. Never a failure — see `archive()`. */
+export type CaptureWarning = { code: "ARCHIVE_SIDECAR_FAILED"; message: string };
+
 /**
  * What `archive()` and `list()` return: everything needed to find, identify,
  * and re-read one capture without touching the body itself. `bytes` is the
@@ -43,6 +46,10 @@ export type ArchivedCapture = {
   contentType?: string;
   capturedAt: string;
   bytes: number;
+  /** Present only when the capture landed degraded — the body is on disk and
+   *  readable, but something beside it did not. Callers put this on the
+   *  receipt's `warnings`; it is never a reason to stop. */
+  warning?: CaptureWarning;
 };
 
 /** The sidecar's on-disk shape. Everything `ArchivedCapture` needs except
@@ -58,15 +65,34 @@ type Meta = {
   bytes: number;
 };
 
-function writeFailed(op: string, cause: unknown): CapabilityError {
+function archiveError(code: string, op: string, cause: unknown): CapabilityError {
   return new CapabilityError({
-    code: "ARCHIVE_WRITE_FAILED",
+    code,
     exit: EXIT.GENERIC,
     action: "HALT_AND_NOTIFY",
     retryable: false,
     message: `raw archive ${op} failed: ${String(cause)}`,
     evidence: cause instanceof Error ? cause.stack ?? cause.message : String(cause),
   });
+}
+
+/** A capture that never reached disk. Nothing downstream can recover it. */
+function writeFailed(op: string, cause: unknown): CapabilityError {
+  return archiveError("ARCHIVE_WRITE_FAILED", op, cause);
+}
+
+/** The archive could not be read back. Split from `ARCHIVE_WRITE_FAILED`
+ *  because receipts and `log:why` group by code: folding a failed read into
+ *  the write bucket permanently miscounts how runs actually fail. */
+function readFailed(op: string, cause: unknown): CapabilityError {
+  return archiveError("ARCHIVE_READ_FAILED", op, cause);
+}
+
+/** The file is there and readable but is not valid gzip — a truncated or
+ *  damaged archive, which is a different problem from an I/O failure and
+ *  points at a different fix. */
+function corrupt(op: string, cause: unknown): CapabilityError {
+  return archiveError("ARCHIVE_CORRUPT", op, cause);
 }
 
 function entryMissing(id: string): CapabilityError {
@@ -95,7 +121,7 @@ function bodyBuffer(body: string | Uint8Array): Buffer {
  * later step, which is exactly the failure raw-first storage exists to
  * prevent. A sidecar fails the other way: the body is always enumerable by
  * scanning the directory, and only its metadata can go missing. See
- * DECISIONS.md D16.
+ * DECISIONS.md D30 and D31.
  */
 export class RawArchive {
   readonly #dir: string;
@@ -108,10 +134,18 @@ export class RawArchive {
   }
 
   /**
-   * Persists one capture. Order is non-negotiable: shape hash, then gzip,
-   * then the body file, then the sidecar. The body must never be invisible
-   * because the sidecar write failed — so the sidecar is written last and
-   * its own failure still leaves the body archived and listable.
+   * Persists one capture. Order is: shape hash, then gzip, then the body
+   * file, then the sidecar. The body must never be invisible because the
+   * sidecar write failed — so the sidecar is written last and its own failure
+   * is a warning on the returned record, never a throw.
+   *
+   * The hash is computed before the body reaches disk because the filename
+   * embeds it. That reads as an inversion of raw-first (D2), and is not one:
+   * the body is already fully buffered in memory by then, `shapeHashOfBody`
+   * is total (it cannot throw — a non-JSON body gets `NON_JSON_SHAPE`), and
+   * the only failure it could add is an OOM on a pathological body, which no
+   * ordering survives and which `NETWORK_RESOURCE_BUFFER_BYTES` caps at 20MB
+   * upstream anyway. See D31.
    */
   async archive(input: CaptureInput): Promise<ArchivedCapture> {
     const bytes = bodyBuffer(input.body);
@@ -139,13 +173,21 @@ export class RawArchive {
       capturedAt,
       bytes: bytes.length,
     };
-    const metaPath = this.#metaPath(file);
+    let warning: CaptureWarning | undefined;
     try {
-      await this.#writeExclusive(metaPath, Buffer.from(JSON.stringify(meta), "utf8"));
+      await this.#writeExclusive(this.#metaPath(file), Buffer.from(JSON.stringify(meta), "utf8"));
     } catch (cause) {
-      // The body is already safe on disk and enumerable via list(); only the
-      // metadata degraded. That is the trade-off the sidecar layout accepts.
-      throw writeFailed(`write sidecar for ${file}`, cause);
+      // Deliberately not a throw. The body is already on disk and already
+      // enumerable by `list()` — this is precisely the degraded case the
+      // sidecar layout was chosen to produce instead of a lost capture (D30),
+      // and halting the run here would discard that advantage at the one
+      // moment it pays off. It surfaces as a receipt warning instead.
+      warning = {
+        code: "ARCHIVE_SIDECAR_FAILED",
+        message:
+          `the body for ${file} is archived and readable; only its metadata sidecar ` +
+          `could not be written: ${String(cause)}`,
+      };
     }
 
     return {
@@ -162,6 +204,7 @@ export class RawArchive {
       contentType: input.contentType,
       capturedAt,
       bytes: bytes.length,
+      ...(warning ? { warning } : {}),
     };
   }
 
@@ -212,13 +255,13 @@ export class RawArchive {
       compressed = await readFile(path);
     } catch (cause) {
       if ((cause as NodeJS.ErrnoException).code === "ENOENT") throw entryMissing(file);
-      throw writeFailed(`read ${file}`, cause);
+      throw readFailed(`read ${file}`, cause);
     }
 
     try {
       return await gunzip(compressed);
     } catch (cause) {
-      throw writeFailed(`gunzip ${file}`, cause);
+      throw corrupt(`gunzip ${file}`, cause);
     }
   }
 
@@ -292,7 +335,7 @@ export class RawArchive {
       return await readdir(this.#dir);
     } catch (cause) {
       if ((cause as NodeJS.ErrnoException).code === "ENOENT") return [];
-      throw writeFailed("read directory", cause);
+      throw readFailed("read directory", cause);
     }
   }
 

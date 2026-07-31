@@ -1,5 +1,5 @@
 import { describe, it, expect, afterEach } from "vitest";
-import { mkdtemp, rm, stat, readFile } from "node:fs/promises";
+import { mkdtemp, mkdir, rm, stat, readFile, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { RawArchive } from "../src/core/archive/raw.js";
@@ -176,5 +176,65 @@ describe("RawArchive.read", () => {
     expect((err as CapabilityError).code).toBe("ARCHIVE_ENTRY_MISSING");
     expect((err as CapabilityError).retryable).toBe(false);
     expect((err as CapabilityError).action).toBe("HALT_AND_NOTIFY");
+  });
+});
+
+describe("RawArchive degraded and corrupt cases", () => {
+  it("keeps the body and warns when the sidecar cannot be written", async () => {
+    const dir = await tempDir();
+    const archive = new RawArchive(dir);
+    const body = JSON.stringify({ elements: [{ id: 1 }] });
+
+    // A directory squatting on the sidecar's exact name: the body write still
+    // succeeds, the sidecar's exclusive-create cannot.
+    const hash = shapeHashOfBody(Buffer.from(body, "utf8"));
+    await mkdir(join(dir, `0000-${hash}.meta.json`));
+
+    const entry = await archive.archive({ body, url: "https://x/", status: 200 });
+
+    // Not a halt: the capture landed, only its metadata did not.
+    expect(entry.warning?.code).toBe("ARCHIVE_SIDECAR_FAILED");
+    // The message says the body survived, so nobody goes hunting for it.
+    expect(entry.warning?.message).toContain("archived and readable");
+    expect(await archive.readText(entry)).toBe(body);
+    expect(await archive.list()).toHaveLength(1);
+  });
+
+  it("reports no warning on the ordinary path", async () => {
+    const dir = await tempDir();
+    const entry = await new RawArchive(dir).archive({
+      body: JSON.stringify({ a: 1 }),
+      url: "https://x/",
+      status: 200,
+    });
+    expect(entry.warning).toBeUndefined();
+  });
+
+  it("classifies an unreadable archive file as ARCHIVE_READ_FAILED, not a write failure", async () => {
+    const dir = await tempDir();
+    const archive = new RawArchive(dir);
+    const entry = await archive.archive({ body: "{}", url: "https://x/", status: 200 });
+
+    // Replace the body file with a directory: readFile fails with EISDIR, which
+    // is neither ENOENT (missing) nor a write.
+    await rm(entry.path);
+    await mkdir(entry.path);
+
+    const err = (await archive.read(entry).catch((e: unknown) => e)) as CapabilityError;
+    expect(err).toBeInstanceOf(CapabilityError);
+    expect(err.code).toBe("ARCHIVE_READ_FAILED");
+  });
+
+  it("classifies a body that is not valid gzip as ARCHIVE_CORRUPT", async () => {
+    const dir = await tempDir();
+    const archive = new RawArchive(dir);
+    const entry = await archive.archive({ body: "{}", url: "https://x/", status: 200 });
+
+    await writeFile(entry.path, Buffer.from("not gzip at all"));
+
+    const err = (await archive.read(entry).catch((e: unknown) => e)) as CapabilityError;
+    expect(err).toBeInstanceOf(CapabilityError);
+    expect(err.code).toBe("ARCHIVE_CORRUPT");
+    expect(err.action).toBe("HALT_AND_NOTIFY");
   });
 });

@@ -317,3 +317,74 @@ directory for the highest existing sequence number, so a resumed run over the sa
 continues numbering instead of restarting at 0; each write claims its filename with the `wx`
 (exclusive-create) flag and moves to the next `seq` on `EEXIST`, so two `RawArchive`
 instances racing over one directory cannot clobber each other's body.
+
+## D31 — Archive failure classes split three ways, and a lost sidecar is a warning
+2026-08-08 (Task 7 follow-up, written during Task 8). Three findings from the Task 7
+review, resolved together.
+
+**A failed sidecar write no longer halts the run.** `archive()` returns the
+`ArchivedCapture` with `warning: { code: "ARCHIVE_SIDECAR_FAILED", … }` instead of
+throwing. D30 chose the sidecar layout precisely so that the survivable failure is the
+metadata one and the body is always on disk and always enumerable — throwing
+`ARCHIVE_WRITE_FAILED` / `HALT_AND_NOTIFY` at that exact moment threw the advantage away
+and reported the degraded case identically to a lost capture. Worse, the message did not
+say the body had survived, so the receipt sent its reader hunting for a file already
+sitting on disk. The warning message now states that the body is archived and readable.
+Rejected: keeping the halt with a better message. The message was the smaller half of the
+problem — a run that stops over a missing `.meta.json` has stopped over nothing that
+re-parsing cannot reconstruct.
+
+**Read failures are their own code.** `ARCHIVE_WRITE_FAILED` (never reached disk) ·
+`ARCHIVE_READ_FAILED` (`readFile`/`readdir` failed) · `ARCHIVE_CORRUPT` (on disk and
+readable but not valid gzip). Receipts and `log:why` group by code (D5), so folding a
+corrupt-archive read into the write bucket permanently miscounts how runs fail, and the
+three point at three different fixes: disk full, permissions, and a damaged file.
+
+**The shape hash stays computed before the body is written, and D2's ordering stands.**
+The filename embeds the hash, so the hash must exist first. This is not the inversion of
+raw-first it looks like: the body is fully buffered in memory before hashing,
+`shapeHashOfBody` is total (a non-JSON body returns `NON_JSON_SHAPE` rather than
+throwing), and the only failure the ordering could introduce is an OOM on a pathological
+body — which no ordering survives and which `NETWORK_RESOURCE_BUFFER_BYTES` caps at 20MB
+upstream. Rejected: writing under a seq-only name and renaming once the hash is known.
+It matches the rule more literally and buys nothing real, and it breaks the property that
+makes concurrent writers safe — the `wx` claim is currently on the final filename, so a
+rename step reopens the seq for a second instance to claim between the claim and the
+rename.
+
+## D40 — Wheel notches are planned so the total lands exactly on the request
+2026-08-08. `HumanCursor.wheel` shortens the *current* notch when the remainder would
+otherwise fall below one notch, so every notch stays inside the 40–120px human band and
+the dispatched deltas sum exactly to the requested distance.
+
+The reference worker (`engine/cdp.mjs`) instead rounded the final leftover **up** to the
+40px minimum, overshooting the request by up to 39px. That was the right call against the
+alternative it was weighing — a 6px wheel event is a giveaway twitch — but it is not the
+only way to avoid one, and the overshoot is not free here: a caller scrolling by a
+measured remainder (a pagination boundary, a distance to a known element) gets a page
+scrolled past where it asked, and cannot tell without reading the return value.
+
+The one ask that cannot satisfy both properties is one smaller than a single notch. There
+the notch wins, exactly as the reference decided, and `WheelResult.scrolled` reports the
+real distance rather than echoing the request — so the truth is on the return value in the
+one case where it differs, instead of in every case.
+
+## D41 — Randomness and the clock are injectable seams in the human-input layer
+2026-08-08. `HumanCursor` takes optional `rng` and `sleep`, defaulting to `Math.random`
+and a real timer. Nothing in production ever passes them; the tests always do.
+
+This layer's correctness is entirely statistical — a path that bows only one way, a
+cadence that is secretly constant, an overshoot that never fires — and all of those look
+perfectly fine in a test that asserts the pointer ended up on the target. Injecting the
+seams is what makes them assertable: 300 paths in milliseconds instead of 300 real
+`setTimeout`s, and a forced branch instead of waiting for a 20% probability.
+
+Rejected: `vi.useFakeTimers()`. It fakes the clock but not the randomness, so the branch
+tests would still be probabilistic, and it makes every test in the file depend on timer
+mocking working correctly with `async` code — a failure mode with nothing to do with the
+behaviour under test. Rejected: a module-level seeded PRNG swapped by an env var. Same
+result, but the seam becomes global state two tests can fight over.
+
+Consequence worth stating: `sleep` is a real seam, not a formality. A caller that passes a
+no-op `sleep` in production would strip every pacing delay while leaving the paths intact,
+which is the one way to misuse this class badly. Only tests pass it.
