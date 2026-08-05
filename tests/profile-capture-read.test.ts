@@ -1,9 +1,12 @@
 import { describe, expect, it } from "vitest";
-import { VIEWPORT_EXPRESSION, readLikeAHuman } from "../src/capabilities/profile.capture/read.js";
+import {
+  VIEWPORT_EXPRESSION, readLikeAHuman, waitForLayout,
+} from "../src/capabilities/profile.capture/read.js";
 import type { ReadCursor, ReadTab } from "../src/capabilities/profile.capture/read.js";
 import {
   DWELL_MS_MAX,
   FALLBACK_VIEWPORT,
+  LAYOUT_STABLE_READS,
   SCROLL_PASSES_MAX,
   SCROLL_PASSES_MIN,
 } from "../src/capabilities/profile.capture/constants.js";
@@ -39,33 +42,46 @@ function fakeCursor(): ReadCursor & { moves: Dispatched[]; pauses: number[] } {
   };
 }
 
-function fakeTab(viewport: unknown): ReadTab & { expressions: string[] } {
+/** Answers a fixed viewport, or walks a scripted sequence of them — one per
+ *  poll — so a page that lays out late can be staged exactly. */
+function fakeTab(viewport: unknown, sequence?: unknown[]): ReadTab & { expressions: string[] } {
   const expressions: string[] = [];
+  let i = 0;
   return {
     expressions,
     async evaluate<T>(expression: string): Promise<T> {
       expressions.push(expression);
-      if (viewport instanceof Error) throw viewport;
-      return viewport as T;
+      const answer = sequence ? (sequence[Math.min(i++, sequence.length - 1)] ?? viewport) : viewport;
+      if (answer instanceof Error) throw answer;
+      return answer as T;
     },
   };
 }
 
+/** Layout already settled, for the tests that are about scrolling, not waiting. */
+const SETTLED = (v: { width: number; height: number; scrollHeight: number } | null) => ({
+  viewport: v, settled: v !== null, polls: 1, waitedMs: 0,
+});
+
+const noSleep = async () => {};
+
 const VIEWPORT = { width: 1440, height: 900, scrollHeight: 9000 };
 
 describe("readLikeAHuman", () => {
-  it("measures the page with one round trip before scrolling", async () => {
+  it("measures the page with the viewport read and nothing else", async () => {
     const tab = fakeTab(VIEWPORT);
     const cursor = fakeCursor();
-    const result = await readLikeAHuman({ tab, cursor, passes: 2, rng: () => 0.5 });
+    const result = await readLikeAHuman({ tab, cursor, passes: 2, rng: () => 0.5, sleep: noSleep });
 
-    expect(tab.expressions).toEqual([VIEWPORT_EXPRESSION]);
+    // Every DOM read this module makes is the one navigation-support probe (D1).
+    expect(new Set(tab.expressions)).toEqual(new Set([VIEWPORT_EXPRESSION]));
     expect(result.viewport).toEqual(VIEWPORT);
+    expect(result.layout.settled).toBe(true);
   });
 
   it("scrolls in several passes rather than one jump", async () => {
     const cursor = fakeCursor();
-    const result = await readLikeAHuman({ tab: fakeTab(VIEWPORT), cursor, passes: 4, rng: () => 0.5 });
+    const result = await readLikeAHuman({ tab: fakeTab(VIEWPORT), cursor, passes: 4, rng: () => 0.5, layout: SETTLED(VIEWPORT) });
 
     expect(result.passes).toBe(4);
     expect(cursor.moves).toHaveLength(4);
@@ -77,7 +93,7 @@ describe("readLikeAHuman", () => {
 
   it("pauses between every pass and dwells at the end", async () => {
     const cursor = fakeCursor();
-    await readLikeAHuman({ tab: fakeTab(VIEWPORT), cursor, passes: 3, rng: () => 0.5 });
+    await readLikeAHuman({ tab: fakeTab(VIEWPORT), cursor, passes: 3, rng: () => 0.5, layout: SETTLED(VIEWPORT) });
     // Three inter-pass pauses plus the closing dwell.
     expect(cursor.pauses).toHaveLength(4);
     expect(cursor.pauses.at(-1)!).toBeLessThanOrEqual(DWELL_MS_MAX);
@@ -85,7 +101,7 @@ describe("readLikeAHuman", () => {
 
   it("dwells even when nothing is scrolled", async () => {
     const cursor = fakeCursor();
-    const result = await readLikeAHuman({ tab: fakeTab(VIEWPORT), cursor, passes: 0, rng: () => 0.5 });
+    const result = await readLikeAHuman({ tab: fakeTab(VIEWPORT), cursor, passes: 0, rng: () => 0.5, layout: SETTLED(VIEWPORT) });
     expect(result.passes).toBe(0);
     expect(cursor.moves).toEqual([]);
     expect(cursor.pauses).toHaveLength(1);
@@ -97,7 +113,7 @@ describe("readLikeAHuman", () => {
     // matter how many passes were asked for.
     const cursor = fakeCursor();
     const short = { width: 1440, height: 900, scrollHeight: 1100 };
-    const result = await readLikeAHuman({ tab: fakeTab(short), cursor, passes: 6, rng: () => 0.5 });
+    const result = await readLikeAHuman({ tab: fakeTab(short), cursor, passes: 6, rng: () => 0.5, layout: SETTLED(short) });
 
     expect(result.passes).toBe(1);
     expect(result.scrolled).toBe(200); // scrollHeight - height, exactly
@@ -112,7 +128,7 @@ describe("readLikeAHuman", () => {
       // `chance(p)` is rng() < p — 0.01 always takes the back branch.
       return calls % 4 === 3 ? 0.01 : 0.5;
     };
-    await readLikeAHuman({ tab: fakeTab(VIEWPORT), cursor, passes: 5, rng });
+    await readLikeAHuman({ tab: fakeTab(VIEWPORT), cursor, passes: 5, rng, layout: SETTLED(VIEWPORT) });
 
     let position = 0;
     for (const move of cursor.moves) {
@@ -126,6 +142,7 @@ describe("readLikeAHuman", () => {
       const cursor = fakeCursor();
       const result = await readLikeAHuman({
         tab: fakeTab(broken), cursor, passes: 2, rng: () => 0.5,
+        layoutTimeoutMs: 5, sleep: noSleep,
       });
       expect(result.viewport).toBeNull();
       expect(cursor.moves).toHaveLength(2);
@@ -137,7 +154,7 @@ describe("readLikeAHuman", () => {
   it("chooses its own pass count inside the band when none is given", async () => {
     for (const r of [0, 0.5, 0.999]) {
       const cursor = fakeCursor();
-      const result = await readLikeAHuman({ tab: fakeTab(VIEWPORT), cursor, rng: () => r });
+      const result = await readLikeAHuman({ tab: fakeTab(VIEWPORT), cursor, rng: () => r, layout: SETTLED(VIEWPORT) });
       expect(result.passes).toBeGreaterThanOrEqual(SCROLL_PASSES_MIN);
       expect(result.passes).toBeLessThanOrEqual(SCROLL_PASSES_MAX);
     }
@@ -145,7 +162,7 @@ describe("readLikeAHuman", () => {
 
   it("puts the pointer inside the viewport, not at the origin", async () => {
     const cursor = fakeCursor();
-    await readLikeAHuman({ tab: fakeTab(VIEWPORT), cursor, passes: 3, rng: () => 0.5 });
+    await readLikeAHuman({ tab: fakeTab(VIEWPORT), cursor, passes: 3, rng: () => 0.5, layout: SETTLED(VIEWPORT) });
     for (const move of cursor.moves) {
       expect(move.x).toBeGreaterThan(0);
       expect(move.x).toBeLessThan(VIEWPORT.width);
@@ -156,9 +173,89 @@ describe("readLikeAHuman", () => {
 
   it("reports notches and pixels from what the cursor actually dispatched", async () => {
     const cursor = fakeCursor();
-    const result = await readLikeAHuman({ tab: fakeTab(VIEWPORT), cursor, passes: 3, rng: () => 0.5 });
+    const result = await readLikeAHuman({ tab: fakeTab(VIEWPORT), cursor, passes: 3, rng: () => 0.5, layout: SETTLED(VIEWPORT) });
     const expected = cursor.moves.reduce((sum, m) => sum + Math.abs(m.deltaY), 0);
     expect(result.scrolled).toBe(expected);
     expect(result.notches).toBeGreaterThan(0);
+  });
+});
+
+describe("waitForLayout — the regression from the first live capture", () => {
+  it("waits past an empty shell that measures exactly one viewport tall", async () => {
+    // Verbatim from run 01KZH9VVPKB5JEVEBW7G2JJ6F3: LinkedIn answered
+    // readyState complete with scrollHeight === innerHeight === 798, so the old
+    // single-measurement read scrolled nothing and the capture came back holding
+    // the profile's urn and none of its content.
+    const shell = { width: 1333, height: 798, scrollHeight: 798 };
+    const laidOut = { width: 1333, height: 798, scrollHeight: 6400 };
+    const tab = fakeTab(laidOut, [shell, shell, laidOut, laidOut, laidOut]);
+
+    const layout = await waitForLayout(tab, { pollMs: 0, sleep: noSleep });
+
+    expect(layout.settled).toBe(true);
+    expect(layout.viewport).toEqual(laidOut);
+    expect(layout.polls).toBeGreaterThan(2);
+  });
+
+  it("does not settle while the document is still growing", async () => {
+    const growing = [
+      { width: 1000, height: 800, scrollHeight: 1200 },
+      { width: 1000, height: 800, scrollHeight: 2400 },
+      { width: 1000, height: 800, scrollHeight: 3600 },
+      { width: 1000, height: 800, scrollHeight: 3600 },
+      { width: 1000, height: 800, scrollHeight: 3600 },
+    ];
+    const layout = await waitForLayout(fakeTab(growing.at(-1), growing), { pollMs: 0, sleep: noSleep });
+    expect(layout.settled).toBe(true);
+    expect(layout.viewport!.scrollHeight).toBe(3600);
+    // Tall from the very first read, but not settled until it stopped moving.
+    expect(layout.polls).toBeGreaterThanOrEqual(3 + LAYOUT_STABLE_READS - 1);
+  });
+
+  it("reports not-settled rather than hanging when the page never grows", async () => {
+    const shell = { width: 1333, height: 798, scrollHeight: 798 };
+    const layout = await waitForLayout(fakeTab(shell), { timeoutMs: 5, pollMs: 1, sleep: noSleep });
+    expect(layout.settled).toBe(false);
+    expect(layout.viewport).toEqual(shell);
+  });
+
+  it("reports not-settled rather than throwing when the page cannot be read", async () => {
+    const layout = await waitForLayout(fakeTab(new Error("context destroyed")), {
+      timeoutMs: 5, pollMs: 1, sleep: noSleep,
+    });
+    expect(layout.settled).toBe(false);
+    expect(layout.viewport).toBeNull();
+  });
+
+  it("is what readLikeAHuman uses when no layout is handed to it", async () => {
+    const shell = { width: 1333, height: 798, scrollHeight: 798 };
+    const laidOut = { width: 1333, height: 798, scrollHeight: 6400 };
+    const cursor = fakeCursor();
+    const result = await readLikeAHuman({
+      tab: fakeTab(laidOut, [shell, laidOut, laidOut, laidOut]),
+      cursor,
+      passes: 3,
+      rng: () => 0.5,
+      sleep: noSleep,
+    });
+
+    expect(result.layout.settled).toBe(true);
+    // The whole point: it scrolls, where the pre-fix version scrolled nothing.
+    expect(result.passes).toBe(3);
+    expect(cursor.moves.length).toBeGreaterThan(0);
+  });
+
+  it("still dwells, and says so, when the page never laid out", async () => {
+    const shell = { width: 1333, height: 798, scrollHeight: 798 };
+    const cursor = fakeCursor();
+    const result = await readLikeAHuman({
+      tab: fakeTab(shell), cursor, passes: 4, rng: () => 0.5,
+      layoutTimeoutMs: 5, sleep: noSleep,
+    });
+
+    expect(result.layout.settled).toBe(false);
+    expect(result.passes).toBe(0);
+    // The fact is on the result, which is what the receipt's warning reads.
+    expect(cursor.pauses).toHaveLength(1);
   });
 });

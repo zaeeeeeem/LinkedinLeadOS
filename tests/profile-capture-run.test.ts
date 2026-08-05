@@ -106,6 +106,9 @@ class FakeTab implements TabLike {
   probeAfterRead: Partial<ChallengeProbe> | Error | null = null;
   private probeCalls = 0;
   foreground = { ok: true, via: "already" as const, hidden: false };
+  /** A laid-out page by default. Set to a one-viewport shell to stage the
+   *  regression from the first live run. */
+  viewport: unknown = { width: 1440, height: 900, scrollHeight: 5000 };
 
   constructor(private readonly page: FakePage) {}
 
@@ -120,7 +123,7 @@ class FakeTab implements TabLike {
       return { url: PROFILE_URL, text: "", captcha: false, ...answer } as T;
     }
     if (expression === VIEWPORT_EXPRESSION) {
-      return { width: 1440, height: 900, scrollHeight: 5000 } as T;
+      return this.viewport as T;
     }
     return "complete" as T;
   }
@@ -236,7 +239,7 @@ function invoke(o: {
     cursor,
     outcome: execute({
       def: profileCapture as unknown as AnyCapability,
-      rawArgs: { url: PROFILE_URL, scrolls: 2, ...o.args },
+      rawArgs: { url: PROFILE_URL, scrolls: 2, layoutTimeoutMs: 50, ...o.args },
       flags: { ...DEFAULT_FLAGS, ...o.flags },
       ...paths,
       deps: {
@@ -456,6 +459,32 @@ describe("profile.capture — the gates", () => {
     if (receipt.ok) throw new Error("expected a failure");
     expect(receipt.error.code).toBe("CAPTURE_TIMEOUT");
     expect(receipt.error.retryable).toBe(true);
+  });
+
+  it("warns when the page never laid out, instead of reporting a silent zero-scroll ok", async () => {
+    // The first live run's exact shape (01KZH9VVPKB5JEVEBW7G2JJ6F3): readyState
+    // complete, scrollHeight === innerHeight, nothing scrolled, no lazy section
+    // fetched — and, before this warning existed, an ok receipt that said nothing.
+    const { outcome, cursor } = invoke({
+      tune: (s) => {
+        s.tab.viewport = { width: 1333, height: 798, scrollHeight: 798 };
+      },
+    });
+    const { receipt, exit } = await outcome;
+
+    expect(exit).toBe(EXIT.OK);
+    if (!receipt.ok) throw new Error("expected ok");
+    expect(receipt.warnings.map((w) => w.code)).toContain("PAGE_NOT_LAID_OUT");
+    expect(cursor.wheels).toBe(0);
+    const data = receipt.data as { reading: { layout: { settled: boolean } } };
+    expect(data.reading.layout.settled).toBe(false);
+  });
+
+  it("does not warn about layout on a page that laid out", async () => {
+    const { outcome } = invoke({});
+    const { receipt } = await outcome;
+    if (!receipt.ok) throw new Error("expected ok");
+    expect(receipt.warnings.map((w) => w.code)).not.toContain("PAGE_NOT_LAID_OUT");
   });
 
   it("warns when the tab could not be brought to the foreground", async () => {

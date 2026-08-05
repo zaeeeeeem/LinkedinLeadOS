@@ -5,6 +5,9 @@ import {
   DWELL_MS_MAX,
   DWELL_MS_MIN,
   FALLBACK_VIEWPORT,
+  LAYOUT_POLL_MS,
+  LAYOUT_STABLE_READS,
+  LAYOUT_TIMEOUT_MS,
   POINTER_FRACTION_MAX,
   POINTER_FRACTION_MIN,
   SCROLL_BACK_PROBABILITY,
@@ -30,6 +33,14 @@ export type ReadCursor = {
 
 export type Viewport = { width: number; height: number; scrollHeight: number };
 
+export type LayoutResult = {
+  viewport: Viewport | null;
+  /** True once the document is taller than the viewport and has stopped growing. */
+  settled: boolean;
+  polls: number;
+  waitedMs: number;
+};
+
 export type ReadResult = {
   passes: number;
   notches: number;
@@ -38,6 +49,7 @@ export type ReadResult = {
   /** Total time paused between and after the passes. */
   pausedMs: number;
   viewport: Viewport | null;
+  layout: LayoutResult;
 };
 
 /**
@@ -66,6 +78,64 @@ function isViewport(v: unknown): v is Viewport {
 }
 
 /**
+ * Waits for the page to lay out, then reports its measurements.
+ *
+ * `WorkerTab.navigate` resolves on `document.readyState === "complete"`. On a
+ * single-page app that fires while the document is still an empty shell, and the
+ * first live capture proved it: the profile measured `scrollHeight === innerHeight`,
+ * so nothing scrolled, so no lazy section fetched, and the run archived the
+ * profile's urn and none of its content — with an ok receipt and no warning.
+ *
+ * Settled means two things at once: the document is taller than the viewport (it
+ * has content), and its height has stopped changing. Either alone is satisfiable
+ * by an empty shell. It never throws — a page that cannot be measured returns
+ * `settled: false` and the caller decides, because the page load is already spent.
+ */
+export async function waitForLayout(
+  tab: ReadTab,
+  o: { timeoutMs?: number; pollMs?: number; sleep?: (ms: number) => Promise<void> } = {},
+): Promise<LayoutResult> {
+  const timeoutMs = o.timeoutMs ?? LAYOUT_TIMEOUT_MS;
+  // A short window still gets several polls: a caller who asks for one cannot be
+  // handed a single measurement, which is the pre-fix behaviour by another name.
+  const pollMs = o.pollMs ?? Math.max(10, Math.min(LAYOUT_POLL_MS, Math.floor(timeoutMs / 5)));
+  const sleep = o.sleep ?? ((ms: number) => new Promise<void>((r) => setTimeout(r, ms)));
+
+  const startedAt = Date.now();
+  const deadline = startedAt + timeoutMs;
+  let viewport: Viewport | null = null;
+  let stable = 0;
+  let polls = 0;
+
+  for (;;) {
+    let measured: Viewport | null = null;
+    try {
+      const probe = await tab.evaluate<unknown>(VIEWPORT_EXPRESSION);
+      if (isViewport(probe)) measured = probe;
+    } catch {
+      // The execution context is torn down and rebuilt during navigation, so a
+      // failed read here means "not yet", never "broken".
+      measured = null;
+    }
+    polls++;
+
+    if (measured !== null) {
+      const grew = viewport === null || measured.scrollHeight !== viewport.scrollHeight;
+      stable = grew ? 0 : stable + 1;
+      viewport = measured;
+      if (measured.scrollHeight > measured.height && stable >= LAYOUT_STABLE_READS) {
+        return { viewport, settled: true, polls, waitedMs: Date.now() - startedAt };
+      }
+    }
+
+    if (Date.now() + pollMs > deadline) {
+      return { viewport, settled: false, polls, waitedMs: Date.now() - startedAt };
+    }
+    await sleep(pollMs);
+  }
+}
+
+/**
  * Reads the page the way a person would: several wheel passes down, pauses
  * between them, occasionally back up, then a dwell before leaving.
  *
@@ -85,17 +155,21 @@ export async function readLikeAHuman(o: {
   /** Explicit pass count. Omitted: a randomized 3–6. `0` scrolls not at all. */
   passes?: number;
   rng?: Rng;
+  /** A layout already waited for. Omitted: this waits for one itself. */
+  layout?: LayoutResult;
+  layoutTimeoutMs?: number;
+  sleep?: (ms: number) => Promise<void>;
   onPass?: (pass: { index: number; deltaY: number; result: WheelResult }) => void;
 }): Promise<ReadResult> {
   const rng = o.rng ?? defaultRng;
 
-  let viewport: Viewport | null = null;
-  try {
-    const probe = await o.tab.evaluate<unknown>(VIEWPORT_EXPRESSION);
-    if (isViewport(probe)) viewport = probe;
-  } catch {
-    viewport = null;
-  }
+  const layout =
+    o.layout ??
+    (await waitForLayout(o.tab, {
+      ...(o.layoutTimeoutMs === undefined ? {} : { timeoutMs: o.layoutTimeoutMs }),
+      ...(o.sleep === undefined ? {} : { sleep: o.sleep }),
+    }));
+  const viewport = layout.viewport;
 
   const width = viewport?.width ?? FALLBACK_VIEWPORT.width;
   const height = viewport?.height ?? FALLBACK_VIEWPORT.height;
@@ -140,5 +214,5 @@ export async function readLikeAHuman(o: {
   // still gets looked at.
   pausedMs += await o.cursor.pause(DWELL_MS_MIN, DWELL_MS_MAX);
 
-  return { passes: done, notches, scrolled, pausedMs, viewport };
+  return { passes: done, notches, scrolled, pausedMs, viewport, layout };
 }

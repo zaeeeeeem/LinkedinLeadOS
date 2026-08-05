@@ -1100,3 +1100,35 @@ capability captures the profile.
 The vanity keeps its case in the navigable url and is lower-cased only in the `ref`, because
 the vanity is LinkedIn's identifier and not ours to fold, while the ref exists to make two
 spellings of one profile one budget entry.
+
+## D114 — `readyState: "complete"` is not layout; the capture waits for the document to grow
+2026-08-08. Task 15, from the first live run. `WorkerTab.navigate` resolves when
+`document.readyState === "complete"`, which is correct for what Task 4 promised and is not
+the same thing as the page having rendered. On LinkedIn it fires while the SPA is still an
+empty shell.
+
+Measured, run `01KZH9VVPKB5JEVEBW7G2JJ6F3` against a real profile: at that instant the page
+reported `innerWidth 1333, innerHeight 798, scrollHeight 798`. The scroll planner correctly
+concluded there was nothing to scroll, dispatched zero wheel passes, and so no lazily-loaded
+section ever came into view or fetched. The run returned **ok, exit 0, 25 responses archived,
+no challenge** — and the only profile-endpoint response it caught,
+`voyagerIdentityDashProfiles`, was a 1,335-byte urn-resolution call carrying the person's
+`entityUrn` and `versionTag` and nothing else. No name, no headline, no location, no
+experience. The receipt said `passes: 0` and carried no warning at all.
+
+So: `waitForLayout` polls the document height until it both exceeds the viewport and stops
+changing (`LAYOUT_STABLE_READS` identical reads), bounded by `LAYOUT_TIMEOUT_MS`. Both
+conditions are needed — an empty shell satisfies "stopped changing" on its own, and a page
+mid-render satisfies "taller than the viewport" on its own. This is a render-confirmation
+DOM read, one of the four D1 permits.
+
+Rejected alternatives. A fixed sleep after navigation: it is either too short on a slow
+render or wasted time on a fast one, and it can never *report* whether the page arrived.
+Waiting on a `Page` lifecycle event: that means `Page.enable`, which D8 forbids. Waiting for
+a specific LinkedIn DOM selector: it is a data-shaped DOM read, and the selector is
+LinkedIn's to change.
+
+The second half of this is that the failure was silent. A page that never laid out now
+raises `PAGE_NOT_LAID_OUT` on the receipt. A capture that got the urn and nothing else must
+not be indistinguishable from a complete one — that is the "every silent-loss path is made
+visible" rule, and this is what it looks like when it is missing.

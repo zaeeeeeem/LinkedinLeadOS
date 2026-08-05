@@ -32,6 +32,22 @@ export const SCROLL_BACK_PROBABILITY = 0.25;
 export const DWELL_MS_MIN = 1_800;
 export const DWELL_MS_MAX = 5_000;
 
+/**
+ * How long to wait for the page to actually lay out before measuring it.
+ *
+ * `WorkerTab.navigate` resolves on `document.readyState === "complete"`, which on
+ * LinkedIn fires while the SPA is still an empty shell — the first live run
+ * measured `scrollHeight === innerHeight === 798` and therefore scrolled nothing,
+ * so no lazy section ever fetched and the capture held the profile's urn and
+ * nothing else. Readiness is not layout. Polling the document height until it
+ * exceeds the viewport and stops growing is a render-confirmation DOM read,
+ * which is one of the four D1 permits.
+ */
+export const LAYOUT_TIMEOUT_MS = 15_000;
+export const LAYOUT_POLL_MS = 400;
+/** Consecutive identical heights that count as "it has stopped growing". */
+export const LAYOUT_STABLE_READS = 2;
+
 /** Fallback viewport when the page cannot be measured. Only the wheel target
  *  point depends on it, and a wrong point still scrolls the document. */
 export const FALLBACK_VIEWPORT = { width: 1280, height: 800 } as const;

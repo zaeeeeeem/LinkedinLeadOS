@@ -32,6 +32,7 @@ window costs no second profile open. `--dry-run` opens no browser and spends not
 | `--url=` | **required.** A profile url, a bare vanity slug (`some-person`), `/in/some-person`, or a Sales Navigator lead url. Query parameters and sub-paths (`/details/…`, `/recent-activity/…`) are stripped — see `url.ts` |
 | `--scrolls=` | scroll passes down the page (0–12). Omitted: a randomized 3–6. `0` captures above the fold only, which is usually not enough — LinkedIn lazy-loads experience, education and skills on intersection |
 | `--capture-timeout-ms=` | how long to wait for the page's first LinkedIn api response (default 25000). Raise it on a slow connection; waiting costs nothing but time |
+| `--layout-timeout-ms=` | how long to wait for the page to lay out before scrolling it (default 15000). `WorkerTab.navigate` resolves on `readyState === "complete"`, which on LinkedIn fires while the SPA is still an empty shell — see D114 |
 
 Every universal flag of §4.4 applies. `--no-store` changes nothing here — this capability
 writes no Supabase rows.
@@ -44,7 +45,7 @@ writes no Supabase rows.
 |---|---|
 | `target` | the canonical url, the `kind`, the `ref` the budget deduped on, the vanity |
 | `foreground` | whether the tab reported itself visible, and how it got there |
-| `reading` | scroll passes, wheel notches, pixels, paused ms, the measured viewport |
+| `reading` | scroll passes, wheel notches, pixels, paused ms, the measured viewport, and `layout` — whether the page ever laid out, how long that took, how many polls |
 | `capture.patterns` | **the point of this capability.** One row per watched pattern: `hits`, `profile_ish`, `misses`, and its `tier` |
 | `capture.unmatched_profile_ish` | profile-carrying responses that **no specific pattern matched**. `0` means the watched patterns describe reality; anything else is the finding |
 | `capture.endpoints` | one row per response worth looking at (profile-carrying, or unpredicted): endpoint **path** (never the query string), GraphQL `query_id`, status, bytes, shape hash, archived filename |
@@ -72,6 +73,7 @@ which is a finding to report, not something to absorb quietly.
 | `CAPTURE_MISSES` | watched responses were seen but their bodies were lost (evicted buffer, aborted request). See the `capture.miss` events |
 | `RESPONSE_STATUS_UNRECOGNIZED` | a subresource answered 403 or redirected somewhere unknown, on a page the DOM gate certified clean. Reported rather than halted — see D111 |
 | `TAB_NOT_FOREGROUND` | the tab still reports itself hidden, so LinkedIn's lazy sections may never have fetched |
+| `PAGE_NOT_LAID_OUT` | the document never grew past the viewport inside the layout window, so nothing scrolled and the lazily-loaded sections never fetched. Treat the capture as incomplete — this is the failure the first live run hit (D114) |
 
 ## Failure modes
 

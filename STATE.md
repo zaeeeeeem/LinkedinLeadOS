@@ -465,17 +465,50 @@ not reachable while runs are sequential under one tab lease, with the fix settle
 capture time.
 
 ## In progress
-Task 15 — capture fixture. **Offline complete, live run not yet done.** Do not mark this
-built until a real profile has been captured and promoted.
+Task 15 — capture fixture. **Offline complete; one live run done and it found a real bug in
+this task's own code, now fixed. A second live run is needed before this is Built.**
 
 `src/capabilities/profile.capture/{url,patterns,read,constants,index}.ts` + README, and
 `src/core/fixtures/{fieldmap,promote}.ts` + `scripts/promote-fixtures.ts`
-(`npm run fixtures:promote`). Proven offline: 599/599 tests pass across the suite (90 new),
-typecheck clean; four mutations verified to bite (drain moved out of `finally` → the
-halt-mid-capture archive test fails; halting on `unrecognized` response statuses → the 403
-warning test fails; dropping the pre-navigation `profile_open` check → the daily-limit
-refusal test fails; re-tiering the broad net as specific → three pattern tests fail).
+(`npm run fixtures:promote`). Decisions D110–D114.
+
+**Live run 1 — `01KZH9VVPKB5JEVEBW7G2JJ6F3`, 2026-08-08, against `/in/tankots/`.** Exit 0, no
+challenge, 19.1s, 1 page load + 1 profile open recorded, 25 responses archived, 0 misses,
+lease released. Everything the safety model promised held. What it did **not** get is the
+profile: LinkedIn answered `readyState: "complete"` with `scrollHeight === innerHeight === 798`
+— an empty SPA shell — so nothing scrolled, no lazily-loaded section fetched, and the one
+profile endpoint that did answer (`voyagerIdentityDashProfiles`, 1,335 bytes) was a
+urn-resolution call carrying `entityUrn` + `versionTag` and nothing else. The receipt said
+`passes: 0` and warned about none of it. See D114.
+
+Fixed here: `waitForLayout` polls the document height until it exceeds the viewport *and*
+stops changing before anything is measured or scrolled, and a page that never lays out now
+raises `PAGE_NOT_LAID_OUT` on the receipt. `--layout-timeout-ms` exposes the window.
+
+Also learned live, and now recorded on `patterns.ts`' guesses: 6 of the 7 `specific` patterns
+have never fired. The real profile page hits `/voyager/api/graphql` with
+`queryId=voyagerIdentityDashProfiles.b5c27c04968c409fc0ed3546575b9b7a`, plus
+`/voyager/api/me`, `/voyager/api/voyagerIdentityDashNotificationCards`,
+`voyagerFeedDashGlobalNavs`, and messaging endpoints — 8 profile-carrying responses that no
+specific pattern matched (`PATTERN_MISMATCH`). Per the task file this was reported, not
+retried.
+
+Proven: 607/607 tests pass offline (98 new), typecheck clean. Mutations verified to bite:
+moving `drain()` out of the `finally` fails the halt-mid-capture archive test (staged with a
+body still on the wire); halting on `unrecognized` response statuses fails the 403 warning
+test; dropping the pre-navigation `profile_open` check fails the daily-limit refusal test;
+re-tiering the broad net as specific fails three pattern tests; reverting `waitForLayout` to
+a single measurement fails six, including the live regression staged verbatim
+(1333×798, scrollHeight 798).
+
+`fixtures/profile.get/` currently holds 9 promoted fixtures + `FIELD-MAP.md` from run 1.
+They are **not sufficient for Task 16** — the field map finds the target's urn, and finds
+name/headline/title only in the operator's own `/voyager/api/me`, the global nav and the
+notification cards. No `location`, no `experience`, no `about`, no `skills` for the target.
 
 ## Next
-Task 15's live run: `cap profile.capture --url=<a real profile>` under operator
-supervision, then `npm run fixtures:promote -- --latest`. Then Task 16.
+Task 15's second live run, operator-supervised, with the layout fix in:
+`cap profile.capture --url=https://www.linkedin.com/in/tankots/` (the profile_open is already
+deduped for today, so it costs 1 page load and 0 profile opens), then
+`npm run fixtures:promote -- --latest`. Task 16 is blocked until the field map names real
+paths to the target's name, headline, location and experience.

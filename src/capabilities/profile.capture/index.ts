@@ -28,6 +28,9 @@ const args = z
     /** How long to wait for the page's first LinkedIn api response. Raise it on
      *  a slow connection; the wait itself costs nothing but time. */
     captureTimeoutMs: z.coerce.number().int().min(100).max(120_000).optional(),
+    /** How long to wait for the page to lay out before scrolling it. Raise it on
+     *  a slow render; the wait is passive and spends nothing. */
+    layoutTimeoutMs: z.coerce.number().int().min(10).max(120_000).optional(),
   })
   .strict();
 
@@ -132,10 +135,14 @@ export const capability = defineCapability({
         tab,
         cursor,
         ...(a.scrolls === undefined ? {} : { passes: a.scrolls }),
+        ...(a.layoutTimeoutMs === undefined ? {} : { layoutTimeoutMs: a.layoutTimeoutMs }),
       });
       run.log("render.wait", {
         phase: "capture",
         detail: {
+          layout_settled: reading.layout.settled,
+          layout_waited_ms: reading.layout.waitedMs,
+          layout_polls: reading.layout.polls,
           passes: reading.passes,
           notches: reading.notches,
           scrolled: reading.scrolled,
@@ -187,6 +194,22 @@ export const capability = defineCapability({
         code: "RESPONSE_STATUS_UNRECOGNIZED",
         n: detections.length,
         field: detections.map((d) => d.detail).join("; "),
+      });
+    }
+
+    if (reading !== null && !reading.layout.settled) {
+      // The first live run's failure mode, and it was silent: `navigate` resolves
+      // on readyState complete, LinkedIn's shell measured exactly one viewport
+      // tall, nothing scrolled, no lazy section fetched, and the receipt said ok
+      // with `passes: 0` and no warning at all. A page that never laid out has
+      // almost certainly not issued the fetches this capability came for.
+      warnings.push({
+        code: "PAGE_NOT_LAID_OUT",
+        n: 1,
+        field:
+          `the document never grew past the viewport within the layout window ` +
+          `(${reading.layout.waitedMs}ms, ${reading.layout.polls} polls); ` +
+          `lazily-loaded sections will not have fetched`,
       });
     }
 
@@ -247,6 +270,7 @@ export const capability = defineCapability({
               scrolled_px: reading.scrolled,
               paused_ms: reading.pausedMs,
               viewport: reading.viewport,
+              layout: reading.layout,
             }
           : null,
         capture: {
