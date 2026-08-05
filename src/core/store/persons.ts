@@ -70,16 +70,25 @@ export type StoreOpts = { client?: StoreClient; now?: number };
  * atomic on its own (PostgREST wraps a request in a transaction, so a 200-row insert
  * never half-lands *within* a request). Between them:
  *
- * 1. person fails → nothing written.
- * 2. experience fails → the person row is stored with a bumped `last_seen`; its
- *    experience is whatever was there before. Nothing was deleted.
- * 3. delete fails → person and all new experience rows are stored, plus stale rows
- *    this capture no longer lists.
+ * 1. experience upsert fails → nothing written; the person's `last_seen` is untouched.
+ * 2. delete fails → the new experience rows are stored alongside stale ones this
+ *    capture no longer lists; `last_seen` is still untouched.
+ * 3. person fails → every experience row is correct, but the person row is unchanged
+ *    (or, for a person never stored before, absent — which `findPersonByUrn` returns
+ *    as null).
  *
- * The order is chosen so the failure modes are only ever *extra* rows, never missing
- * ones: deleting first would mean a failure at step 2 destroying history the store
- * had and the capture could not replace. `StoreWriteError.stored` carries the count
- * for the receipt.
+ * Two properties decide that order, and both are load-bearing (D101):
+ *
+ * - **Only ever extra rows, never missing ones.** Deleting before the new rows land
+ *   would destroy employment history the store had and this run cannot replace.
+ * - **`last_seen` lands last.** It is the record's claim to be complete as of that
+ *   instant, and `isFresh` reads it to decide whether to serve from the store instead
+ *   of loading the page. Bumping it first means a failure at step 2 or 3 leaves a
+ *   record that is incomplete *and* looks fresh, so the next run serves the damage
+ *   and never re-fetches it — for a whole `--max-age` window. Written last, every
+ *   failure above leaves the person stale, so the next run re-fetches and repairs.
+ *
+ * `StoreWriteError.stored` carries the count that actually landed, for the receipt.
  *
  * **Two clocks, deliberately.** `last_seen` is stamped from `opts.now` (the caller's
  * clock, injectable so freshness is testable); `first_seen` is never sent and stays
@@ -99,25 +108,10 @@ export async function upsertPerson(
   const stamp = new Date(opts.now ?? Date.now()).toISOString();
   const urn = input.person.urn;
   let stored = 0;
-
-  const person = await client
-    .from(TABLES.persons)
-    .upsert({ ...compact(input.person), last_seen: stamp }, { onConflict: "urn" })
-    .select("urn");
-  if (person.error) {
-    throw new StoreWriteError(
-      storeError({ op: "upsert person", table: TABLES.persons, kind: "write", status: person.status, cause: person.error }),
-      stored,
-    );
-  }
-  stored += 1;
-
-  if (input.experience === undefined) {
-    return { urn, rows: stored, experience: { upserted: 0, removed: 0 } };
-  }
-
+  let removedCount = 0;
   let keptIds: number[] = [];
-  if (input.experience.length > 0) {
+
+  if (input.experience !== undefined && input.experience.length > 0) {
     const rows = input.experience.map((e) => ({
       person_urn: urn,
       company_urn: e.company_urn ?? null,
@@ -148,26 +142,43 @@ export async function upsertPerson(
     stored += keptIds.length;
   }
 
-  let del = client.from(TABLES.personExperience).delete().eq("person_urn", urn);
-  if (keptIds.length > 0) del = del.not("id", "in", `(${keptIds.join(",")})`);
-  const removed = await del.select("id");
-  if (removed.error) {
+  if (input.experience !== undefined) {
+    let del = client.from(TABLES.personExperience).delete().eq("person_urn", urn);
+    if (keptIds.length > 0) del = del.not("id", "in", `(${keptIds.join(",")})`);
+    const removed = await del.select("id");
+    if (removed.error) {
+      throw new StoreWriteError(
+        storeError({
+          op: "delete stale experience",
+          table: TABLES.personExperience,
+          kind: "write",
+          status: removed.status,
+          cause: removed.error,
+        }),
+        stored,
+      );
+    }
+    removedCount = (removed.data ?? []).length;
+  }
+
+  // Last, and only now: the person row, whose last_seen is the claim "this record
+  // is complete as of this instant". Everything it describes is already written.
+  const person = await client
+    .from(TABLES.persons)
+    .upsert({ ...compact(input.person), last_seen: stamp }, { onConflict: "urn" })
+    .select("urn");
+  if (person.error) {
     throw new StoreWriteError(
-      storeError({
-        op: "delete stale experience",
-        table: TABLES.personExperience,
-        kind: "write",
-        status: removed.status,
-        cause: removed.error,
-      }),
+      storeError({ op: "upsert person", table: TABLES.persons, kind: "write", status: person.status, cause: person.error }),
       stored,
     );
   }
+  stored += 1;
 
   return {
     urn,
     rows: stored,
-    experience: { upserted: keptIds.length, removed: (removed.data ?? []).length },
+    experience: { upserted: keptIds.length, removed: removedCount },
   };
 }
 

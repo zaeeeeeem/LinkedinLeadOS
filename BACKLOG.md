@@ -82,3 +82,20 @@ change needed — the constant is already the single place retention is decided.
 path only; its task file scopes it to person data, so `budget_ledger` still has no writer
 and the ledger file is still the only copy of spend history. This stays open, and the
 trigger is now "whichever task first mirrors spend into Supabase", not Task 14.
+
+## B4 — two concurrent `upsertPerson` calls for the same person delete each other's experience rows
+
+Captured 2026-08-08, from Task 14 review. `upsertPerson`'s stale-row delete is
+`delete … where person_urn = X and id not in (<ids this call just wrote>)`. Two overlapping
+upserts of the same person each know only their own ids, so each one's delete removes the
+rows the other just wrote. Both then return `removed` counts that look ordinary.
+
+Not reachable today: one account, one tab lease (D10), runs are sequential, and nothing
+calls the store concurrently. It becomes reachable the moment anything parallelises writes
+for a single person — a batch capability, or two capabilities running against one profile.
+
+**The approach settled here:** scope the delete by the write itself rather than by the id
+list — stamp each upserted experience row with the writing run's id (or reuse `last_seen`,
+which is already the caller's stamp) and delete `person_urn = X and last_seen < stamp`. A
+concurrent writer with a later stamp then wins cleanly instead of the two deleting each
+other, and the query stops carrying an id list that grows with the person's job history.

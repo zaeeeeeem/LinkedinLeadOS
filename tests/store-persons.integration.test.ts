@@ -189,6 +189,38 @@ describe.skipIf(!up)(up ? "store against local Supabase" : `store against local 
     expect(count).toBe(1);
   });
 
+  it("leaves a never-stored person absent when the experience write is rejected", async () => {
+    const u = urn();
+    const err = await upsertPerson(
+      // A real rejection from the real database: `started_on` is a date column.
+      { person: { urn: u, name: "A" }, experience: [{ company_name: "Acme", started_on: "not-a-date" }] },
+      opts(),
+    ).catch((e) => e);
+
+    expect(err.code).toBe("STORE_WRITE_REJECTED");
+    expect(err.retryable).toBe(false);
+    expect(err.stored).toBe(0);
+    // Nothing exists, so nothing can look fresh. The next run re-fetches.
+    expect(await findPersonByUrn(u, { client })).toBeNull();
+  });
+
+  it("leaves an already-stored person stale when the experience write is rejected", async () => {
+    const u = urn();
+    const old = T0 - 10 * 24 * HOUR;
+    await upsertPerson({ person: { urn: u, name: "A" } }, opts(old));
+
+    await upsertPerson(
+      { person: { urn: u, name: "A" }, experience: [{ company_name: "Acme", started_on: "not-a-date" }] },
+      opts(),
+    ).catch((e) => e);
+
+    const found = await findPersonByUrn(u, { client });
+    // last_seen did not move, so the record still reads stale and gets re-fetched
+    // instead of a half-written record being served for a whole --max-age window.
+    expect(Date.parse(found!.person.last_seen)).toBe(old);
+    expect(isFresh(found!.person.last_seen, 7 * 24 * HOUR, T0)).toBe(false);
+  });
+
   it("looks a person up by urn, with experience ordered current-first", async () => {
     const u = urn();
     await upsertPerson(

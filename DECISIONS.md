@@ -861,3 +861,38 @@ and should resolve by urn.
 Rejected: throwing on more than one match, which would make a routine LinkedIn fact into a
 failed run; and returning all matches, which pushes a decision onto every caller that all of
 them would resolve the same way.
+
+## D105 — `last_seen` is the last thing written, not the first (revises D101's order)
+2026-08-08, Task 14 review. D101 ordered the person upsert first and argued the ordering was
+safe because every failure left *extra* rows and never missing ones. That is true of rows and
+false of the one column freshness reads.
+
+`last_seen` is not data about the person; it is the record's claim to be **complete as of that
+instant**, and `isFresh` reads it to decide whether to serve from the store instead of loading
+the page. Bumping it first meant a failure at the experience write left a record that was
+incomplete *and* looked fresh, so the next run served the damage and never re-fetched it for a
+whole `--max-age` window — a week at the default. For a person never stored before, the result
+was a row with zero experience rows, marked fresh, indistinguishable from someone who genuinely
+lists no jobs. The failure hid itself, and the saving freshness exists for was spent serving an
+incomplete record.
+
+The order is now: experience upsert → delete stale → person upsert. D94 puts no foreign key on
+`person_urn`, so experience rows can be written before the person row exists. D101's property is
+unchanged — still only ever extra rows — and every failure now leaves the person **stale**, so
+the next run re-fetches and repairs. The one new intermediate state is experience rows with no
+person row, which `findPersonByUrn` returns as `null`: read as stale, re-fetched, fixed. A
+missing record is strictly better than a fresh lie.
+
+This is CONTEXT.md's first shape exactly: a field written at step 1 that only becomes true at
+step 3.
+
+## D106 — SQLSTATE class 22 is a rejected write, not an unrecognized one
+2026-08-08, Task 14 review. Class 22 (data exception: invalid date syntax, numeric overflow,
+string too long) joins class 23 (integrity violation) on `STORE_WRITE_REJECTED`. It previously
+fell into the catch-all `STORE_WRITE_FAILED`, whose message says the store reported an error
+this build does not recognize.
+
+The codes split on operator action (D13), not on cause. Class 22 and class 23 mean the same
+thing to whoever reads the receipt: the row we sent is wrong, fix the caller, do not retry.
+Proven live rather than only in a table — an experience row with `started_on: "not-a-date"` is
+rejected by the real database as 22007 and classified `STORE_WRITE_REJECTED`, non-retryable.

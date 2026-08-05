@@ -139,6 +139,22 @@ describe("storeError — one code per operator action (D13)", () => {
       EXIT.GENERIC,
     ],
     [
+      "a value we sent is not a valid date",
+      { code: "22007", message: "invalid input syntax for type date" },
+      400,
+      "STORE_WRITE_REJECTED",
+      false,
+      EXIT.GENERIC,
+    ],
+    [
+      "a value we sent overflows its column",
+      { code: "22003", message: "numeric field overflow" },
+      400,
+      "STORE_WRITE_REJECTED",
+      false,
+      EXIT.GENERIC,
+    ],
+    [
       "a constraint says the row is wrong",
       { code: "23505", message: "duplicate key value violates unique constraint" },
       409,

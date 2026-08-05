@@ -109,9 +109,9 @@ describe("upsertPerson — request shape", () => {
 
   it("writes experience rows with uniform keys, on the natural key index", async () => {
     replies = [
-      { status: 200, body: [personRow()] },
       { status: 200, body: [{ id: 1 }, { id: 2 }] },
       { status: 200, body: [] },
+      { status: 200, body: [personRow()] },
     ];
     const result = await upsertPerson(
       {
@@ -124,12 +124,12 @@ describe("upsertPerson — request shape", () => {
       { client: client(), now: NOW },
     );
 
-    expect(at(1).method).toBe("POST");
-    expect(at(1).url).toContain("/person_experience");
-    expect(decodeURIComponent(at(1).url)).toContain(
+    expect(at(0).method).toBe("POST");
+    expect(at(0).url).toContain("/person_experience");
+    expect(decodeURIComponent(at(0).url)).toContain(
       "on_conflict=person_urn,company_urn,company_name,title,started_on",
     );
-    const rows = at(1).body as Array<Record<string, unknown>>;
+    const rows = at(0).body as Array<Record<string, unknown>>;
     expect(rows).toHaveLength(2);
     // PostgREST rejects a bulk insert whose objects have different keys, so every
     // row carries every column, explicitly nulled where the capture had nothing.
@@ -148,19 +148,23 @@ describe("upsertPerson — request shape", () => {
     expect(result.rows).toBe(3);
   });
 
-  it("deletes stale rows only after the new ones are written", async () => {
+  it("deletes stale rows only after the new ones are written, and bumps the person last", async () => {
     replies = [
-      { status: 200, body: [personRow()] },
       { status: 200, body: [{ id: 7 }, { id: 9 }] },
       { status: 200, body: [{ id: 3 }] },
+      { status: 200, body: [personRow()] },
     ];
     const result = await upsertPerson(
       { person: { urn: URN }, experience: [{ title: "a" }, { title: "b" }] },
       { client: client(), now: NOW },
     );
 
-    expect(recorded.map((r) => r.method)).toEqual(["POST", "POST", "DELETE"]);
-    const del = decodeURIComponent(at(2).url);
+    expect(recorded.map((r) => `${r.method} ${r.url.split("?")[0]}`)).toEqual([
+      "POST /rest/v1/person_experience",
+      "DELETE /rest/v1/person_experience",
+      "POST /rest/v1/persons",
+    ]);
+    const del = decodeURIComponent(at(1).url);
     expect(del).toContain(`person_urn=eq.${URN}`);
     expect(del).toContain("id=not.in.(7,9)");
     expect(result.experience.removed).toBe(1);
@@ -168,12 +172,12 @@ describe("upsertPerson — request shape", () => {
 
   it("clears every experience row when the capture says there are none", async () => {
     replies = [
-      { status: 200, body: [personRow()] },
       { status: 200, body: [{ id: 4 }] },
+      { status: 200, body: [personRow()] },
     ];
     const result = await upsertPerson({ person: { urn: URN }, experience: [] }, { client: client(), now: NOW });
-    expect(recorded.map((r) => r.method)).toEqual(["POST", "DELETE"]);
-    expect(decodeURIComponent(at(1).url)).not.toContain("id=not.in");
+    expect(recorded.map((r) => r.method)).toEqual(["DELETE", "POST"]);
+    expect(decodeURIComponent(at(0).url)).not.toContain("id=not.in");
     expect(result.experience).toEqual({ upserted: 0, removed: 1 });
   });
 
@@ -194,24 +198,23 @@ describe("upsertPerson — what is in the store when it fails partway", () => {
     expect((err as CapabilityError).retryable).toBe(true);
   });
 
-  it("reports the person row as stored when the experience write fails", async () => {
-    replies = [
-      { status: 200, body: [personRow()] },
-      { status: 500, body: { code: "", message: "boom" } },
-    ];
+  it("never touches the person row when the experience write fails", async () => {
+    replies = [{ status: 500, body: { code: "", message: "boom" } }];
     const err = await upsertPerson(
       { person: { urn: URN }, experience: [{ title: "a" }] },
       { client: client(), now: NOW },
     ).catch((e) => e);
     expect(err).toBeInstanceOf(StoreWriteError);
-    expect((err as StoreWriteError).stored).toBe(1);
-    // No delete was attempted, so nothing that was already there was destroyed.
-    expect(recorded.map((r) => r.method)).toEqual(["POST", "POST"]);
+    expect((err as StoreWriteError).stored).toBe(0);
+    // The regression this ordering exists for: last_seen is the record's claim to be
+    // complete, and isFresh reads it. Bumping it here would leave an incomplete record
+    // that looks fresh, so the next run serves it and never re-fetches for a whole
+    // --max-age window. Nothing reached persons, and no delete was attempted either.
+    expect(recorded.map((r) => r.url.split("?")[0])).toEqual(["/rest/v1/person_experience"]);
   });
 
-  it("reports person plus experience as stored when only the stale-row delete fails", async () => {
+  it("never touches the person row when only the stale-row delete fails", async () => {
     replies = [
-      { status: 200, body: [personRow()] },
       { status: 200, body: [{ id: 1 }, { id: 2 }] },
       { status: 500, body: { code: "", message: "boom" } },
     ];
@@ -219,7 +222,21 @@ describe("upsertPerson — what is in the store when it fails partway", () => {
       { person: { urn: URN }, experience: [{ title: "a" }, { title: "b" }] },
       { client: client(), now: NOW },
     ).catch((e) => e);
-    expect((err as StoreWriteError).stored).toBe(3);
+    expect((err as StoreWriteError).stored).toBe(2);
+    expect(recorded.some((r) => r.url.includes("/persons"))).toBe(false);
+  });
+
+  it("reports experience plus person as stored when everything lands", async () => {
+    replies = [
+      { status: 200, body: [{ id: 1 }, { id: 2 }] },
+      { status: 200, body: [] },
+      { status: 200, body: [personRow()] },
+    ];
+    const result = await upsertPerson(
+      { person: { urn: URN }, experience: [{ title: "a" }, { title: "b" }] },
+      { client: client(), now: NOW },
+    );
+    expect(result.rows).toBe(3);
   });
 
   it("re-sends every row on retry — the write is idempotent by construction", async () => {
@@ -227,9 +244,9 @@ describe("upsertPerson — what is in the store when it fails partway", () => {
     // which is what makes a retry after a half-landed write safe.
     const runOnce = async () => {
       replies = [
-        { status: 200, body: [personRow()] },
         { status: 200, body: [{ id: 1 }] },
         { status: 200, body: [] },
+        { status: 200, body: [personRow()] },
       ];
       await upsertPerson(
         { person: { urn: URN, name: "Test" }, experience: [{ title: "a" }] },
