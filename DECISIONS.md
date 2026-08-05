@@ -1027,3 +1027,76 @@ The codes split on operator action (D13), not on cause. Class 22 and class 23 me
 thing to whoever reads the receipt: the row we sent is wrong, fix the caller, do not retry.
 Proven live rather than only in a table — an experience row with `started_on: "not-a-date"` is
 rejected by the real database as 22007 and classified `STORE_WRITE_REJECTED`, non-retryable.
+
+## D110 — two pattern tiers, so the endpoint guess is checkable instead of merely made
+2026-08-08. Task 15. The capture watches two kinds of URL pattern: `specific` ones naming
+the endpoints this build predicts a profile page fetches (`voyagerIdentityDashProfiles`,
+`/voyager/api/identity/dash/profiles`, `salesApiProfiles`, …) and `broad` ones matching
+anything LinkedIn-API-shaped. Every capture reports which tier caught it, and the receipt
+carries `unmatched_profile_ish` — profile-carrying responses that no specific pattern
+matched.
+
+The alternative was watching only the specific patterns, which is what the reference worker
+does (`u.includes("salesApiProfiles")`). It is cheaper and it fails silently: if LinkedIn
+has moved the payload to an operation this build has never heard of, a specific-only watch
+captures nothing and the receipt reports zero — indistinguishable from a page that answered
+nothing. The task file requires the capture to make it obvious whether the watched patterns
+matched reality, and a net that catches what the guess misses is the only thing that can.
+
+Whether a response is *about a person* is decided from its **body**, not its URL. Asking the
+URL would make the pattern-vs-reality answer depend on the same guess it is checking.
+
+Cost: the broad net archives every LinkedIn API response the page fetches, not only the
+profile ones — tens of bodies rather than a handful. LinkedIn's own telemetry (`/li/track`,
+`perftracker`) is excluded by name, since it is API-shaped, high volume, and never carries
+profile data.
+
+## D111 — a response-status `unrecognized` is a warning; every other detection halts
+2026-08-08. Task 15. `profile.capture` runs `classifyResponse` over every captured response
+before declaring success. A `rate-limited` (429), `restricted` (999), `login` (401) or a
+redirect onto a deny-listed path halts the run through `recordChallenge`. An `unrecognized`
+verdict — which in practice means HTTP 403 — becomes a `RESPONSE_STATUS_UNRECOGNIZED`
+warning on an otherwise ok receipt.
+
+D63 chose `unrecognized` for 403 precisely because it is ambiguous: "you are logged out" and
+"this member is out of your network" want opposite responses. For the *page the worker tab is
+sitting on*, that ambiguity is worth a halt — we may be driving a flagged session. For one
+subresource among fifty on a page the DOM gate has already certified clean, it is not: a
+profile page routinely 403s an out-of-network sub-fetch, and halting there would stop healthy
+runs with a receipt indistinguishable from a real block.
+
+The alternative — halting on every non-clean response verdict — was rejected on that
+false-positive rate. The alternative in the other direction — not classifying responses at
+all and leaving the halt entirely to the DOM gate — was rejected because a 429 served under a
+normal-looking page is exactly the signal the DOM cannot see, and it is the authoritative one
+(D64 already says so).
+
+## D112 — the capture reports "no person data" as a warning, not as a failure
+2026-08-08. Task 15. If a run archives responses but none of them carry person data, the
+receipt is ok with `counts.usable: 0` and a `NO_PROFILE_PAYLOAD` warning — it does not fail.
+
+The page load is already spent and the archive is the product. Failing would classify a
+successful discovery run — "the page fetched these twelve endpoints and none of them is what
+we expected" — as an error, which is the outcome this capability exists to surface. What must
+never happen is an ok receipt that *reads* as "we got the profile" when nothing person-shaped
+arrived, so the fact is on `counts.usable`, on `warnings`, and on `capture.profile_ish` in
+three independent places.
+
+Zero captures at all is different and does fail (`PROFILE_NO_CAPTURE`, transient): that is a
+page load with nothing whatsoever to show for it, and a retry can genuinely change it.
+
+## D113 — canonicalization drops every query parameter, not a deny-list of tracking keys
+2026-08-08. Task 15. `normalizeProfileUrl` strips the entire query string and fragment from a
+profile url rather than removing known tracking parameters (`trk`, `lipi`, `licu`,
+`original_referer`, `miniProfileUrn`, `utm_*`).
+
+No `/in/` or `/sales/lead/` page needs a parameter to decide what it renders, and a deny-list
+is a list that goes stale — the next tracking key LinkedIn adds would arrive unhandled and
+end up in the `ref` the budget dedupes on, so one profile would count as two profile opens.
+Sub-paths (`/details/experience/`, `/recent-activity/all/`, `/overlay/contact-info/`) collapse
+to the base profile for the same reason: they are different pages of one person, and this
+capability captures the profile.
+
+The vanity keeps its case in the navigable url and is lower-cased only in the `ref`, because
+the vanity is LinkedIn's identifier and not ours to fold, while the ref exists to make two
+spellings of one profile one budget entry.

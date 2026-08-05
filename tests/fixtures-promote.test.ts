@@ -1,0 +1,197 @@
+import {
+  chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync,
+} from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { RawArchive } from "../src/core/archive/raw.js";
+import { promoteFixtures } from "../src/core/fixtures/promote.js";
+import type { FixtureIndex } from "../src/core/fixtures/promote.js";
+import { CapabilityError } from "../src/core/run/receipt.js";
+
+const PROFILE_BODY = JSON.stringify({
+  data: { elements: [{ entityUrn: "urn:li:fsd_profile:ACwAAA", firstName: "Jane", headline: "Founder" }] },
+});
+/** Same structure, different data — one shape, so one fixture. */
+const PROFILE_BODY_2 = JSON.stringify({
+  data: { elements: [{ entityUrn: "urn:li:fsd_profile:ACwAAB", firstName: "John", headline: "Engineer" }] },
+});
+const COMPANY_BODY = JSON.stringify({ data: { company: { entityUrn: "urn:li:fsd_company:1" } } });
+
+let root: string;
+let archiveDir: string;
+let fixturesDir: string;
+
+beforeEach(() => {
+  root = mkdtempSync(join(tmpdir(), "promote-"));
+  archiveDir = join(root, "raw");
+  fixturesDir = join(root, "fixtures", "profile.get");
+});
+
+afterEach(() => {
+  rmSync(root, { recursive: true, force: true });
+});
+
+async function seed(bodies: Array<{ body: string; url: string; status?: number }>): Promise<RawArchive> {
+  const archive = new RawArchive(archiveDir);
+  for (const b of bodies) {
+    await archive.archive({ body: b.body, url: b.url, status: b.status ?? 200 });
+  }
+  return archive;
+}
+
+const GQL = "https://www.linkedin.com/voyager/api/graphql?queryId=voyagerIdentityDashProfiles.7a&variables=(vanityName:jane-doe)";
+
+function run(extra: Partial<Parameters<typeof promoteFixtures>[0]> = {}) {
+  return promoteFixtures({
+    archiveDir,
+    fixturesDir,
+    capability: "profile.get",
+    sourceRun: "01JRUN",
+    now: () => new Date("2026-08-08T10:00:00.000Z"),
+    ...extra,
+  });
+}
+
+describe("promoteFixtures", () => {
+  it("promotes a profile body and writes the field map beside it", async () => {
+    await seed([{ body: PROFILE_BODY, url: GQL }]);
+    const result = await run();
+
+    expect(result.promoted).toHaveLength(1);
+    const fixture = result.promoted[0]!;
+    expect(fixture.file).toMatch(/^[0-9a-f]+\.json$/);
+    expect(fixture.source_run).toBe("01JRUN");
+    expect(fixture.query_id).toBe("voyagerIdentityDashProfiles.7a");
+    expect(fixture.path).toBe("/voyager/api/graphql");
+
+    // Byte-identical to what LinkedIn sent — a reformatted fixture proves a
+    // parser against something that never came off the wire.
+    expect(readFileSync(join(fixturesDir, fixture.file), "utf8")).toBe(PROFILE_BODY);
+
+    const map = readFileSync(result.fieldMapPath, "utf8");
+    expect(map).toContain("$.data.elements[0].entityUrn");
+    expect(map).toContain("$.data.elements[].firstName");
+  });
+
+  it("keeps the query string out of the index", async () => {
+    await seed([{ body: PROFILE_BODY, url: GQL }]);
+    const result = await run();
+    const index = JSON.parse(readFileSync(result.indexPath, "utf8")) as FixtureIndex;
+    expect(JSON.stringify(index)).not.toContain("jane-doe");
+  });
+
+  it("deduplicates by shape, not by bytes", async () => {
+    await seed([
+      { body: PROFILE_BODY, url: GQL },
+      { body: PROFILE_BODY_2, url: GQL },
+    ]);
+    const result = await run();
+    expect(result.promoted).toHaveLength(1);
+    expect(result.skipped.duplicate_shape).toBe(1);
+  });
+
+  it("is idempotent — a second promotion over the same archive adds nothing", async () => {
+    await seed([{ body: PROFILE_BODY, url: GQL }]);
+    const first = await run();
+    const second = await run();
+    expect(second.promoted).toHaveLength(0);
+    expect(second.total).toBe(1);
+    expect(second.skipped.duplicate_shape).toBe(1);
+    expect(readFileSync(second.fieldMapPath, "utf8")).toContain(first.promoted[0]!.file);
+  });
+
+  it("keeps an earlier run's fixtures in the regenerated field map", async () => {
+    await seed([{ body: PROFILE_BODY, url: GQL }]);
+    const first = await run();
+
+    // A second run, a different archive, a different shape.
+    const secondArchive = join(root, "raw2");
+    await new RawArchive(secondArchive).archive({
+      body: JSON.stringify({ included: [{ entityUrn: "urn:li:fsd_profile:X", lastName: "Doe" }] }),
+      url: "https://www.linkedin.com/voyager/api/identity/dash/profiles",
+      status: 200,
+    });
+    const second = await run({ archiveDir: secondArchive, sourceRun: "01JRUN2" });
+
+    expect(second.promoted).toHaveLength(1);
+    expect(second.total).toBe(2);
+    const map = readFileSync(second.fieldMapPath, "utf8");
+    expect(map).toContain(first.promoted[0]!.file);
+    expect(map).toContain(second.promoted[0]!.file);
+    expect(map).toContain("01JRUN2");
+  });
+
+  it("skips bodies that carry no person data unless asked for all of them", async () => {
+    await seed([
+      { body: PROFILE_BODY, url: GQL },
+      { body: COMPANY_BODY, url: "https://www.linkedin.com/voyager/api/graphql?queryId=company.1" },
+    ]);
+    const selective = await run();
+    expect(selective.promoted).toHaveLength(1);
+    expect(selective.skipped.not_profile).toBe(1);
+
+    const everything = await run({ fixturesDir: join(root, "all"), all: true });
+    expect(everything.promoted).toHaveLength(2);
+    expect(everything.promoted.map((f) => f.profile_ish).sort()).toEqual([false, true]);
+  });
+
+  it("skips a non-JSON body and counts it", async () => {
+    await seed([
+      { body: "<html>we are sorry</html>", url: "https://www.linkedin.com/voyager/api/graphql" },
+      { body: PROFILE_BODY, url: GQL },
+    ]);
+    const result = await run();
+    expect(result.skipped.not_json).toBe(1);
+    expect(result.promoted).toHaveLength(1);
+  });
+
+  it("names an unreadable archive entry instead of dropping it silently", async () => {
+    // A body file that is not valid gzip: the archive classifies it ARCHIVE_CORRUPT,
+    // and promotion must report that rather than produce a quietly short fixture set.
+    await seed([{ body: PROFILE_BODY, url: GQL }]);
+    const corrupt = join(archiveDir, "0009-deadbeef.json.gz");
+    writeFileSync(corrupt, "not gzip at all");
+
+    const result = await run();
+    expect(result.promoted).toHaveLength(1);
+    expect(result.skipped.unreadable).toBe(1);
+    // The code comes from the layer that decided it — not re-classified here (D17).
+    expect(result.unreadable).toEqual([{ file: "0009-deadbeef.json.gz", code: "ARCHIVE_CORRUPT" }]);
+  });
+
+  it("returns an empty result for an archive that does not exist", async () => {
+    const result = await run({ archiveDir: join(root, "nothing-here") });
+    expect(result.promoted).toEqual([]);
+    expect(result.total).toBe(0);
+    expect(existsSync(result.fieldMapPath)).toBe(true);
+  });
+
+  it("refuses to run against a corrupt index rather than re-promoting everything", async () => {
+    await seed([{ body: PROFILE_BODY, url: GQL }]);
+    await run();
+    writeFileSync(join(fixturesDir, "index.json"), "{ this is not json");
+
+    await expect(run()).rejects.toMatchObject({ code: "FIXTURE_PROMOTE_FAILED" });
+    await expect(run()).rejects.toBeInstanceOf(CapabilityError);
+  });
+
+  it("fails loudly when the fixtures directory cannot be written", async () => {
+    await seed([{ body: PROFILE_BODY, url: GQL }]);
+    const readOnly = join(root, "read-only");
+    mkdirSync(readOnly, { recursive: true });
+    chmodSync(readOnly, 0o500);
+    try {
+      await expect(
+        promoteFixtures({
+          archiveDir,
+          fixturesDir: join(readOnly, "profile.get"),
+          capability: "profile.get",
+          sourceRun: "r",
+        }),
+      ).rejects.toMatchObject({ code: "FIXTURE_PROMOTE_FAILED", exit: 1, retryable: false });
+    } finally {
+      chmodSync(readOnly, 0o700);
+    }
+  });
+});

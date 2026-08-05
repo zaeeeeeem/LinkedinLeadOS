@@ -465,7 +465,17 @@ not reachable while runs are sequential under one tab lease, with the fix settle
 capture time.
 
 ## In progress
-_(nothing)_
+Task 15 — capture fixture. **Offline complete, live run not yet done.** Do not mark this
+built until a real profile has been captured and promoted.
+
+`src/capabilities/profile.capture/{url,patterns,read,constants,index}.ts` + README, and
+`src/core/fixtures/{fieldmap,promote}.ts` + `scripts/promote-fixtures.ts`
+(`npm run fixtures:promote`). Proven offline: 599/599 tests pass across the suite (90 new),
+typecheck clean; four mutations verified to bite (drain moved out of `finally` → the
+halt-mid-capture archive test fails; halting on `unrecognized` response statuses → the 403
+warning test fails; dropping the pre-navigation `profile_open` check → the daily-limit
+refusal test fails; re-tiering the broad net as specific → three pattern tests fail).
 
 ## Next
-Task 15 — capture fixture (M2). See `docs/plans/m1-m3/tasks/`.
+Task 15's live run: `cap profile.capture --url=<a real profile>` under operator
+supervision, then `npm run fixtures:promote -- --latest`. Then Task 16.
