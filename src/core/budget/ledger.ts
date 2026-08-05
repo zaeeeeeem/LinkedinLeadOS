@@ -1,4 +1,4 @@
-import { appendFile, mkdir, open, readFile, stat, unlink } from "node:fs/promises";
+import { mkdir, open, readFile, rename, stat, unlink, writeFile } from "node:fs/promises";
 import { mkdirSync } from "node:fs";
 import { dirname } from "node:path";
 import { randomUUID } from "node:crypto";
@@ -81,8 +81,12 @@ function rethrowUnwritable(path: string, e: unknown): never {
  * exactly the bug that lets a spend through past a limit. Every read of the
  * ledger throws the instant one is found, before any count is computed from
  * the lines around it.
+ *
+ * Evidence is the line number and reason only — never the line's own bytes.
+ * A ledger line can carry a `ref` (a LinkedIn profile URN for `profile_open`),
+ * and a receipt is not the place captured LinkedIn data belongs.
  */
-function corrupt(path: string, lineNo: number, raw: string, reason: string): CapabilityError {
+function corrupt(path: string, lineNo: number, reason: string): CapabilityError {
   return new CapabilityError({
     code: "BUDGET_LEDGER_CORRUPT",
     exit: EXIT.GENERIC,
@@ -91,7 +95,6 @@ function corrupt(path: string, lineNo: number, raw: string, reason: string): Cap
     message:
       `budget ledger ${path} line ${lineNo} is corrupt (${reason}) — refusing to spend ` +
       `rather than count around it`,
-    evidence: raw.slice(0, 500),
   });
 }
 
@@ -132,19 +135,19 @@ function parseLine(path: string, lineNo: number, raw: string): SpendRecord {
   try {
     obj = JSON.parse(raw);
   } catch {
-    throw corrupt(path, lineNo, raw, "not valid JSON");
+    throw corrupt(path, lineNo, "not valid JSON");
   }
-  if (typeof obj !== "object" || obj === null) throw corrupt(path, lineNo, raw, "not an object");
+  if (typeof obj !== "object" || obj === null) throw corrupt(path, lineNo, "not an object");
   const r = obj as Record<string, unknown>;
-  if (typeof r.ts !== "string" || Number.isNaN(Date.parse(r.ts))) throw corrupt(path, lineNo, raw, "bad ts");
-  if (typeof r.run_id !== "string" || r.run_id === "") throw corrupt(path, lineNo, raw, "bad run_id");
-  if (typeof r.capability !== "string" || r.capability === "") throw corrupt(path, lineNo, raw, "bad capability");
+  if (typeof r.ts !== "string" || Number.isNaN(Date.parse(r.ts))) throw corrupt(path, lineNo, "bad ts");
+  if (typeof r.run_id !== "string" || r.run_id === "") throw corrupt(path, lineNo, "bad run_id");
+  if (typeof r.capability !== "string" || r.capability === "") throw corrupt(path, lineNo, "bad capability");
   if (typeof r.kind !== "string" || !(SPEND_KINDS as readonly string[]).includes(r.kind)) {
-    throw corrupt(path, lineNo, raw, "bad kind");
+    throw corrupt(path, lineNo, "bad kind");
   }
-  if (typeof r.n !== "number" || !Number.isFinite(r.n) || r.n <= 0) throw corrupt(path, lineNo, raw, "bad n");
+  if (typeof r.n !== "number" || !Number.isFinite(r.n) || r.n <= 0) throw corrupt(path, lineNo, "bad n");
   if (r.ref !== undefined && (typeof r.ref !== "string" || r.ref === "")) {
-    throw corrupt(path, lineNo, raw, "bad ref");
+    throw corrupt(path, lineNo, "bad ref");
   }
   return {
     ts: r.ts,
@@ -246,12 +249,39 @@ function evaluate(
 const lockPath = (path: string) => `${path}.lock`;
 
 /**
+ * Takes a stale lock away by renaming it aside first. Rename is atomic, so of
+ * several callers that all judged the same lock stale, exactly one renames
+ * the real file; the rest get `ENOENT` and loop back around to find the
+ * winner's fresh lock instead. An `unlink`-then-`open` steal does not have
+ * this property — two callers can each unlink believing they cleared the
+ * lock, and the second unlink deletes the *first* caller's brand-new lock
+ * instead of the stale one, leaving both holding it.
+ */
+async function stealStaleLock(path: string, lock: string): Promise<void> {
+  const quarantine = `${lock}.stale.${process.pid}.${randomUUID()}`;
+  try {
+    await rename(lock, quarantine);
+  } catch (e) {
+    if ((e as NodeJS.ErrnoException).code === "ENOENT") return; // someone else already took it
+    // A directory that can never accept the rename (read-only, gone, etc.) is
+    // fatal, not a reason to keep spinning until the deadline — surfacing it
+    // now beats busy-waiting three seconds only to report the same errno.
+    rethrowUnwritable(path, e);
+  }
+  await unlink(quarantine).catch(() => {});
+}
+
+/**
  * Serializes read-evaluate-append across processes so two racing spends that
  * would together cross a limit cannot both observe "under limit" and both
- * commit. A stale lock (its holder crashed mid-cycle) is stolen after
- * `LEDGER_LOCK_STALE_MS`; a live one is waited out up to `LEDGER_LOCK_TIMEOUT_MS`
- * before refusing with a retryable `BUDGET_LEDGER_BUSY` — refusing to spend
- * beats guessing the lock will never come.
+ * commit. A stale lock (its holder crashed mid-cycle) is stolen via
+ * `stealStaleLock` after `LEDGER_LOCK_STALE_MS`; a live one is waited out up
+ * to `LEDGER_LOCK_TIMEOUT_MS` before refusing with a retryable
+ * `BUDGET_LEDGER_BUSY` — refusing to spend beats guessing the lock will never
+ * come. The deadline and poll sleep apply on every iteration of the loop,
+ * stale-steal included, so a steal that cannot succeed (e.g. the lock
+ * directory itself is unwritable) still bails at the deadline instead of
+ * spinning hot forever.
  */
 async function withLedgerLock<T>(path: string, fn: () => Promise<T>): Promise<T> {
   const lock = lockPath(path);
@@ -268,10 +298,7 @@ async function withLedgerLock<T>(path: string, fn: () => Promise<T>): Promise<T>
       const age = await stat(lock)
         .then((s) => Date.now() - s.mtimeMs)
         .catch(() => Infinity);
-      if (age > LEDGER_LOCK_STALE_MS) {
-        await unlink(lock).catch(() => {});
-        continue;
-      }
+      if (age > LEDGER_LOCK_STALE_MS) await stealStaleLock(path, lock);
       if (Date.now() >= deadline) throw busy(path);
       await new Promise((r) => setTimeout(r, LEDGER_LOCK_POLL_MS));
       continue;
@@ -311,10 +338,31 @@ export async function check(o: CheckInput): Promise<void> {
 }
 
 /**
+ * Rewrites the ledger keeping only entries within the widest window any
+ * limit uses (a day) plus the just-evaluated spend, atomically via
+ * tmp-then-rename. Compaction is a deliberate deviation from the task
+ * file's literal "never rewritten or truncated" line — see D72 — traded for
+ * bounding a file every `check`/`usage` call otherwise re-parses in full
+ * forever. Nothing outside every limit's window is ever needed again to
+ * enforce a limit; anything wanting the full history reads Supabase.
+ */
+async function writeCompacted(path: string, kept: SpendRecord[], appended: SpendRecord): Promise<void> {
+  const body = [...kept, appended].map((e) => JSON.stringify(e)).join("\n") + "\n";
+  const tmp = `${path}.tmp.${process.pid}.${randomUUID()}`;
+  try {
+    await writeFile(tmp, body, "utf8");
+    await rename(tmp, path);
+  } catch (e) {
+    await unlink(tmp).catch(() => {});
+    rethrowUnwritable(path, e);
+  }
+}
+
+/**
  * Records a real spend, but only after re-confirming it would not cross a
  * limit — the same evaluation `check` runs, so a caller that skipped the
  * preflight check (or whose situation changed between the two calls) still
- * cannot spend past a limit. The evaluate-then-append pair runs under
+ * cannot spend past a limit. The evaluate-then-write pair runs under
  * `withLedgerLock` so two concurrent spends cannot both pass evaluation
  * and both commit.
  */
@@ -344,11 +392,8 @@ export async function spend(o: SpendInput): Promise<SpendRecord> {
       n,
       ...(o.ref !== undefined ? { ref: o.ref } : {}),
     };
-    try {
-      await appendFile(path, JSON.stringify(record) + "\n", "utf8");
-    } catch (e) {
-      rethrowUnwritable(path, e);
-    }
+    const kept = entries.filter((e) => withinWindow(e.ts, nowMs, DAY_MS));
+    await writeCompacted(path, kept, record);
     return record;
   });
 }
@@ -382,7 +427,11 @@ export class BudgetLedger {
   /** Ensures the ledger's directory exists and binds a path + limit overrides. */
   static open(o: { path?: string; limits?: Partial<BudgetLimits> } = {}): BudgetLedger {
     const path = o.path ?? defaultBudgetPath();
-    mkdirSync(dirname(path), { recursive: true });
+    try {
+      mkdirSync(dirname(path), { recursive: true });
+    } catch (e) {
+      rethrowUnwritable(path, e);
+    }
     return new BudgetLedger(path, o.limits);
   }
 

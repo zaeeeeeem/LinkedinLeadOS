@@ -1,10 +1,10 @@
 import { describe, it, expect, beforeEach, afterEach } from "vitest";
-import { mkdtemp, rm, readFile, writeFile, appendFile, chmod } from "node:fs/promises";
+import { mkdtemp, rm, readFile, writeFile, appendFile, chmod, utimes, mkdir } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { check, spend, usage, BudgetLedger, type SpendRecord } from "../src/core/budget/ledger.js";
 import { CapabilityError, EXIT } from "../src/core/run/receipt.js";
-import { DEFAULT_BUDGET_LIMITS } from "../src/core/budget/constants.js";
+import { DEFAULT_BUDGET_LIMITS, LEDGER_LOCK_STALE_MS, LEDGER_LOCK_TIMEOUT_MS } from "../src/core/budget/constants.js";
 
 let dir: string;
 let path: string;
@@ -284,5 +284,116 @@ describe("unwritable ledger path", () => {
     expect(err.code).toBe("BUDGET_LEDGER_UNWRITABLE");
     expect(err.exit).toBe(EXIT.GENERIC);
     expect(err.retryable).toBe(false);
+  });
+
+  it("BudgetLedger.open reports the same unwritable classification mkdirSync would not", async () => {
+    const blocked = join(dir, "not-a-dir");
+    await writeFile(blocked, "file, not a directory", "utf8");
+    const nested = join(blocked, "budget.ndjson");
+    let err: CapabilityError | undefined;
+    try {
+      BudgetLedger.open({ path: nested });
+    } catch (e) {
+      err = e as CapabilityError;
+    }
+    expect(err).toBeInstanceOf(CapabilityError);
+    expect(err!.code).toBe("BUDGET_LEDGER_UNWRITABLE");
+    expect(err!.retryable).toBe(false);
+  });
+});
+
+/** Plants a lock file directly and backdates its mtime so it reads as stale (or not). */
+async function plantLock(ageMs: number, content = "planted"): Promise<string> {
+  const lock = `${path}.lock`;
+  await mkdir(dir, { recursive: true });
+  await writeFile(lock, content, "utf8");
+  const past = new Date(Date.now() - ageMs);
+  await utimes(lock, past, past);
+  return lock;
+}
+
+describe("stale lock recovery", () => {
+  it("lets exactly one racer through when several find the same stale lock", async () => {
+    // Regression: an unlink-then-open steal lets two racers who both judge
+    // the lock stale each unlink — the second unlink deletes the first
+    // racer's brand-new lock, and both end up holding it. Run several
+    // trials since the race window is narrow.
+    for (let trial = 0; trial < 8; trial++) {
+      const trialDir = await mkdtemp(join(tmpdir(), "budget-race-"));
+      const trialPath = join(trialDir, "budget.ndjson");
+      await writeFile(`${trialPath}.lock`, "stale-holder", "utf8");
+      const past = new Date(Date.now() - LEDGER_LOCK_STALE_MS - 500);
+      await utimes(`${trialPath}.lock`, past, past);
+
+      const results = await Promise.allSettled(
+        Array.from({ length: 6 }, (_, i) =>
+          spend({
+            runId: `racer-${i}`,
+            capability: "c",
+            kind: "page_load",
+            path: trialPath,
+            limits: { pageLoadsPerHour: 1 },
+          }),
+        ),
+      );
+      const fulfilled = results.filter((r) => r.status === "fulfilled");
+      expect(fulfilled).toHaveLength(1);
+
+      const lines = (await readFile(trialPath, "utf8")).trim().split("\n").filter((l) => l !== "");
+      expect(lines).toHaveLength(1);
+      await rm(trialDir, { recursive: true, force: true });
+    }
+  });
+
+  it("reclaims a stale lock and completes the spend", async () => {
+    await plantLock(LEDGER_LOCK_STALE_MS + 500);
+    const rec = await spend({ runId: "r", capability: "c", kind: "page_load", path });
+    expect(rec.kind).toBe("page_load");
+  });
+});
+
+describe("live-lock timeout", () => {
+  it("refuses with a retryable BUDGET_LEDGER_BUSY when the lock never frees and never ages into stale", async () => {
+    await plantLock(0); // fresh — never eligible for steal during this test
+    const started = Date.now();
+    const err = await asErr(spend({ runId: "r", capability: "c", kind: "page_load", path }));
+    const elapsed = Date.now() - started;
+    expect(err.code).toBe("BUDGET_LEDGER_BUSY");
+    expect(err.retryable).toBe(true);
+    expect(err.action).toBe("RETRY_BACKOFF");
+    expect(elapsed).toBeGreaterThanOrEqual(LEDGER_LOCK_TIMEOUT_MS - 50);
+    expect(elapsed).toBeLessThan(LEDGER_LOCK_TIMEOUT_MS + 2_000);
+  }, 10_000);
+});
+
+describe("compaction", () => {
+  it("drops entries older than a day from the file on the next spend", async () => {
+    const now = Date.now();
+    await plant([
+      { kind: "page_load", ts: new Date(now - 25 * 60 * 60 * 1000).toISOString() },
+      { kind: "page_load", ts: new Date(now - 1 * 60 * 60 * 1000).toISOString() },
+    ]);
+    await spend({ runId: "r", capability: "c", kind: "page_load", path, now: new Date(now) });
+    const lines = await readLines();
+    // The 25h-old entry is gone; the 1h-old one and the new spend remain.
+    expect(lines).toHaveLength(2);
+    expect(lines.every((l) => now - Date.parse(l.ts) < 24 * 60 * 60 * 1000)).toBe(true);
+  });
+
+  it("still fails closed on a corrupt line instead of compacting past it", async () => {
+    await plant([{ kind: "page_load" }]);
+    await appendFile(path, "not json\n", "utf8");
+    const err = await asErr(spend({ runId: "r", capability: "c", kind: "page_load", path }));
+    expect(err.code).toBe("BUDGET_LEDGER_CORRUPT");
+  });
+});
+
+describe("corrupt-line evidence", () => {
+  it("never puts the line's own bytes (which may carry a profile URN) on the receipt", async () => {
+    await writeFile(path, JSON.stringify({ kind: "profile_open", ref: "urn:li:fsd_profile:SECRET123" }) + "\n", "utf8");
+    const err = await asErr(usage({ path }));
+    expect(err.code).toBe("BUDGET_LEDGER_CORRUPT");
+    expect(err.evidence ?? "").not.toContain("SECRET123");
+    expect(err.message).not.toContain("SECRET123");
   });
 });

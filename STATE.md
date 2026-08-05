@@ -244,18 +244,28 @@ binds a path once for both. A per-invocation `limits` override can only lower a
 default, never raise or bypass one (§8) — an override above the default is silently
 ignored rather than trusted. Daily windows are rolling 24h, not calendar-day (D70). A
 corrupt or structurally-wrong ledger line fails every read closed (`BUDGET_LEDGER_CORRUPT`,
-non-retryable) rather than being skipped toward a lower count. The read-evaluate-append
-sequence inside `spend()` runs under a lockfile mutex (`<path>.lock`, stale after 5s) so
-two racing spends against the same limit cannot both observe "under limit" and both
-commit. Proven: 22 new tests pass offline in `mkdtemp` temp dirs (307/307 across the
-suite), typecheck clean — among them, each of the four limits tripping exactly at its
-boundary and not one spend earlier, window expiry for both the hourly and daily windows,
-distinct-profile dedupe including reopening an already-counted profile at a full quota,
-a corrupt line failing both `usage()` and `spend()` closed, an override above the default
-being ignored while one below it is honored, ten spends racing a limit of five landing
-exactly five recorded ledger lines with no flake across three consecutive runs, and an
-uncreatable ledger directory (a file where a directory needs to exist) classified fatal
-and non-retryable rather than retried forever.
+with only the line number and reason as evidence — never the line's own bytes, which can
+carry a profile URN) rather than being skipped toward a lower count. The read-evaluate-write
+sequence inside `spend()` runs under a lockfile mutex (`<path>.lock`, stale after 5s,
+reclaimed by rename-to-quarantine rather than unlink so several racers judging the same
+lock stale cannot all "win" it) so two racing spends against the same limit cannot both
+observe "under limit" and both commit; a lock that can never be stolen (unwritable
+directory) reports fatal `BUDGET_LEDGER_UNWRITABLE` instead of spinning, and one that is
+genuinely held reports retryable `BUDGET_LEDGER_BUSY` after a bounded wait.
+`spend()` also compacts the ledger to the widest window (24h) plus the new record on
+every write (D72) — otherwise-unbounded growth being re-parsed in full on every call.
+Proven: 29 tests pass offline in `mkdtemp` temp dirs (314/314 across the suite),
+typecheck clean, three consecutive clean runs — among them, each of the four limits
+tripping exactly at its boundary and not one spend earlier, window expiry for both the
+hourly and daily windows, distinct-profile dedupe including reopening an already-counted
+profile at a full quota, a corrupt line failing both `usage()` and `spend()` closed (and
+staying closed rather than being compacted past), an override above the default being
+ignored while one below it is honored, an uncreatable ledger directory classified fatal
+and non-retryable, ten spends racing a limit of five landing exactly five recorded ledger
+lines, eight trials of six racers finding one pre-planted stale lock each landing exactly
+one recorded spend, a live lock that never ages into stale timing out at the configured
+deadline rather than hanging, and compaction dropping a 25-hour-old entry while keeping a
+1-hour-old one and the new spend.
 
 ## In progress
 _(nothing)_

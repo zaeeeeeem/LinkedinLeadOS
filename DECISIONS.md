@@ -603,3 +603,34 @@ two concurrent spends racing the same limit cannot both observe "under limit" an
 both commit — the failure mode named directly in the task file via the tab lease.
 check() stays a separate read-only peek for capabilities that want to estimate cost
 before starting work; neither operation depends on the other having run.
+
+Revised same day, from review: D71's first cut stole a stale lock with
+`unlink`-then-recreate. That is not mutually exclusive — two callers can both judge
+the same lock stale and both `unlink`, and the second unlink deletes the *first*
+caller's brand-new lock rather than the stale one, so both end up believing they
+hold it (reproduced: 2/8 trials of 6 racers against a limit of 1 let both a
+"winner" and a "loser" record a spend). Replaced with rename-to-quarantine, the same
+technique D16 already used for the tab lease: rename is atomic, so of several
+callers that judge one lock stale, exactly one renames the real file and the rest
+get `ENOENT` and loop back to find the winner's fresh lock. Also fixed: the stale
+branch used to `continue` without checking the deadline or sleeping, so a lock that
+could never be stolen (its directory unwritable) spun hot forever instead of
+eventually reporting `BUDGET_LEDGER_BUSY`; the deadline check and poll sleep now
+run on every iteration regardless of which branch was taken, and a rename that
+fails for a permanent reason (not `ENOENT`) is classified `BUDGET_LEDGER_UNWRITABLE`
+immediately rather than waited out, since no retry changes an unwritable directory.
+
+## D72 — spend() compacts the ledger to the widest window on every write
+2026-08-08, Task 11, from review. The task file states the ledger file "is never
+rewritten or truncated by this module" (task-11, line 28) — read at the time as
+ruling out compaction. Revisited after review flagged the consequence: at 400 page
+loads/day the file grows to roughly 15MB/year, and every `check`/`spend`/`usage`
+call re-parses it in full to answer a question about the last 24 hours, forever.
+Nothing outside the widest window any limit uses (a day) is ever read again by this
+module to enforce a limit — long-term history belongs to Supabase (D11's own note:
+"the table may later mirror the file for reporting"), not to a file whose only job
+is bounding rolling windows. `spend()` now rewrites the file, atomically via
+tmp-then-rename, keeping only entries within 24h plus the just-recorded spend, on
+every call — the one place already holding the full parsed list under the lock.
+`check()` and `usage()` stay pure reads and never write. Operator-approved
+explicitly, given the direct conflict with the task file's original wording.
