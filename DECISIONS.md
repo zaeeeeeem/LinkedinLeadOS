@@ -924,3 +924,106 @@ assertion is `render.wait`, a budget spend is `budget.spend`, and any failure is
 Nothing is lost in the meantime: the receipt carries preflight's outcome in full — the
 lease record, the login state, the budget snapshot — and `summary.json` persists it beside
 the events.
+## D100 — a store failure never carries a string the database wrote
+2026-08-08, Task 14. `storeError` builds its own message from the operation, the table and
+the SQLSTATE, and puts `{op, table, status, sqlstate}` in `evidence`. The PostgREST error's
+`message`, `details` and `hint` are never forwarded.
+
+Postgres writes the offending values straight into its own error text — a unique violation
+reads `Key (urn)=(urn:li:fsd_profile:ACoAAB…) already exists` — and PostgREST passes that
+through untouched. Receipts go to stdout (D3), so forwarding the driver's message would
+print captured LinkedIn data into the agent's transcript, which the recording rules forbid
+outright. The whole driver error is attached as a **non-enumerable** `cause` instead:
+reachable under a debugger, invisible to `JSON.stringify`, so it cannot reach a receipt or
+an NDJSON line by accident. Rejected: forwarding the message for unclassified codes only —
+the classification is exactly what is uncertain there, so that is the case most likely to
+leak.
+
+## D101 — the person upsert is three ordered requests, not a transaction
+2026-08-08, Task 14. `upsertPerson` issues: upsert the person, upsert the experience rows,
+then delete that person's experience rows the capture no longer lists. PostgREST wraps each
+request in its own transaction, so no single request half-lands; the seam is between them.
+
+The order is the decision. Deleting first, or deleting inside the same statement, would mean
+a failure before the insert lands destroys employment history the store had and this run
+cannot replace. In the order above every failure leaves *extra* rows and never missing ones:
+person only, or person plus new rows plus stale ones. Both writes are upserts on a declared
+conflict target (`urn`; the `nulls not distinct` natural-key index), so a retry re-sends rows
+that already landed and updates them in place — proven against the real database, including
+the all-nulls experience row. `StoreWriteError.stored` carries the count that actually landed
+so the receipt's `partial.stored` is truthful.
+
+Rejected: a Postgres function called over RPC to get real atomicity. It buys atomicity for
+one entity write and costs a second migration, a second place the schema is defined, and
+logic that can only be tested with Docker running — while the non-atomic version's worst
+case is a stale row that the next successful run removes.
+
+## D102 — omitted means "not observed", null means "observed empty"; first_seen is the database's clock
+2026-08-08, Task 14. A field absent from a `PersonInput` is left out of the payload, so
+PostgREST does not include it in the `on conflict do update` set and the stored value
+survives. An explicit `null` is sent and overwrites. A parser that cannot tell "the capture
+did not contain this" from "the profile does not have this" must omit.
+
+`last_seen` is stamped from the caller's clock (injectable, which is what makes freshness
+testable). `first_seen` is never sent at all and stays the column default: a column present
+in an upsert payload is also updated on conflict, so sending `first_seen` would reset it on
+every re-scrape. The two therefore come from different clocks by design.
+
+## D103 — a nonsense duration fails the run; it never becomes a default
+2026-08-08, Task 14. `parseDuration` accepts a whole number with an optional `ms|s|m|h|d`
+suffix, and throws `INVALID_DURATION` (exit 1) on anything else — including `1.5d`, `7d12h`,
+`-1`, and `7w`. A typo that silently became the 7-day default would be indistinguishable
+from working; one that silently became `0` would re-fetch every profile against the budget
+that exists to prevent exactly that.
+
+`isFresh`'s edges are chosen the same way: a missing or unparseable `last_seen` is stale
+(the store cannot say how old the row is, so it does not get to claim it is new), the
+comparison is strict so a row exactly max-age old is stale, `max-age 0` is always stale, and
+a `last_seen` in the future is fresh because that is clock skew against Postgres, not
+evidence about the row.
+
+## D104 — the vanity lookup reports ambiguity instead of resolving or refusing it
+2026-08-08, Task 14. `persons.vanity` is deliberately not unique (Task 13): LinkedIn
+reassigns vanity URLs, so two profiles can hold the same string at different times.
+`findPersonByVanity` returns the most recently seen match and sets `vanityMatches` to the
+exact number of rows that matched. Above 1 means the caller is looking at a reused handle
+and should resolve by urn.
+
+Rejected: throwing on more than one match, which would make a routine LinkedIn fact into a
+failed run; and returning all matches, which pushes a decision onto every caller that all of
+them would resolve the same way.
+
+## D105 — `last_seen` is the last thing written, not the first (revises D101's order)
+2026-08-08, Task 14 review. D101 ordered the person upsert first and argued the ordering was
+safe because every failure left *extra* rows and never missing ones. That is true of rows and
+false of the one column freshness reads.
+
+`last_seen` is not data about the person; it is the record's claim to be **complete as of that
+instant**, and `isFresh` reads it to decide whether to serve from the store instead of loading
+the page. Bumping it first meant a failure at the experience write left a record that was
+incomplete *and* looked fresh, so the next run served the damage and never re-fetched it for a
+whole `--max-age` window — a week at the default. For a person never stored before, the result
+was a row with zero experience rows, marked fresh, indistinguishable from someone who genuinely
+lists no jobs. The failure hid itself, and the saving freshness exists for was spent serving an
+incomplete record.
+
+The order is now: experience upsert → delete stale → person upsert. D94 puts no foreign key on
+`person_urn`, so experience rows can be written before the person row exists. D101's property is
+unchanged — still only ever extra rows — and every failure now leaves the person **stale**, so
+the next run re-fetches and repairs. The one new intermediate state is experience rows with no
+person row, which `findPersonByUrn` returns as `null`: read as stale, re-fetched, fixed. A
+missing record is strictly better than a fresh lie.
+
+This is CONTEXT.md's first shape exactly: a field written at step 1 that only becomes true at
+step 3.
+
+## D106 — SQLSTATE class 22 is a rejected write, not an unrecognized one
+2026-08-08, Task 14 review. Class 22 (data exception: invalid date syntax, numeric overflow,
+string too long) joins class 23 (integrity violation) on `STORE_WRITE_REJECTED`. It previously
+fell into the catch-all `STORE_WRITE_FAILED`, whose message says the store reported an error
+this build does not recognize.
+
+The codes split on operator action (D13), not on cause. Class 22 and class 23 mean the same
+thing to whoever reads the receipt: the row we sent is wrong, fix the caller, do not retry.
+Proven live rather than only in a table — an experience row with `started_on: "not-a-date"` is
+rejected by the real database as 22007 and classified `STORE_WRITE_REJECTED`, non-retryable.

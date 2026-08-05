@@ -1,0 +1,122 @@
+import { createClient, type SupabaseClient } from "@supabase/supabase-js";
+import { CapabilityError, EXIT, type FailureAction } from "../run/receipt.js";
+import { type EnvLike, requireStoreConfig, type StoreConfig } from "./config.js";
+
+export type StoreClient = SupabaseClient;
+
+const clients = new Map<string, StoreClient>();
+
+/**
+ * The Supabase client, memoized per configuration.
+ *
+ * The service role key bypasses RLS, which is the whole reason it is the key the
+ * toolkit holds: RLS is on with no policies and only `service_role` is granted
+ * anything (D91/D97). Nothing here reads bulk data on the agent's behalf — the
+ * agent runs SQL directly (D4).
+ */
+export function getStore(opts: { config?: StoreConfig; env?: EnvLike } = {}): StoreClient {
+  const config = opts.config ?? requireStoreConfig(opts.env);
+  const key = JSON.stringify([config.url, config.serviceRoleKey]);
+  const existing = clients.get(key);
+  if (existing) return existing;
+  const client = createClient(config.url, config.serviceRoleKey, {
+    auth: { persistSession: false, autoRefreshToken: false },
+    db: { schema: "public" },
+  });
+  clients.set(key, client);
+  return client;
+}
+
+/** Drops the memoized clients. For tests; production never needs it. */
+export function resetStore(): void {
+  clients.clear();
+}
+
+/** The subset of a PostgrestError this module is willing to look at. */
+type DriverError = {
+  code?: string | undefined;
+  message?: string | undefined;
+};
+
+const SQLSTATE_CLASS_TRANSIENT = new Set(["08", "53", "57", "58"]);
+const SCHEMA_CODES = new Set(["42P01", "42703", "42P10", "42804", "PGRST202", "PGRST204", "PGRST205"]);
+const UNAUTHORIZED_CODES = new Set(["42501", "PGRST301", "PGRST302", "28000", "28P01"]);
+
+function isTransport(cause: unknown, status: number | undefined, code: string): boolean {
+  if (status === 0) return true;
+  if (status !== undefined && status >= 500) return true;
+  if (code) return false;
+  const name = (cause as { name?: string } | null)?.name ?? "";
+  const message = (cause as { message?: string } | null)?.message ?? "";
+  return (
+    name === "TypeError" ||
+    name === "AbortError" ||
+    name === "FetchError" ||
+    /fetch failed|ECONNREFUSED|ENOTFOUND|ETIMEDOUT|socket hang up/i.test(message)
+  );
+}
+
+/**
+ * Turns a Supabase/PostgREST failure into a `CapabilityError` whose code names one
+ * operator action, and whose message and evidence carry **no data from the database**.
+ *
+ * That second half is not tidiness. Postgres writes the offending key values into
+ * its own error message (`Key (urn)=(urn:li:fsd_profile:…) already exists`), PostgREST
+ * passes them through untouched, and receipts go to stdout (D3) — so forwarding the
+ * driver's message would print captured LinkedIn data straight into the agent's
+ * transcript. The driver error is kept as a non-enumerable `cause` instead: reachable
+ * in a debugger, invisible to `JSON.stringify` (D100).
+ */
+export function storeError(o: {
+  op: string;
+  table: string;
+  kind: "read" | "write";
+  status?: number;
+  cause: unknown;
+}): CapabilityError {
+  const driver = (o.cause ?? {}) as DriverError;
+  const code = typeof driver.code === "string" ? driver.code : "";
+  const sqlstateClass = /^\d{5}$/.test(code) ? code.slice(0, 2) : "";
+
+  let errorCode: string;
+  let why: string;
+  let retryable = false;
+
+  if (isTransport(o.cause, o.status, code) || SQLSTATE_CLASS_TRANSIENT.has(sqlstateClass)) {
+    errorCode = "STORE_UNAVAILABLE";
+    why = "the store did not answer — is the local Supabase stack up (npm run db:start)?";
+    retryable = true;
+  } else if (UNAUTHORIZED_CODES.has(code) || o.status === 401 || o.status === 403) {
+    errorCode = "STORE_UNAUTHORIZED";
+    why = `the store refused the credentials — check SUPABASE_SERVICE_ROLE_KEY in .env`;
+  } else if (SCHEMA_CODES.has(code)) {
+    errorCode = "STORE_SCHEMA_MISMATCH";
+    why = "the store's schema is not the one this build expects — apply the migrations (npm run db:reset)";
+  } else if (sqlstateClass === "22" || sqlstateClass === "23") {
+    // 22 is data exception (bad date, numeric overflow, string too long), 23 is
+    // integrity violation. Different causes, one operator action: the row we sent is
+    // wrong, fix the caller, do not retry.
+    errorCode = "STORE_WRITE_REJECTED";
+    why = "the row was rejected by the database — this is a bug in what was sent, not a retryable failure";
+  } else {
+    errorCode = o.kind === "write" ? "STORE_WRITE_FAILED" : "STORE_READ_FAILED";
+    why = "the store reported an error this build does not recognize";
+  }
+
+  const action: FailureAction = retryable ? "RETRY_BACKOFF" : "HALT_AND_NOTIFY";
+  const err = new CapabilityError({
+    code: errorCode,
+    exit: retryable ? EXIT.TRANSIENT : EXIT.GENERIC,
+    action,
+    retryable,
+    message: `${o.op} on ${o.table} failed: ${why}`,
+    evidence: JSON.stringify({
+      op: o.op,
+      table: o.table,
+      status: o.status ?? null,
+      sqlstate: code || null,
+    }),
+  });
+  Object.defineProperty(err, "cause", { value: o.cause, enumerable: false, configurable: true });
+  return err;
+}

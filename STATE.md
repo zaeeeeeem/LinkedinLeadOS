@@ -395,9 +395,77 @@ so a throw from attaching the tap's listener still reaches teardown holding the 
 `catch` believed it had stopped. Proven: 427/427 (3 new), typecheck clean; live
 `health.check --budget=5` returned ok / exit 0 with the lease released and the page-target
 count back at 1.
+Task 14 — store client, freshness, and the person write path. `src/core/store/
+{constants,config,client,freshness,types,persons,index}.ts`: `readStoreConfig` /
+`isStoreConfigured` / `requireStoreConfig` (a `.env` read through Node's own
+`process.loadEnvFile`, no dependency added) so a `--skip-store` run can ask whether the
+store exists without a missing `.env` ending it; `getStore()` memoizing one service-role
+client per configuration; `parseDuration` / `isFresh` for the `--max-age` grammar (§7);
+`upsertPerson` / `findPersonByUrn` / `findPersonByVanity` plus row types matching the
+Task 13 migration. Failures map to one code per operator action — `STORE_UNAVAILABLE`
+(transient, exit 6), `STORE_UNAUTHORIZED`, `STORE_SCHEMA_MISMATCH`, `STORE_WRITE_REJECTED`,
+`STORE_{READ,WRITE}_FAILED` (all fatal, exit 1) — and carry **no string the database
+wrote**, because Postgres puts the offending urn straight into its own error text and
+receipts go to stdout (D100); the driver error survives as a non-enumerable `cause`.
+`upsertPerson` is three ordered requests, not a transaction: experience upsert, then the
+delete of rows this capture no longer lists, then the person row **last**. Two properties
+fix that order — a failure between them leaves *extra* rows and never missing ones (D101),
+and `last_seen` is written last because it is the record's claim to be complete and
+`isFresh` reads it, so every failure leaves the person stale and the next run repairs it
+rather than serving a half-written record for a whole `--max-age` window (D105).
+`StoreWriteError.stored` names what actually landed, for the receipt's `partial.stored`. Omitted fields are left alone
+and explicit nulls overwrite; `first_seen` is never sent, so a re-scrape cannot reset it
+(D102). Nonsense durations are fatal rather than defaults, and a missing `last_seen` is
+always stale (D103). The vanity lookup returns the newest match and reports how many
+matched, since vanity is reassignable and not unique (D104).
+
+Reviewed 2026-08-08 — one real bug, in the property the ordering doc claimed. The person
+row was written first, so its `last_seen` bumped before the rows it describes existed: a
+failed experience write left a record that was incomplete *and* fresh, which the next run
+served instead of re-fetching, for up to `--max-age`. Worst case was a person never stored
+before — zero experience rows, marked fresh, indistinguishable from someone who lists no
+jobs. The person write moved last (D105); every failure now leaves the person stale or
+absent, and `findPersonByUrn` reads absent as stale. Also: SQLSTATE class 22 (bad date,
+overflow, string too long) now classifies `STORE_WRITE_REJECTED` alongside class 23 instead
+of falling into the "error this build does not recognize" catch-all — same operator action,
+so same code (D106). Also fixed: `getStore`'s memo key held a literal NUL byte, which made
+git treat `client.ts` as a binary file; it is a `JSON.stringify` of the pair now.
+
+Proven: 82 new tests (455/455 across the suite, three consecutive runs with no flake),
+typecheck clean. 33 offline pin the duration grammar and every freshness edge; 25 offline
+pin the configuration probe and each failure classification, including that a synthetic
+23505 carrying a urn and a name leaks neither into the message nor the evidence nor
+`JSON.stringify` of the error; 11 offline drive the **real** supabase-js against a stub
+PostgREST on loopback — a hand-written fake of the query builder would let a request shape
+PostgREST rejects pass as correct — pinning the conflict targets, uniform bulk-row keys,
+the exact three-request order ending on `persons`, the no-experience-touched path,
+byte-identical retries, the stored count at each failure point, and that neither a failed
+experience write nor a failed delete sends anything to `persons` at all. 13 integration
+tests run against the local stack and skip visibly without it (`[skip] store integration
+tests — local Supabase is not reachable at …`): full suite is 455/455 with Supabase up and
+442 passed / 13 skipped with it unreachable. Two of them are the review regression, driven
+by a real 22007 rejection from Postgres (`started_on: "not-a-date"`): a never-stored person
+stays absent and an already-stored one keeps its old `last_seen` and still reads stale. The
+rest prove `last_seen` bumping with `first_seen` held, omitted-vs-null,
+that the `nulls not distinct` natural key collapses a re-scraped all-nulls experience row
+onto the same id through PostgREST's `on_conflict`, experience replacement keeping the
+surviving row's id, `[]` clearing and omitted touching nothing, a retry converging to one
+person and two experience rows, both lookups, and `vanityMatches: 2` on a shared handle.
+Verified to bite by mutation: relaxing the freshness boundary to `<=` failed 1 test, adding
+the driver's `details` to the evidence failed 2, dropping the omitted-experience guard
+failed 9, dropping class 22 from the rejected branch failed 3 (one of them live), and
+restoring the reviewed bug — bumping `last_seen` before the experience write — failed 11,
+including both live regression tests.
+
+Not done here, and not asked for by the task file: nothing yet writes `runs`,
+`raw_captures`, `budget_ledger` or `parse_drift` — B3 (narrowing the budget ledger's
+compaction window once Supabase mirrors it) therefore stays open. B4 records that two
+concurrent `upsertPerson` calls for one person would delete each other's experience rows;
+not reachable while runs are sequential under one tab lease, with the fix settled at
+capture time.
 
 ## In progress
 _(nothing)_
 
 ## Next
-Task 14 — Supabase store client (M2). See `docs/plans/m1-m3/tasks/`.
+Task 15 — capture fixture (M2). See `docs/plans/m1-m3/tasks/`.
