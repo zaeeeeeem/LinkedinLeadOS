@@ -8,6 +8,7 @@ import {
   worstVerdict,
 } from "../src/core/challenge/classify.js";
 import type { ChallengeDetection } from "../src/core/challenge/classify.js";
+import { CHALLENGE_PATHS, SOFT_MARKER_MAX_TEXT } from "../src/core/challenge/constants.js";
 import { EXIT } from "../src/core/run/receipt.js";
 
 const url = (u: string) => classifyUrl(u).kind;
@@ -50,17 +51,42 @@ describe("classifyUrl — challenge paths", () => {
     ["https://www.linkedin.com/uas/login?session_redirect=%2Ffeed", "login"],
     ["https://www.linkedin.com/login", "login"],
     ["https://www.linkedin.com/signup/cold-join", "login"],
-    ["https://www.linkedin.com/", "login"],
-    ["https://www.linkedin.com/home", "login"],
   ] as const)("%s is %s", (u, kind) => {
     expect(url(u)).toBe(kind);
   });
 
-  it("puts /checkpoint/lg/ ahead of /checkpoint/ — reauth is not a captcha", () => {
-    // The two map to different exit codes (4 vs 2) and different operator
-    // actions, so prefix order in CHALLENGE_PATHS is load-bearing.
+  it("halts on the guest homepage without claiming the session is dead (D63)", () => {
+    // The bounce reasoning is unverified, and `login` is not a neutral guess: it
+    // exits 4 and instructs a re-login, which is itself an event LinkedIn
+    // watches. `unrecognized` stops the run just as hard.
+    for (const u of ["https://www.linkedin.com/", "https://www.linkedin.com/home"]) {
+      const v = classifyUrl(u);
+      expect(v.clean).toBe(false);
+      expect(v.kind).toBe("unrecognized");
+    }
+  });
+
+  it("matches the longest challenge prefix, whatever order they are declared in", () => {
+    // /checkpoint/lg/ (exit 4) and /checkpoint/ (exit 2) are different operator
+    // actions, so this is load-bearing. Sorting is what makes it hold — these
+    // pass under declaration order too, which is why the invariant below exists.
     expect(url("https://www.linkedin.com/checkpoint/lg/login")).toBe("login");
     expect(url("https://www.linkedin.com/checkpoint/lg/login-submit")).toBe("login");
+    expect(url("https://www.linkedin.com/checkpoint/rp/request-password-reset")).toBe("login");
+  });
+
+  it("shadows no challenge prefix — every entry is reachable", () => {
+    // The invariant, not one instance of it: a new specific prefix appended
+    // under a generic one used to be silently unreachable, which downgrades its
+    // exit code without failing anything. `/checkpoint/challengesV2` was exactly
+    // that. Matching now sorts by length, so this holds by construction — and
+    // this test fails if that sort is ever removed.
+    for (const { prefix, kind, detail } of CHALLENGE_PATHS) {
+      const v = classifyUrl(`https://www.linkedin.com${prefix}probe`);
+      expect(v.clean).toBe(false);
+      expect(v.kind).toBe(kind);
+      expect(v.detail).toBe(detail);
+    }
   });
 });
 
@@ -98,9 +124,29 @@ describe("classifyText", () => {
     expect(v.clean).toBe(false);
   });
 
-  it("finds a soft throttle", () => {
+  it("finds a soft throttle on a short page", () => {
     expect(classifyText("Couldn’t load this content").kind).toBe("rate-limited");
     expect(classifyText("Too many requests").kind).toBe("rate-limited");
+    expect(classifyText("Please try again later").kind).toBe("rate-limited");
+  });
+
+  it("ignores a soft throttle phrase buried in a full page (D64)", () => {
+    // LinkedIn renders "couldn't load this content" on one broken feed card
+    // while the session is healthy. Trusting it there halts a good run with
+    // RATE_LIMITED and a back-off, and the receipt is indistinguishable from a
+    // real throttle.
+    const feed = "Jane Doe posted a job. ".repeat(200); // > SOFT_MARKER_MAX_TEXT
+    expect(feed.length).toBeGreaterThan(SOFT_MARKER_MAX_TEXT);
+    expect(classifyText(`${feed}Couldn’t load this content${feed}`).kind).toBe("clean");
+    expect(classifyText(`${feed}Too many requests${feed}`).kind).toBe("clean");
+  });
+
+  it("still trusts the specific wording at any page length", () => {
+    // Only the throttle set is soft. A restriction notice is specific enough
+    // that its length says nothing, and missing it is the expensive direction.
+    const feed = "Jane Doe posted a job. ".repeat(200);
+    expect(classifyText(`${feed}We noticed unusual activity from your account`).kind).toBe("restricted");
+    expect(classifyText(`${feed}Let's do a quick security check`).kind).toBe("captcha");
   });
 
   it("finds captcha wording", () => {
@@ -133,9 +179,17 @@ describe("classifyResponse", () => {
     expect((withHeader as ChallengeDetection).retryAfterMs).toBe(30_000);
   });
 
-  it("maps 401 and 403 to a dead session", () => {
+  it("maps 401 to a dead session — unauthenticated is unambiguous", () => {
     expect(classifyResponse({ status: 401, url: "https://www.linkedin.com/voyager/api/x" }).kind).toBe("login");
-    expect(classifyResponse({ status: 403, url: "https://www.linkedin.com/voyager/api/x" }).kind).toBe("login");
+  });
+
+  it("halts on 403 without prescribing a re-login (D63)", () => {
+    // 403 means "logged out" or "this member is out of your network", and the
+    // two need opposite responses. Exit 4 would tell the operator to
+    // authenticate a session that may be fine.
+    const v = classifyResponse({ status: 403, url: "https://www.linkedin.com/voyager/api/x" });
+    expect(v.clean).toBe(false);
+    expect(v.kind).toBe("unrecognized");
   });
 
   it("maps LinkedIn's 999 to restricted", () => {
@@ -182,7 +236,13 @@ describe("worstVerdict", () => {
 
   it("is clean only when every input is clean", () => {
     expect(worstVerdict(classifyUrl("https://www.linkedin.com/feed/"), classifyText("all fine")).kind).toBe("clean");
-    expect(worstVerdict().kind).toBe("clean");
+  });
+
+  it("does not certify nothing as clean", () => {
+    // No signals checked is not the same as every signal reporting clean. The
+    // module denies by default (D60), and this is the one place it did not.
+    expect(worstVerdict().clean).toBe(false);
+    expect(worstVerdict().kind).toBe("unrecognized");
   });
 
   it("ranks every non-clean kind", () => {

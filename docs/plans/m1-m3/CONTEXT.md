@@ -52,7 +52,7 @@ All rules in `CLAUDE.md` apply. These are the ones tasks trip over:
 
 ## What review actually catches — hold yourself to these before you commit
 
-Tasks 1–9 were all reviewed. Every finding — all of them — was one of three shapes, and
+Tasks 1–10 were all reviewed. Every finding — all of them — was one of four shapes, and
 none was a design error, a missed deliverable, or a bug on the happy path. The
 implementations do what their task file asks. These three are what the task file *didn't*
 ask, so they are asked here once, for every task.
@@ -101,7 +101,23 @@ Specifically:
 - **A fake that emits sequences the real protocol never produces will certify a bug as
   fixed.** Check your test doubles against what actually happens on the wire.
 
-Findings of these three shapes are cheap to catch here and expensive to catch in review.
+**4. If you are the first caller of two existing modules together, prove they compose.**
+
+Every task proves its own module offline, and nothing asks anyone to call two finished
+modules in the same file. So a mismatch between them survives until some later task
+happens to need both, and then it lands as a mid-task blocker on whoever is unlucky.
+
+Task 6's `Screenshotter` accepted `screenshot(path): Promise<void>`; Task 4's
+`WorkerTab.screenshot` returns `Promise<string>`. `runContext.screenshot(workerTab, …)`
+therefore did not typecheck at all. Both tasks were built, reviewed and merged. Task 10
+found it only by being the first code that needed a screenshot *and* a run context —
+which is to say, by accident.
+
+So: if your task is the first place two prior modules meet, add a compile-time assertion
+that they do (`const _: Consumer = realImplementation`, or a `satisfies`), and verify it
+fails when you break it. It costs a line and it is the only thing that will catch this.
+
+Findings of these four shapes are cheap to catch here and expensive to catch in review.
 Bring judgment calls to review instead — a real X-over-Y with a defensible case each way
 is exactly what review is for, and what `DECISIONS.md` exists to record.
 

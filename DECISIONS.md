@@ -538,3 +538,45 @@ extends ChallengeTab & ShotTab & Screenshotter`, `RunContext extends
 ChallengeArchive`), verified to fail when the widening is reverted. A structural
 seam between two modules that never appear in the same file is otherwise proven by
 nothing until the first caller shows up, which is how this one survived two reviews.
+
+## D63 — an unverified signal halts, but never prescribes a re-login
+2026-08-08, from review of Task 10. Two signals that pointed at `login` (exit 4,
+`SESSION_DEAD`, `REAUTH`) now point at `unrecognized` (exit 2, `HALT_AND_NOTIFY`):
+bare `/` and `/home`, and HTTP 403.
+
+The reasoning behind both was explicitly unverified. Bare `/` as a bounce is inferred
+from LinkedIn's redirect behaviour, not observed. A 403 means "you are logged out" or
+"this member is out of your network", and the two want opposite responses.
+
+What changed is the judgement about which wrong answer is cheap. Elsewhere in this
+module a false positive costs a manual restart, which is why it denies by default
+(D60). Exit 4 does not fit that shape: it does not just halt, it instructs the
+operator to authenticate again, and a needless re-login on a healthy session is
+itself an event LinkedIn watches. So a wrong `login` spends account safety, which is
+the one currency this project does not spend for convenience. `unrecognized` stops
+the run exactly as hard, produces the same screenshot and checkpoint, and asks for a
+human instead of prescribing the one action that carries risk.
+
+Superseded from D60's entry: the mapping there recorded `401/403 → login`. 401 keeps
+it — an unauthenticated request is unambiguous. Task 15's live run is what promotes
+403 or the bare-`/` bounce back to `login`, on evidence.
+
+## D64 — throttle wording is only trusted on a short page
+2026-08-08, from review of Task 10. The three `rate-limited` text markers
+("couldn't load this content", "too many requests", "try again later") are marked
+`soft` and skipped when the page body exceeds `SOFT_MARKER_MAX_TEXT` (2,000 chars).
+
+LinkedIn renders "couldn't load this content" on one failed feed card while the rest
+of the page is fine and the session is healthy. The gate reads up to 20,000
+characters of `innerText`, so on a feed these phrases were near-certain to fire
+eventually — halting a good run with `RATE_LIMITED` and a back-off, on a receipt
+indistinguishable from a real throttle.
+
+Narrowing detection is normally the unsafe direction, so the bound on what is given
+up matters: the authoritative throttle signal is HTTP 429 in `classifyResponse`,
+untouched by this. These markers are the backstop for a throttle served as a 200, and
+in that case the interstitial *is* the page — short by construction. What is
+surrendered is a throttle phrase buried inside a full page, which is the false
+positive rather than the throttle. The captcha, checkpoint and restriction markers
+stay trusted at any length; their wording is specific enough that length says nothing,
+and missing one of those is the expensive direction.

@@ -214,6 +214,24 @@ reverted. Live against the automation Chrome on local `file://` probe pages, nev
 LinkedIn: `PROBE_EXPRESSION` ran in a real page and read back `readable: true`,
 `captcha: true`, 60 chars of text; the blocked page classified `captcha` and the clean
 page `clean`.
+Reviewed 2026-08-08 — four changes, all in the direction of not guessing. Two signals
+that claimed `login` now classify `unrecognized` (D63): bare `/` as a bounce, and HTTP
+403. Both were explicitly unverified, and exit 4 is not a neutral guess — it instructs a
+re-login, and a needless re-login on a healthy session is itself an event LinkedIn
+watches; `unrecognized` halts just as hard without prescribing it. 401 keeps `login`,
+being unambiguous. The three throttle text markers are now `soft` and skipped above
+`SOFT_MARKER_MAX_TEXT` (D64) — LinkedIn shows "couldn't load this content" on one broken
+feed card, so on a 20,000-char feed they were near-certain to halt a healthy run with a
+receipt indistinguishable from a real throttle; HTTP 429 remains the authoritative
+signal and is untouched. The deny list is now normalized at module load, lower-cased and
+sorted longest-prefix-first: `/checkpoint/challengesV2` was unreachable twice over — once
+behind its own shorter prefix, once because prefixes were compared against a lower-cased
+path without being lower-cased themselves — and neither showed up in a URL-level test,
+since a shadowed entry is still caught by whatever shadows it. `worstVerdict()` over zero
+signals returns `unrecognized` rather than clean, the one place the module certified
+something it had not checked. Proven: 285/285 (4 new, including an invariant test that
+every deny-list entry is reachable — verified to fail with either the sort or the
+lower-casing removed), typecheck clean.
 
 ## In progress
 _(nothing)_

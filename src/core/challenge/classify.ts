@@ -7,8 +7,29 @@ import {
   LINKEDIN_DENIED_STATUS,
   LINKEDIN_HOSTS,
   LINKEDIN_HOST_SUFFIX,
+  SOFT_MARKER_MAX_TEXT,
   TEXT_MARKERS,
 } from "./constants.js";
+
+/**
+ * The deny list, normalized once at module load into the form matching actually
+ * uses: lower-cased, and longest prefix first.
+ *
+ * Both halves fix a way an entry can be silently unreachable, and
+ * `/checkpoint/challengesV2` managed to be both at once. **Case:** paths are
+ * compared lower-cased, so a prefix written with a capital letter could never
+ * match anything. **Length:** the specific entries and the generic ones carry
+ * different exit codes — `/checkpoint/lg/` is exit 4, `/checkpoint/` is exit 2 —
+ * so a specific prefix declared below a generic one is shadowed, and the receipt
+ * names the wrong operator action.
+ *
+ * Neither failure breaks a test written against a URL, because a shadowed entry
+ * is still caught by whatever shadows it. Normalizing here makes both properties
+ * of the matching rather than things a future editor has to remember.
+ */
+const SORTED_CHALLENGE_PATHS = CHALLENGE_PATHS
+  .map((e) => ({ ...e, prefix: e.prefix.toLowerCase() }))
+  .sort((a, b) => b.prefix.length - a.prefix.length);
 
 /**
  * What LinkedIn is doing to this session.
@@ -112,7 +133,7 @@ function challengePath(pathname: string): ChallengeDetection | null {
   for (const { path, kind, detail } of CHALLENGE_EXACT_PATHS) {
     if (p === path) return DETECTED(kind, "url", detail);
   }
-  for (const { prefix, kind, detail } of CHALLENGE_PATHS) {
+  for (const { prefix, kind, detail } of SORTED_CHALLENGE_PATHS) {
     if (p.startsWith(prefix)) return DETECTED(kind, "url", detail);
   }
   return null;
@@ -159,11 +180,20 @@ export function classifyUrl(rawUrl: string): ChallengeVerdict {
 /**
  * Classifies the rendered page text against LinkedIn's own wording.
  *
+ * Markers marked `soft` are skipped on a long page (D64). LinkedIn shows
+ * "couldn't load this content" on one broken feed card while the session is
+ * perfectly healthy, so on a full page that phrase is not evidence of anything;
+ * on a short page the interstitial *is* the page. Everything else — the captcha,
+ * checkpoint and restriction wording — is specific enough to trust at any
+ * length.
+ *
  * The detail carries the matched marker and nothing else — the surrounding text
  * is captured LinkedIn data and must never reach a receipt or a log.
  */
 export function classifyText(text: string): ChallengeVerdict {
-  for (const { kind, pattern } of TEXT_MARKERS) {
+  const longPage = text.length > SOFT_MARKER_MAX_TEXT;
+  for (const { kind, pattern, soft } of TEXT_MARKERS) {
+    if (soft && longPage) continue;
     const m = pattern.exec(text);
     if (m) return DETECTED(kind, "dom", `page text: "${m[0]}"`);
   }
@@ -211,13 +241,19 @@ export function classifyResponse(facts: ResponseFacts): ChallengeVerdict {
   if (facts.status === LINKEDIN_DENIED_STATUS) {
     return DETECTED("restricted", "status", `http ${LINKEDIN_DENIED_STATUS} (linkedin request denied)`);
   }
-  // Per the task contract: 401/403 on a LinkedIn endpoint means the session is
-  // dead. Known imprecision — a 403 can also mean "this member is out of your
-  // network" rather than "you are logged out" — and it errs toward halting for
-  // reauth, which is the safe direction. Task 15's live run is where a real 403
-  // gets looked at.
-  if (facts.status === 401 || facts.status === 403) {
-    return DETECTED("login", "status", `http ${facts.status}`);
+  // 401 is unambiguous: the request was not authenticated, so the session is
+  // dead and REAUTH is the right instruction.
+  if (facts.status === 401) {
+    return DETECTED("login", "status", "http 401");
+  }
+  // 403 is not (D63). It means "you are logged out" *or* "this member is out of
+  // your network" — and the two need opposite responses. Calling it `login`
+  // exits 4 and tells the operator to authenticate again; a needless re-login on
+  // a healthy session is itself an event LinkedIn watches, so guessing wrong
+  // here costs more than halting does. `unrecognized` stops just as hard and
+  // asks for a human. Task 15's live run is where a real 403 gets looked at.
+  if (facts.status === 403) {
+    return DETECTED("unrecognized", "status", "http 403 (logged out, or out of network — unverified)");
   }
 
   // A 5xx is a broken server, not a challenge. Classifying it here would put a
@@ -230,6 +266,15 @@ export function classifyResponse(facts: ResponseFacts): ChallengeVerdict {
  * otherwise the highest-precedence detection wins.
  */
 export function worstVerdict(...verdicts: ChallengeVerdict[]): ChallengeVerdict {
+  // No signals at all is not the same as every signal reporting clean, and this
+  // module does not certify what it has not checked (D60). Unreachable from
+  // `detectChallenge`, which always supplies at least two — but this is exported,
+  // and a caller that filters its signal list down to nothing gets a halt rather
+  // than a clean bill of health.
+  if (verdicts.length === 0) {
+    return DETECTED("unrecognized", "none", "no signal was checked, so nothing can be cleared");
+  }
+
   let worst: ChallengeDetection | null = null;
   for (const v of verdicts) {
     if (v.clean) continue;

@@ -19,9 +19,16 @@ export const LINKEDIN_HOSTS = ["linkedin.com", "www.linkedin.com"] as const;
 export const PROBE_TEXT_LIMIT = 20_000;
 
 /**
- * Path prefixes that are a challenge, checked before anything else and matched
- * longest-first so `/checkpoint/lg/login` (log in again, exit 4) is never read as
- * `/checkpoint/` (verification interstitial, exit 2).
+ * Path prefixes that are a challenge, checked before anything else.
+ *
+ * `classifyUrl` sorts this list by prefix length, longest first, at module load
+ * — the order written here does not decide anything. That matters because the
+ * specific entries and the generic ones map to different exit codes:
+ * `/checkpoint/lg/` is exit 4 (log in again) and `/checkpoint/` is exit 2
+ * (a human should look). Relying on declaration order means appending a new
+ * specific prefix below a generic one silently downgrades it, and the resulting
+ * receipt names the wrong operator action. Sorting removes the trap instead of
+ * documenting it.
  *
  * `kind` here is the URL's opinion only; the DOM can sharpen `checkpoint` into
  * `captcha` afterwards.
@@ -31,14 +38,14 @@ export const CHALLENGE_PATHS: ReadonlyArray<{
   kind: "captcha" | "checkpoint" | "login" | "restricted";
   detail: string;
 }> = [
-  // The login flow that lives *under* /checkpoint/. Ordered before the generic
-  // /checkpoint/ rule below, which is the whole reason this list is ordered.
+  // The login flow that lives *under* /checkpoint/.
   { prefix: "/checkpoint/lg/", kind: "login", detail: "checkpoint login form" },
   { prefix: "/checkpoint/rp/", kind: "login", detail: "checkpoint password reset" },
   // Verified in the reference worker's live runs.
   { prefix: "/checkpoint/challenge", kind: "checkpoint", detail: "checkpoint challenge" },
-  // UNVERIFIED: the newer challenge surface. Harmless if it never appears — it is
-  // covered by the generic /checkpoint/ rule below either way.
+  // UNVERIFIED: the newer challenge surface. Same kind as the entry above, so it
+  // changes only the detail string — but it is reachable now that the list is
+  // sorted by length, where in declaration order it sat behind its own prefix.
   { prefix: "/checkpoint/challengesV2", kind: "checkpoint", detail: "checkpoint challenge (v2)" },
   // Everything else under /checkpoint/ is a verification interstitial we have not
   // named yet. Deliberately a challenge rather than a miss.
@@ -58,16 +65,24 @@ export const CHALLENGE_PATHS: ReadonlyArray<{
  *
  * Bare `/` and `/home` are the logged-out guest homepage: a logged-in session
  * redirects `/` to `/feed/`, and every URL this toolkit navigates to is a deep
- * link, so landing here means we were bounced. UNVERIFIED as a bounce signal —
- * it is reasoned from LinkedIn's redirect behaviour, not observed by us.
+ * link, so landing here means we were bounced.
+ *
+ * `unrecognized`, not `login`, and deliberately so (D63). The bounce reasoning
+ * is UNVERIFIED — inferred from LinkedIn's redirect behaviour, not observed —
+ * and `login` is not a neutral guess to make: it exits 4 and tells the operator
+ * to authenticate again. A needless re-login on a healthy session is itself the
+ * kind of event LinkedIn watches, so a wrong `login` costs more than a wrong
+ * halt. `unrecognized` stops the run just as hard and asks a human to look,
+ * which is all this signal has actually earned. Task 15 promotes it if a real
+ * bounce confirms it.
  */
 export const CHALLENGE_EXACT_PATHS: ReadonlyArray<{
   path: string;
-  kind: "login";
+  kind: "login" | "unrecognized";
   detail: string;
 }> = [
-  { path: "/", kind: "login", detail: "logged-out guest homepage" },
-  { path: "/home", kind: "login", detail: "logged-out guest homepage" },
+  { path: "/", kind: "unrecognized", detail: "bare / — guest homepage, or a bounce (unverified)" },
+  { path: "/home", kind: "unrecognized", detail: "/home — guest homepage, or a bounce (unverified)" },
 ];
 
 /**
@@ -117,6 +132,8 @@ export const APP_PATH_PREFIXES: readonly string[] = [
 export const TEXT_MARKERS: ReadonlyArray<{
   kind: "captcha" | "checkpoint" | "restricted" | "rate-limited";
   pattern: RegExp;
+  /** Only counted on a short page — see `SOFT_MARKER_MAX_TEXT`. */
+  soft?: true;
 }> = [
   // UNVERIFIED — LinkedIn's security-check wording.
   { kind: "captcha", pattern: /let'?s do a quick security check/i },
@@ -134,11 +151,32 @@ export const TEXT_MARKERS: ReadonlyArray<{
   { kind: "restricted", pattern: /your ability to view profiles has been temporarily restricted/i },
   { kind: "restricted", pattern: /profile viewing temporarily restricted/i },
 
-  // Verbatim from the reference worker's soft-throttle set.
-  { kind: "rate-limited", pattern: /couldn'?[’']?t load this content/i },
-  { kind: "rate-limited", pattern: /too many requests/i },
-  { kind: "rate-limited", pattern: /try again later/i },
+  // Verbatim from the reference worker's soft-throttle set, and all three `soft`
+  // (D64). LinkedIn renders "couldn't load this content" on a single failed feed
+  // card while the rest of the page is fine, so on a full page these phrases say
+  // nothing about the session. They are only trusted on a short page, where the
+  // interstitial *is* the page.
+  { kind: "rate-limited", pattern: /couldn'?[’']?t load this content/i, soft: true },
+  { kind: "rate-limited", pattern: /too many requests/i, soft: true },
+  { kind: "rate-limited", pattern: /try again later/i, soft: true },
 ];
+
+/**
+ * A `soft` marker is only trusted when the whole page body is shorter than this.
+ *
+ * A throttle or block interstitial replaces the page: it is a heading, a
+ * sentence, and a button. A feed carrying one broken card is tens of thousands
+ * of characters. That length difference is the only thing separating the two,
+ * because the wording is identical.
+ *
+ * Narrowing detection is normally the unsafe direction, so the reasoning is
+ * worth stating: the authoritative throttle signal is HTTP 429 on the response
+ * side (`classifyResponse`), which this does not touch. These markers are the
+ * backstop for a throttle served as a 200, and that case is always a short page.
+ * What is given up is a throttle phrase buried in a long page — which is the
+ * false positive, not the throttle.
+ */
+export const SOFT_MARKER_MAX_TEXT = 2_000;
 
 /**
  * Selectors whose presence means a captcha widget is mounted. UNVERIFIED —
