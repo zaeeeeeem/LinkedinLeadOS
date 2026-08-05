@@ -10,7 +10,11 @@
     "cap": "tsx src/cli/index.ts",
     "test": "vitest run",
     "test:watch": "vitest",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "db:start": "supabase start",
+    "db:stop": "supabase stop",
+    "db:reset": "supabase db reset --local",
+    "db:verify": "node scripts/verify-schema.mjs"
   },
   "keywords": [],
   "author": "",

@@ -6,3 +6,7 @@ fixtures/
 .env.local
 dist/
 .supabase/
+
+# Supabase local state (also covered by supabase/.gitignore)
+supabase/.branches/
+supabase/.temp/

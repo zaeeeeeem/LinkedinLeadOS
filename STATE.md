@@ -270,6 +270,59 @@ lock that never ages into stale timing out at the configured deadline rather tha
 hanging, and compaction dropping an entry past the retention window while keeping one
 inside it (both a 25-hour-old entry, kept, and one just past `COMPACTION_RETENTION_MS`,
 dropped) alongside the new spend.
+Task 13 — Supabase local and the M1–M3 schema. `supabase/config.toml` (project
+`linkedinleadsos`, ports 5532x — 5432x and 5632x are already held by two other local
+stacks on this machine, D90), one migration
+`supabase/migrations/20260808120000_m1_m3_schema.sql` establishing all 13 spec §7
+tables in `public` (D92), `supabase/schema.spec.json` as the machine-readable §7 table
+list both checks read, `scripts/verify-schema.mjs` behind `npm run db:verify`,
+`.env.example` + gitignored `.env`. Identity is LinkedIn's own URN throughout: the four
+entity tables are keyed on `urn`, `search_results` carries no unique key and stays
+append-only, and `person_experience` holds full history with a `NULLS NOT DISTINCT`
+upsert index (D93). Foreign keys exist only on `runs` and `searches`, never on a URN
+column, because a person's employer is routinely known before that company is scraped
+(D94); ids are `text` everywhere (D95). `budget_ledger` carries a table comment saying
+it is a reporting mirror and that `runs/budget.ndjson` is the ledger of record (D11).
+RLS is on with no policies, anon and authenticated are explicitly revoked, and the only
+grants are to `service_role` (D91, corrected by D97).
+
+Proven: 52 new offline tests (337/337 across the suite), typecheck clean — they pin the
+table and column coverage against `schema.spec.json`, the urn keying, the append-only
+property of `search_results`, the no-FK-on-URN rule, RLS on all 13 tables, grants going
+to `service_role` and nothing else, the budget-mirror comment, and that every `create`
+is `if not exists`; verified to bite by mutation (dropping one `if not exists`, one
+`enable row level security`, and re-pointing a grant at `anon` failed 7 tests).
+Operational: `npm run db:verify` ran green — `supabase db reset` applied the migration
+to a dropped database, 13 tables with every §7 column present, the same file applied a
+second time through psql with `ON_ERROR_STOP=1` without error and with an identical
+catalog fingerprint, then a smoke transaction inserted and read back one row in each of
+the 13 tables and rolled back, leaving `runs` empty (D96). Verified to bite: adding a
+column to `schema.spec.json` that the migration does not create failed the run at step 3
+naming `persons.nonexistent_column`.
+
+Reviewed 2026-08-08 — one real bug, and it was in a property the tests claimed to prove.
+The migration and `STATE.md` both said anon and authenticated reach nothing; the live
+database granted both of them TRUNCATE, REFERENCES and TRIGGER on all 13 tables, and
+`set role anon; truncate persons;` emptied the table. RLS does not cover TRUNCATE, and
+the privileges came from Supabase's bootstrap default ACL for role `postgres`, which a
+`grant` can only add to, never remove. The offline test regexed the migration text for
+`to anon`, found nothing and passed — a privilege the file never wrote is invisible to a
+test that reads the file (D97). Fixed: explicit `revoke all … from anon, authenticated`
+on tables and sequences, plus `alter default privileges` so later migrations inherit the
+revokes and pick up the `service_role` grants that `on all tables` could not give them.
+Also: `raw_captures.run_id` loses `on delete cascade`, which deleted the index into the
+raw archive while the gzipped bodies stayed on disk — a run delete with captures now
+fails instead of orphaning files (D98); the migration header states it is never to be
+edited once applied, since `if not exists` makes an added column a silent no-op that
+`db:verify` cannot catch because it resets first (D99); and the "exactly one migration
+file" assertion is gone, having been set to break on the next schema change.
+
+Proven: 342/342 (5 new offline tests, typecheck clean). The grants claim moved into
+`npm run db:verify`, which now queries `information_schema.role_table_grants`,
+`has_table_privilege` for TRUNCATE specifically, and creates a probe table inside a
+rolled-back transaction to prove future tables inherit the rules. Both new live checks
+were verified to bite against the pre-fix migration: 78 leaked privileges at step 6, and
+6 privileges on a newly created table at step 7. Full run green at 9 steps.
 
 ## In progress
 _(nothing)_

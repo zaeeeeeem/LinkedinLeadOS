@@ -563,5 +563,7 @@ Stated explicitly so no session re-litigates them:
 
 None blocking. Two to settle during M2:
 
-- Exact Supabase local port and whether the schema is namespaced (`li.*`) or public.
-- Whether `person_experience` needs full history or only current role for L1's purposes.
+- ~~Exact Supabase local port and whether the schema is namespaced (`li.*`) or public.~~
+  Settled 2026-08-08 in Task 13: ports 5532x (D90), schema `public` (D92).
+- ~~Whether `person_experience` needs full history or only current role for L1's purposes.~~
+  Settled 2026-08-08 in Task 13: full history (D93).

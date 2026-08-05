@@ -655,3 +655,140 @@ Revised same day, from review, twice:
    `COMPACTION_RETENTION_MS` (7 days, `src/core/budget/constants.ts`), separate
    from the 24h window every limit actually enforces — narrow this back to 24h
    once Task 14's mirror exists.
+## D90 — local Supabase runs on the 553xx port block, not the default 543xx
+2026-08-08, Task 13. `supabase/config.toml` sets `project_id = "linkedinleadsos"`
+and moves every port from the CLI default 5432x to 5532x (API 55321, db 55322,
+studio 55323, mailpit 55324, analytics 55327, shadow 55320, pooler 55329).
+
+Spec §13 left "exact Supabase local port" open. It cannot stay open: this machine
+already runs two other local Supabase stacks — Quran-App on 5432x and ownex-leadops
+on 5632x — so the default block is occupied and `supabase start` would either fail
+or, worse, a mistyped connection string would reach the wrong project's database.
+The 5532x block is free and sits in the same visual family, so the port still reads
+as "a local Supabase". Rejected: stopping the other stacks before working here, which
+makes an unrelated project's uptime a precondition for ours.
+
+## D91 — RLS on with no policies, and grants to `service_role` alone
+2026-08-08, Task 13. Every table gets `enable row level security`, no policy is
+created, and the only grants are `service_role`. Supabase's current default already
+withholds Data API grants from new tables (`auto_expose_new_tables` unset), so this
+makes the exposure explicit rather than incidental.
+
+The store client holds the service role key, which bypasses RLS, so it is unaffected.
+The agent reads bulk data over a direct Postgres connection (D4), which is the
+superuser path and also unaffected. What this buys is that the anon/publishable key
+reaches nothing at all — so if this database is ever hosted, it is not readable by
+anyone who scrapes the key out of a client. Rejected: leaving RLS off on the argument
+that it is local-only; "local-only" is a property of today's deployment, not of the
+migration, and the migration is what would travel.
+
+## D92 — the schema is `public`, not namespaced
+2026-08-08, Task 13, settling the first half of spec §13's schema question as the task
+file directs. One application owns this database, and D4 has the agent writing raw SQL
+against it by hand. A `li.` prefix would mean a `set search_path` or a qualified name in
+every ad-hoc query, for no isolation that a separate database would not give better.
+
+## D93 — `person_experience` stores full employment history, not just the current role
+2026-08-08, Task 13, settling the second half of spec §13. The full positions array is
+already inside the captured profile response, so storing it costs nothing extra at
+capture time. Keeping only the current role would mean a re-scrape to recover history
+later, and D2 (raw-first) exists precisely so that a change of mind about parsing never
+requires spending page loads again. The table therefore carries `started_on`/`ended_on`
+and `is_current`, with a `NULLS NOT DISTINCT` unique index over
+(person_urn, company_urn, company_name, title, started_on) as the upsert target — LinkedIn
+omits dates and urns on old roles often enough that a plain unique index would insert a
+duplicate row on every re-scrape.
+
+## D94 — foreign keys only on `runs` and `searches`, never on a LinkedIn URN
+2026-08-08, Task 13. `raw_captures.run_id`, `search_results.search_id` and
+`search_results.run_ref` are real foreign keys: those parents are rows we create
+ourselves, so requiring them cannot reject true data.
+
+No URN column has one. `persons.current_company_urn`, `person_experience.company_urn`,
+`company_people.person_urn`, `person_posts.person_urn` and `jobs.company_urn` all
+routinely arrive before the entity they name has ever been scraped — a search result
+names an employer we have never visited. A foreign key there would reject a fact
+LinkedIn actually told us, which turns an integrity constraint into data loss. Pinned by
+`tests/schema-migration.test.ts`, which fails if any `references` clause lands on a
+`_urn` column.
+
+## D95 — ids are `text`, including the numeric-looking ones
+2026-08-08, Task 13. Company urns and job posting ids look like integers, and are stored
+as text anyway. They arrive as strings in Voyager JSON; text round-trips them exactly,
+where a numeric column invites a silent reformat (leading zeros, exponent notation) and
+has an overflow edge no id should ever depend on. It also keeps every id column in the
+schema the same type, so a join written from memory is right.
+
+## D96 — the migration is idempotent, and re-applying it is part of the proof
+2026-08-08, Task 13. Every `create` in the migration is `if not exists` and nothing in it
+drops, truncates or deletes. `npm run db:verify` applies it from scratch via
+`supabase db reset`, then applies the same file a second time through psql with
+`ON_ERROR_STOP=1`, then compares the catalog fingerprint before and after — a re-apply
+that errors or that changes the schema fails the check.
+
+A migration that applied cleanly once is not proven; the failure this guards against is
+an operator re-running the file by hand against a database that already has it, which is
+the normal thing to do when you are unsure whether it ran. The static half is in
+`tests/schema-migration.test.ts` so the property is also checked offline, with no Docker.
+
+## D97 — RLS is not deny-by-default on its own; anon and authenticated are revoked explicitly
+2026-08-08, from review of Task 13. **This corrects D91**, which claimed "anon and
+authenticated reach nothing at all". That was false against the live database, and the
+test that was supposed to prove it could not have seen it.
+
+Measured on the local stack: every table the migration created carried
+`anon = REFERENCES, TRIGGER, TRUNCATE` and the same for `authenticated`. Verified
+reachable — `set role anon; truncate persons;` emptied the table (rolled back). RLS
+filters rows for select/insert/update/delete and says nothing about table-level
+privileges, so it never covered TRUNCATE at all.
+
+The source is Supabase's bootstrap default ACL for role `postgres` on `public`
+(`pg_default_acl` shows `anon=Dxtm/postgres`), not anything this migration wrote. A
+`grant` only ever adds privileges, so no grant statement could have removed them. The
+migration now ends with explicit `revoke all … from anon, authenticated` on tables and
+sequences, plus `alter default privileges` so a table added by a later migration inherits
+the same treatment rather than arriving with TRUNCATE handed out again. The default
+privileges also *grant* to `service_role`, because `grant … on all tables` is a snapshot
+of the tables that exist at that moment and Task 14's tables would otherwise get nothing.
+
+Not reachable over the Data API today — PostgREST issues no DDL — so this was a standing
+privilege contradicting the stated model rather than a live hole. `TRIGGER` is the one to
+remember if a `security definer` RPC is ever added.
+
+The general lesson, which is D-worthy on its own: **a claim about privileges can only be
+proven against a database.** The offline test regexed the migration text for `to anon`,
+found nothing, and passed — while the database granted to anon. The text was clean; the
+privilege was one the file never wrote. `npm run db:verify` now queries
+`information_schema.role_table_grants` and `has_table_privilege`, and creates a probe
+table inside a rolled-back transaction to prove future tables inherit the rules. Both
+assertions were verified to fail against the pre-fix migration: 78 leaked privileges, and
+6 on a newly created table.
+
+## D98 — deleting a run does not cascade into `raw_captures`
+2026-08-08, from review of Task 13. The foreign key `raw_captures.run_id → runs.run_id`
+loses its `on delete cascade` and takes the default `no action`.
+
+The gzipped bodies live on disk under `runs/<run_id>/raw/` and are the durable copy (D2);
+`raw_captures` is only the index into them. Cascading deleted the index while leaving the
+files, which is the worst of both — the bytes are still on disk consuming space and no
+query can find them. With `no action`, deleting a run that has captures fails instead, so
+whoever is deleting has to deal with the files. Rejected: `on delete set null`, which
+`run_id text not null` forbids and which would produce the same orphan in a different
+shape.
+
+`search_results.search_id` keeps its cascade: nothing on disk is keyed by a search id, so
+deleting a search really does dispose of everything it produced.
+
+## D99 — a migration is never edited once applied; the next change is a new file
+2026-08-08, from review of Task 13. Recorded because the failure mode is silent in both
+directions.
+
+Every statement in the M1–M3 migration is `if not exists`, which is what makes re-applying
+it safe (D96) and simultaneously makes editing it useless: adding a column to an existing
+`create table if not exists` block is ignored outright, with no error and no warning.
+`npm run db:verify` cannot catch it either — step 2 runs `supabase db reset` first, so the
+check only ever exercises a fresh apply, where the edited file is correct. The edit would
+work on the verifier and do nothing on the operator's actual database.
+
+The rule is therefore stated in the migration's own header, where someone about to edit it
+will read it, and pinned by a test asserting that header is still there.
