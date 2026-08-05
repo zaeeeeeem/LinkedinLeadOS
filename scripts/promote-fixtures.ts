@@ -14,10 +14,13 @@
  * Only counts and paths reach stdout. Captured bodies stay in `fixtures/`, which
  * is gitignored, because they hold real prospect data.
  */
-import { existsSync, readdirSync, statSync } from "node:fs";
+import { existsSync, readdirSync, readFileSync, statSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { isProfileIsh } from "../src/capabilities/profile.capture/patterns.js";
-import { promoteFixtures } from "../src/core/fixtures/promote.js";
+import { normalizeProfileUrl } from "../src/capabilities/profile.capture/url.js";
+import { RawArchive } from "../src/core/archive/raw.js";
+import { isPrivateEndpoint, personUrnsIn, promoteFixtures } from "../src/core/fixtures/promote.js";
+import type { PromoteSubject } from "../src/core/fixtures/promote.js";
 import { defaultRunsDir } from "../src/core/run/paths.js";
 
 type Options = {
@@ -27,13 +30,71 @@ type Options = {
   all: boolean;
   runsDir: string;
   fixturesDir: string | null;
+  subject: string | null;
 };
+
+/**
+ * Who the run was of, from the run's own recorded arguments — so promotion
+ * cannot disagree with the capture about whose profile this was.
+ *
+ * `--subject=` overrides it for an archive whose `run.json` predates this, and
+ * an unrecognizable url is reported rather than guessed at: promoting with no
+ * subject falls back to "any person data", which is the behaviour that filled
+ * the fixture set with the operator's own inbox (D118).
+ */
+function subjectOf(runsDir: string, runId: string, override: string | null): PromoteSubject | null {
+  const raw = override ?? readRunUrl(runsDir, runId);
+  if (raw === null) return null;
+  try {
+    const target = normalizeProfileUrl(raw);
+    // A Sales Navigator lead has no vanity slug; its member id is what every
+    // body naming that person carries instead.
+    if (target.vanity !== undefined) return { vanity: target.vanity };
+    return target.leadId === undefined ? null : { urns: [target.leadId] };
+  } catch {
+    // Already a bare slug, most likely — `--subject=tankots`.
+    return /^[a-z0-9-]{3,100}$/i.test(raw) ? { vanity: raw } : null;
+  }
+}
+
+function readRunUrl(runsDir: string, runId: string): string | null {
+  try {
+    const meta = JSON.parse(readFileSync(join(runsDir, runId, "run.json"), "utf8")) as {
+      args?: Record<string, unknown>;
+    };
+    const url = meta.args?.["url"];
+    return typeof url === "string" && url !== "" ? url : null;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * The session's own person urns, read out of the `/voyager/api/me` body the
+ * page fetched anyway. Not a filter — the field map marks paths that resolve to
+ * these, so a parser is never written against the operator's own identity while
+ * looking like it found the subject's (D119).
+ */
+async function sessionUrnsOf(archiveDir: string): Promise<string[]> {
+  const archive = new RawArchive(archiveDir);
+  const urns = new Set<string>();
+  for (const entry of await archive.list()) {
+    if (!/\/voyager\/api\/me\b/.test(entry.url)) continue;
+    if (isPrivateEndpoint(entry.url)) continue;
+    try {
+      for (const urn of personUrnsIn(await archive.readText(entry))) urns.add(urn);
+    } catch {
+      // An unreadable body here costs a marking, not the promotion.
+    }
+  }
+  return [...urns];
+}
 
 function usage(message: string): never {
   process.stderr.write(`${message}\n\n`);
   process.stderr.write(
     "usage: npm run fixtures:promote -- (--run=<runId> | --latest) " +
-      "[--capability=profile.get] [--all] [--runs-dir=<dir>] [--fixtures-dir=<dir>]\n",
+      "[--capability=profile.get] [--subject=<vanity>] [--all] [--runs-dir=<dir>] [--fixtures-dir=<dir>]\n",
   );
   process.exit(1);
 }
@@ -46,6 +107,7 @@ function parse(argv: string[]): Options {
     all: false,
     runsDir: defaultRunsDir(),
     fixturesDir: null,
+    subject: null,
   };
   for (const token of argv) {
     const [name, value] = token.startsWith("--")
@@ -56,6 +118,7 @@ function parse(argv: string[]): Options {
       case "latest": o.latest = true; break;
       case "capability": o.capability = value ?? usage("--capability needs a name"); break;
       case "all": o.all = true; break;
+      case "subject": o.subject = value ?? usage("--subject needs a vanity slug or profile url"); break;
       case "runs-dir": o.runsDir = resolve(value ?? usage("--runs-dir needs a path")); break;
       case "fixtures-dir": o.fixturesDir = resolve(value ?? usage("--fixtures-dir needs a path")); break;
       default: usage(`unknown argument ${token}`);
@@ -86,6 +149,9 @@ async function main(): Promise<void> {
 
   const fixturesDir = o.fixturesDir ?? resolve(process.cwd(), "fixtures", o.capability);
 
+  const subject = subjectOf(o.runsDir, runId, o.subject);
+  const sessionUrns = await sessionUrnsOf(archiveDir);
+
   const result = await promoteFixtures({
     archiveDir,
     fixturesDir,
@@ -93,6 +159,8 @@ async function main(): Promise<void> {
     sourceRun: runId,
     all: o.all,
     isRelevant: isProfileIsh,
+    ...(subject === null ? {} : { subject }),
+    sessionUrns,
   });
 
   // Counts and paths only. Never a body, never a url with a query string.
@@ -101,6 +169,10 @@ async function main(): Promise<void> {
       {
         run: runId,
         capability: o.capability,
+        // Whether, not who: the slug is the prospect's identity, and only counts
+        // and paths belong on stdout.
+        subject_known: subject !== null,
+        session_urns_found: sessionUrns.length,
         promoted: result.promoted.map((f) => ({
           file: f.file,
           path: f.path,
@@ -108,6 +180,7 @@ async function main(): Promise<void> {
           status: f.status,
           bytes: f.bytes,
           profile_ish: f.profile_ish,
+          subject_match: f.subject_match,
         })),
         total_fixtures: result.total,
         skipped: result.skipped,
@@ -120,10 +193,20 @@ async function main(): Promise<void> {
     ) + "\n",
   );
 
+  if (subject === null) {
+    process.stderr.write(
+      "no subject could be read from this run, so promotion fell back to " +
+        "\"any body carrying person data\" — which promotes other people's data too. " +
+        "Name the subject with --subject=<vanity>.\n",
+    );
+  }
+
   if (result.promoted.length === 0 && result.total === 0) {
     process.stderr.write(
-      "nothing was promoted: the run archived no JSON body carrying person data. " +
-        "Re-run with --all to promote every JSON body and see what is there.\n",
+      `nothing was promoted: of this run's bodies, ${result.skipped.not_subject} carried ` +
+        `person data that was not the subject's, ${result.skipped.not_profile} carried none, and ` +
+        `${result.skipped.private_endpoint} were private endpoints (never eligible). ` +
+        "Re-run with --all to promote every non-private JSON body and see what is there.\n",
     );
     process.exit(1);
   }

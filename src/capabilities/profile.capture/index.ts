@@ -207,9 +207,9 @@ export const capability = defineCapability({
         code: "PAGE_NOT_LAID_OUT",
         n: 1,
         field:
-          `the document never grew past the viewport within the layout window ` +
-          `(${reading.layout.waitedMs}ms, ${reading.layout.polls} polls); ` +
-          `lazily-loaded sections will not have fetched`,
+          `nothing on the page ever measured taller than the viewport within the layout ` +
+          `window (${reading.layout.waitedMs}ms, ${reading.layout.polls} polls) — neither the ` +
+          `document nor any inner scroller (D115); lazily-loaded sections will not have fetched`,
       });
     }
 

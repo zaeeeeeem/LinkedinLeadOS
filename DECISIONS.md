@@ -1197,3 +1197,69 @@ embedded JSON out of the navigation response — still a captured response body,
 parsed HTML (D1). If it does not, the profile must be reached by client-side navigation
 (feed → profile inside the SPA), which forces the Voyager fetches, and that is a change to
 how every reader capability navigates.
+
+## D117 — the initial document response is a captured body; embedded JSON may be read from it (2026-08-08)
+
+**Decision.** `CLAUDE.md`'s "never from parsed HTML" rule is amended, not waived. Fields may
+be read from the initial document response for a profile URL, but only from **structured data
+embedded in it** — the JSON LinkedIn server-renders into the document, addressed by a path
+into that parsed JSON. Reading markup, element text, or CSS selectors stays forbidden.
+
+**Why.** D116 established that no watched Voyager endpoint carries the subject's content, and
+that the payload most likely arrives in the navigation response. The rule as written did not
+distinguish two very different things it happened to phrase as one: a **JSON blob delivered
+in a response body**, which has a stable shape and drifts only when LinkedIn changes its API,
+and **rendered DOM text**, which drifts every time a designer changes a class name. The rule
+exists to ban the second. Banning the first would have meant abandoning the capability over
+punctuation in a sentence.
+
+**What this does not license.** The document body must still be a *captured* response — read
+through the tap, archived raw before parsing, like every other body (§6). Extracting it by
+asking the live page for `innerHTML` is not this, and is still a DOM read.
+
+**What settles it.** The probe D116 names: capture the document response and check for the
+payload. If it is not there, this decision costs nothing, because nothing will have used it.
+
+## D118 — a fixture is promoted for naming *this* subject, not for containing *a* person (2026-08-08)
+
+**Decision.** `promoteFixtures` filters on two things it did not before. Bodies from private
+endpoints — messaging, notifications, badging, presence, mailbox, nav chrome, A/B config,
+account settings — are never promoted, and `--all` does not reach that exclusion. Bodies that
+do carry person data are promoted only when they name the capture's **subject**, by vanity
+slug or by a known urn, which the promote script reads from the run's own `run.json`.
+
+**Why.** The first live capture promoted 9 fixtures and not one was the target. Among them:
+339KB of the operator's own message threads, 106KB of notification cards, 62KB of A/B config.
+The relevance test was `body contains urn:li:fsd_profile: or "publicIdentifier"` — which every
+message thread and every notification satisfies cleanly, because they mention other people.
+"Carries person data" and "carries the data we asked for" are not the same predicate, and
+Task 16's parser was specified to be written against whatever this produced.
+
+The private-endpoint exclusion is separate from correctness and is not overridable on purpose.
+`fixtures/` is the one directory that will eventually be shared; the operator's inbox must not
+be one flag away from being in it.
+
+**Also fixed here:** shape dedupe now runs *after* the subject check, not before. Another
+person's response has the same shape as the subject's — that is what a shape hash means — so
+checking dedupe first let a stranger's body claim the slot and the subject's own body was then
+skipped as a duplicate.
+
+**Verified live.** Re-promoting run `01KZH9VVPKB5JEVEBW7G2JJ6F3` after the change: 0 promoted,
+14 private endpoints, 3 person-data-but-not-the-subject, 8 no person data. That is the honest
+answer, and it agrees with D116. The nine fixtures it produced before were all noise.
+
+## D119 — the field map marks any path that resolves to the session's own identity (2026-08-08)
+
+**Decision.** `buildFieldMap` takes the session's own person urns — read from the
+`/voyager/api/me` body the page fetched anyway — and marks every hit whose value is one of
+them. When *every* path for a probe is marked, the map says so and offers no "first concrete
+path" at all.
+
+**Why.** The generated map offered, as `person_urn`, `$.data.elements[].lixTracking.urn` with
+73 hits — an A/B-test tracking field, and the urn in it was the operator's own member id. A
+parser written against that path returns the operator's own account for every prospect and
+passes its offline tests doing it, because the fixture it is tested against contains exactly
+that value. The failure is invisible until it is in production against real prospects.
+
+Marked, not dropped: an operator needs to see that the only `person_urn` in a body is their
+own. That is a finding about the capture, not noise to hide.

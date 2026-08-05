@@ -221,6 +221,55 @@ describe("renderFieldMap", () => {
     expect(truncated).toMatch(/This map is partial/);
   });
 
+  // The first live capture's field map offered `$.data.elements[].lixTracking.urn`
+  // as `person_urn`, with the operator's own member id as its sample. A parser
+  // built on it returns the operator for every prospect and passes offline.
+  it("marks a path whose value is the session's own identity, and offers no path when they all are", () => {
+    const SELF = "urn:li:member:1296635986";
+    const map = buildFieldMap({ data: { elements: [{ lixTracking: { urn: SELF } }] } }, PROFILE_PROBES, {
+      selfValues: [SELF],
+    });
+    const personUrn = map.probes.find((p) => p.name === "person_urn")!;
+    expect(personUrn.hits).toHaveLength(1);
+    expect(personUrn.hits[0]!.self).toBe(true);
+
+    const rendered = renderFieldMap({
+      capability: "profile.get",
+      generatedAt: "2026-08-08T10:00:00.000Z",
+      fixtures: [
+        {
+          file: "f.json", path: "/p", queryId: null, status: 200, bytes: 1,
+          shapeHash: "f", sourceRun: "r", subjectMatch: false, map,
+        },
+      ],
+    });
+    expect(rendered).toContain("session's own identity");
+    const section = rendered.slice(rendered.indexOf("### person_urn"), rendered.indexOf("### graphql_envelope"));
+    expect(section).toContain("Every path above is the session's own identity");
+    expect(section).not.toContain("First concrete path");
+    expect(rendered).toContain("does not name the capture's subject");
+  });
+
+  it("still offers the subject's path when one sits beside the session's own", () => {
+    const SELF = "urn:li:member:1296635986";
+    const map = buildFieldMap(
+      { me: { urn: SELF }, subject: { entityUrn: "urn:li:fsd_profile:ACwAAJANE" } },
+      PROFILE_PROBES,
+      { selfValues: [SELF] },
+    );
+    const rendered = renderFieldMap({
+      capability: "profile.get",
+      generatedAt: "2026-08-08T10:00:00.000Z",
+      fixtures: [
+        {
+          file: "f.json", path: "/p", queryId: null, status: 200, bytes: 1,
+          shapeHash: "f", sourceRun: "r", subjectMatch: true, map,
+        },
+      ],
+    });
+    expect(rendered).toContain("First concrete path: `$.subject.entityUrn`");
+  });
+
   it("says why a body has no map instead of leaving an empty section", () => {
     const noMap = renderFieldMap({
       capability: "profile.get",

@@ -47,9 +47,15 @@ drafting) · L5 orchestration (campaigns, sequences, schedulers) · MCP surface 
 
 ## Non-negotiable rules
 
-- **Network tap is the source of truth.** Data fields come from captured Voyager /
-  `salesApi*` response bodies, never from parsed HTML. DOM reads are for navigation,
-  pagination state, challenge detection, and render confirmation only.
+- **Network tap is the source of truth.** Data fields come from captured response
+  bodies, never from the rendered DOM. DOM reads are for navigation, pagination state,
+  challenge detection, and render confirmation only.
+
+  A captured body counts whether it is a Voyager / `salesApi*` JSON response **or** the
+  initial document response for the page itself, from which only *embedded structured
+  data* may be read — the JSON LinkedIn server-renders into the document, addressed by
+  a path into that parsed JSON. Reading fields out of markup, element text, or CSS
+  selectors is what this rule forbids, and it stays forbidden. See D117.
 - **Never forge a request LinkedIn's own UI did not already issue.** No direct Voyager calls
   with the session cookie, however tempting.
 - **Raw first.** Archive the untouched response body before parsing anything. Parsed rows are

@@ -167,6 +167,87 @@ describe("promoteFixtures", () => {
     expect(existsSync(result.fieldMapPath)).toBe(true);
   });
 
+  // Every one of these is the first live capture's actual failure: 9 fixtures
+  // promoted, none of them the subject, 339KB of the operator's own inbox among
+  // them, and a field map whose `person_urn` was the operator's own member id.
+  describe("relevance (D118)", () => {
+    const MESSAGES = JSON.stringify({
+      data: { conversations: [{ participant: "urn:li:fsd_profile:ACwAAOTHER", body: "hi" }] },
+    });
+    const MESSAGING_URL =
+      "https://www.linkedin.com/voyager/api/voyagerMessagingGraphQL/graphql?queryId=messengerConversations.0d";
+    const SUBJECT_BODY = JSON.stringify({
+      data: { profile: { publicIdentifier: "jane-doe", entityUrn: "urn:li:fsd_profile:ACwAAJANE" } },
+    });
+    const OTHER_BODY = JSON.stringify({
+      data: { profile: { publicIdentifier: "someone-else", entityUrn: "urn:li:fsd_profile:ACwAAOTHER" } },
+    });
+
+    it("never promotes a private endpoint, and --all does not reach it", async () => {
+      await seed([{ body: MESSAGES, url: MESSAGING_URL }]);
+      const result = await run({ all: true });
+
+      expect(result.promoted).toHaveLength(0);
+      expect(result.skipped.private_endpoint).toBe(1);
+      expect(existsSync(join(fixturesDir, "index.json"))).toBe(true);
+    });
+
+    it("excludes notification cards and nav chrome the same way", async () => {
+      await seed([
+        { body: PROFILE_BODY, url: "https://www.linkedin.com/voyager/api/voyagerIdentityDashNotificationCards" },
+        { body: PROFILE_BODY_2, url: "https://www.linkedin.com/voyager/api/graphql?queryId=voyagerFeedDashGlobalNavs.5e" },
+      ]);
+      const result = await run({ all: true });
+
+      expect(result.promoted).toHaveLength(0);
+      expect(result.skipped.private_endpoint).toBe(2);
+    });
+
+    it("promotes the subject's body and skips another person's", async () => {
+      await seed([
+        { body: SUBJECT_BODY, url: GQL },
+        { body: OTHER_BODY, url: "https://www.linkedin.com/voyager/api/graphql?queryId=voyagerIdentityDashProfiles.7b" },
+      ]);
+      const result = await run({ subject: { vanity: "jane-doe" } });
+
+      expect(result.promoted).toHaveLength(1);
+      expect(result.promoted[0]!.subject_match).toBe(true);
+      expect(result.skipped.not_subject).toBe(1);
+    });
+
+    it("matches the subject by urn as well as by vanity", async () => {
+      await seed([{ body: SUBJECT_BODY, url: GQL }]);
+      const result = await run({ subject: { urns: ["urn:li:fsd_profile:ACwAAJANE"] } });
+
+      expect(result.promoted).toHaveLength(1);
+      expect(result.promoted[0]!.subject_match).toBe(true);
+    });
+
+    it("a stranger's body cannot claim the shape slot the subject's body needs", async () => {
+      // Same shape, arriving first. Deduping before the subject check would
+      // promote this one and skip the subject's as a duplicate.
+      await seed([
+        { body: OTHER_BODY, url: GQL },
+        { body: SUBJECT_BODY, url: GQL },
+      ]);
+      const result = await run({ subject: { vanity: "jane-doe" } });
+
+      expect(result.promoted).toHaveLength(1);
+      expect(result.promoted[0]!.subject_match).toBe(true);
+      expect(JSON.parse(readFileSync(join(fixturesDir, result.promoted[0]!.file), "utf8"))).toEqual(
+        JSON.parse(SUBJECT_BODY),
+      );
+    });
+
+    it("without a subject, falls back to the old any-person heuristic", async () => {
+      await seed([{ body: OTHER_BODY, url: GQL }]);
+      const result = await run();
+
+      expect(result.promoted).toHaveLength(1);
+      expect(result.skipped.not_subject).toBe(0);
+    });
+  });
+
   it("refuses to run against a corrupt index rather than re-promoting everything", async () => {
     await seed([{ body: PROFILE_BODY, url: GQL }]);
     await run();
