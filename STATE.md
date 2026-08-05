@@ -233,8 +233,32 @@ something it had not checked. Proven: 285/285 (4 new, including an invariant tes
 every deny-list entry is reachable — verified to fail with either the sort or the
 lower-casing removed), typecheck clean.
 
+Task 11 — budget ledger. `src/core/budget/{constants,ledger}.ts`: file-backed,
+append-only NDJSON at `runs/budget.ndjson` (D11) tracking three spend kinds — `page_load`
+(hourly + daily limits), `search_page` (daily), `profile_open` (daily, deduped by `ref`
+so the same profile opened twice in a day counts once) — against §8's defaults (60/hr,
+400/day, 50/day, 120/day). `check()` is a read-only preflight peek; `spend()`
+re-evaluates every limit itself and appends only if none would be crossed, so a caller
+that skipped `check()` still cannot spend past a limit (D71); `BudgetLedger.open()`
+binds a path once for both. A per-invocation `limits` override can only lower a
+default, never raise or bypass one (§8) — an override above the default is silently
+ignored rather than trusted. Daily windows are rolling 24h, not calendar-day (D70). A
+corrupt or structurally-wrong ledger line fails every read closed (`BUDGET_LEDGER_CORRUPT`,
+non-retryable) rather than being skipped toward a lower count. The read-evaluate-append
+sequence inside `spend()` runs under a lockfile mutex (`<path>.lock`, stale after 5s) so
+two racing spends against the same limit cannot both observe "under limit" and both
+commit. Proven: 22 new tests pass offline in `mkdtemp` temp dirs (307/307 across the
+suite), typecheck clean — among them, each of the four limits tripping exactly at its
+boundary and not one spend earlier, window expiry for both the hourly and daily windows,
+distinct-profile dedupe including reopening an already-counted profile at a full quota,
+a corrupt line failing both `usage()` and `spend()` closed, an override above the default
+being ignored while one below it is honored, ten spends racing a limit of five landing
+exactly five recorded ledger lines with no flake across three consecutive runs, and an
+uncreatable ledger directory (a file where a directory needs to exist) classified fatal
+and non-retryable rather than retried forever.
+
 ## In progress
 _(nothing)_
 
 ## Next
-Task 11 — see `docs/plans/m1-m3/tasks/`
+See `docs/plans/m1-m3/tasks/` for the next task.

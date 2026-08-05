@@ -580,3 +580,26 @@ surrendered is a throttle phrase buried inside a full page, which is the false
 positive rather than the throttle. The captcha, checkpoint and restriction markers
 stay trusted at any length; their wording is specific enough that length says nothing,
 and missing one of those is the expensive direction.
+
+## D70 — budget ledger daily windows are rolling 24h, not calendar-day
+2026-08-08, Task 11. §8 says "page loads / day" and "distinct profiles / day" without
+saying whether "day" resets at UTC midnight or slides. Read literally alongside "the
+hour is rolling" (also §8), a rolling day is the consistent reading and avoids a
+calendar-boundary edge case the spec never discusses: two bursts either side of
+midnight UTC that a fixed calendar day would let both through in full, uncounted
+against each other. `usage`/`check`/`spend` count anything within `now − 24h`,
+exactly mirroring the hourly window's `now − 1h`.
+
+## D71 — spend() re-runs check()'s evaluation under a lock, rather than trusting a prior check()
+2026-08-08, Task 11. The task file frames check and spend as separate operations
+("capabilities check the estimated cost in preflight, then record actual spends as
+they happen"), which could be read as spend() trusting a check() that already ran.
+Rejected: a capability that spent without checking first — a bug, not a malicious
+flag — would then have nothing standing between it and exceeding a limit, which is
+the one failure mode task 11 calls unacceptable. spend() re-evaluates every limit
+itself immediately before appending, and the read-evaluate-append sequence runs
+inside a lockfile-based mutex (`<path>.lock`, exclusive-create, stale after 5s) so
+two concurrent spends racing the same limit cannot both observe "under limit" and
+both commit — the failure mode named directly in the task file via the tab lease.
+check() stays a separate read-only peek for capabilities that want to estimate cost
+before starting work; neither operation depends on the other having run.
