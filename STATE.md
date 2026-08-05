@@ -505,10 +505,17 @@ as scrollers). Mutations verified to bite: measuring the document instead of the
 pre-navigation `profile_open` check; re-tiering the broad net; reverting `waitForLayout` to a
 single measurement.
 
-`fixtures/profile.get/` holds 9 fixtures + `FIELD-MAP.md`, and they are **not usable for
-Task 16**: they name the target's urn, and name/headline/title only from the operator's own
-`/voyager/api/me`, the global nav and notification cards. No location, experience, about or
-skills for the target.
+`fixtures/profile.get/` is **empty**, and that is the corrected, honest state. It previously
+held 9 fixtures + `FIELD-MAP.md`, none of them the subject: 339KB of the operator's own
+message threads, 106KB of notification cards, 62KB of A/B config, and a field map offering
+`$.data.elements[].lixTracking.urn` as `person_urn` with the operator's own member id as its
+sample. Promotion now filters on the subject and excludes private endpoints (D118), and the
+field map marks paths that resolve to the session's own identity (D119). Re-promoting the
+same archive: 0 promoted, 14 private endpoints, 3 person-data-but-not-the-subject, 8 none.
+
+`CLAUDE.md`'s "never from parsed HTML" rule is amended by D117: structured JSON embedded in
+the initial document response is readable; markup, element text and CSS selectors are not.
+That gives the D116 probe below a defined success condition.
 
 Budget spent so far today: 2 page loads, 1 profile open (deduped by ref).
 
