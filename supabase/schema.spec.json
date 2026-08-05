@@ -1,0 +1,70 @@
+{
+  "_comment": [
+    "The §7 table list of docs/specs/2026-08-07-linkedin-toolkit-l0-l2-design.md, machine-readable.",
+    "This file is the single source both checks read: tests/schema-migration.test.ts asserts the",
+    "migration declares all of it (offline), scripts/verify-schema.mjs asserts a live database has",
+    "all of it (operational). Columns listed here are required; a table may carry more.",
+    "'renamed' records every place a column's name differs from the spec's prose, and why."
+  ],
+  "schema": "public",
+  "renamed": {
+    "runs.started_at/ended_at": "spec says 'started/ended'; _at suffix matches the timestamptz convention used everywhere else",
+    "runs.page_loads/search_credits/elapsed_ms": "spec says 'cost'; split into the three fields src/core/run/receipt.ts's Cost type actually carries",
+    "raw_captures.storage_path": "spec says 'storage path'",
+    "person_experience.started_on/ended_on": "spec says 'start/end'; 'end' is a reserved SQL keyword and 'start' is non-reserved but confusing beside it"
+  },
+  "tables": {
+    "runs": {
+      "columns": ["run_id", "capability", "args", "status", "page_loads", "search_credits", "elapsed_ms", "started_at", "ended_at", "exit_code"],
+      "primary_key": ["run_id"]
+    },
+    "raw_captures": {
+      "columns": ["id", "run_id", "url_pattern", "status", "shape_hash", "storage_path", "captured_at"],
+      "primary_key": ["id"]
+    },
+    "persons": {
+      "columns": ["urn", "vanity", "name", "headline", "location", "current_company_urn", "first_seen", "last_seen"],
+      "primary_key": ["urn"]
+    },
+    "person_experience": {
+      "columns": ["id", "person_urn", "company_urn", "title", "started_on", "ended_on", "is_current"],
+      "primary_key": ["id"]
+    },
+    "person_posts": {
+      "columns": ["urn", "person_urn", "text", "posted_at", "reactions", "comments"],
+      "primary_key": ["urn"]
+    },
+    "companies": {
+      "columns": ["urn", "name", "vanity", "website", "industry", "size_range", "hq", "about", "first_seen", "last_seen"],
+      "primary_key": ["urn"]
+    },
+    "company_posts": {
+      "columns": ["urn", "company_urn", "text", "posted_at", "reactions", "comments"],
+      "primary_key": ["urn"]
+    },
+    "company_people": {
+      "columns": ["company_urn", "person_urn", "discovered_at"],
+      "primary_key": ["company_urn", "person_urn"]
+    },
+    "jobs": {
+      "columns": ["id", "company_urn", "title", "location", "posted_at", "workplace_type", "description"],
+      "primary_key": ["id"]
+    },
+    "searches": {
+      "columns": ["search_id", "kind", "filter_url", "filter_json", "created_at"],
+      "primary_key": ["search_id"]
+    },
+    "search_results": {
+      "columns": ["id", "search_id", "page", "position", "person_urn", "company_urn", "run_ref"],
+      "primary_key": ["id"]
+    },
+    "budget_ledger": {
+      "columns": ["id", "ts", "capability", "run_id", "page_loads", "search_credits"],
+      "primary_key": ["id"]
+    },
+    "parse_drift": {
+      "columns": ["id", "ts", "capability", "field", "shape_hash", "n"],
+      "primary_key": ["id"]
+    }
+  }
+}

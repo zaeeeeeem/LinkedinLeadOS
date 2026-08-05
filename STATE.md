@@ -233,8 +233,38 @@ something it had not checked. Proven: 285/285 (4 new, including an invariant tes
 every deny-list entry is reachable — verified to fail with either the sort or the
 lower-casing removed), typecheck clean.
 
+Task 13 — Supabase local and the M1–M3 schema. `supabase/config.toml` (project
+`linkedinleadsos`, ports 5532x — 5432x and 5632x are already held by two other local
+stacks on this machine, D90), one migration
+`supabase/migrations/20260808120000_m1_m3_schema.sql` establishing all 13 spec §7
+tables in `public` (D92), `supabase/schema.spec.json` as the machine-readable §7 table
+list both checks read, `scripts/verify-schema.mjs` behind `npm run db:verify`,
+`.env.example` + gitignored `.env`. Identity is LinkedIn's own URN throughout: the four
+entity tables are keyed on `urn`, `search_results` carries no unique key and stays
+append-only, and `person_experience` holds full history with a `NULLS NOT DISTINCT`
+upsert index (D93). Foreign keys exist only on `runs` and `searches`, never on a URN
+column, because a person's employer is routinely known before that company is scraped
+(D94); ids are `text` everywhere (D95). `budget_ledger` carries a table comment saying
+it is a reporting mirror and that `runs/budget.ndjson` is the ledger of record (D11).
+RLS is on with no policies and the only grants are to `service_role`, so the anon key
+reaches nothing (D91).
+
+Proven: 52 new offline tests (337/337 across the suite), typecheck clean — they pin the
+table and column coverage against `schema.spec.json`, the urn keying, the append-only
+property of `search_results`, the no-FK-on-URN rule, RLS on all 13 tables, grants going
+to `service_role` and nothing else, the budget-mirror comment, and that every `create`
+is `if not exists`; verified to bite by mutation (dropping one `if not exists`, one
+`enable row level security`, and re-pointing a grant at `anon` failed 7 tests).
+Operational: `npm run db:verify` ran green — `supabase db reset` applied the migration
+to a dropped database, 13 tables with every §7 column present, the same file applied a
+second time through psql with `ON_ERROR_STOP=1` without error and with an identical
+catalog fingerprint, then a smoke transaction inserted and read back one row in each of
+the 13 tables and rolled back, leaving `runs` empty (D96). Verified to bite: adding a
+column to `schema.spec.json` that the migration does not create failed the run at step 3
+naming `persons.nonexistent_column`.
+
 ## In progress
 _(nothing)_
 
 ## Next
-Task 11 — see `docs/plans/m1-m3/tasks/`
+Task 11 — see `docs/plans/m1-m3/tasks/` (in progress in a parallel worktree)

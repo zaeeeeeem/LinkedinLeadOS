@@ -580,3 +580,79 @@ surrendered is a throttle phrase buried inside a full page, which is the false
 positive rather than the throttle. The captcha, checkpoint and restriction markers
 stay trusted at any length; their wording is specific enough that length says nothing,
 and missing one of those is the expensive direction.
+
+## D90 — local Supabase runs on the 553xx port block, not the default 543xx
+2026-08-08, Task 13. `supabase/config.toml` sets `project_id = "linkedinleadsos"`
+and moves every port from the CLI default 5432x to 5532x (API 55321, db 55322,
+studio 55323, mailpit 55324, analytics 55327, shadow 55320, pooler 55329).
+
+Spec §13 left "exact Supabase local port" open. It cannot stay open: this machine
+already runs two other local Supabase stacks — Quran-App on 5432x and ownex-leadops
+on 5632x — so the default block is occupied and `supabase start` would either fail
+or, worse, a mistyped connection string would reach the wrong project's database.
+The 5532x block is free and sits in the same visual family, so the port still reads
+as "a local Supabase". Rejected: stopping the other stacks before working here, which
+makes an unrelated project's uptime a precondition for ours.
+
+## D91 — RLS on with no policies, and grants to `service_role` alone
+2026-08-08, Task 13. Every table gets `enable row level security`, no policy is
+created, and the only grants are `service_role`. Supabase's current default already
+withholds Data API grants from new tables (`auto_expose_new_tables` unset), so this
+makes the exposure explicit rather than incidental.
+
+The store client holds the service role key, which bypasses RLS, so it is unaffected.
+The agent reads bulk data over a direct Postgres connection (D4), which is the
+superuser path and also unaffected. What this buys is that the anon/publishable key
+reaches nothing at all — so if this database is ever hosted, it is not readable by
+anyone who scrapes the key out of a client. Rejected: leaving RLS off on the argument
+that it is local-only; "local-only" is a property of today's deployment, not of the
+migration, and the migration is what would travel.
+
+## D92 — the schema is `public`, not namespaced
+2026-08-08, Task 13, settling the first half of spec §13's schema question as the task
+file directs. One application owns this database, and D4 has the agent writing raw SQL
+against it by hand. A `li.` prefix would mean a `set search_path` or a qualified name in
+every ad-hoc query, for no isolation that a separate database would not give better.
+
+## D93 — `person_experience` stores full employment history, not just the current role
+2026-08-08, Task 13, settling the second half of spec §13. The full positions array is
+already inside the captured profile response, so storing it costs nothing extra at
+capture time. Keeping only the current role would mean a re-scrape to recover history
+later, and D2 (raw-first) exists precisely so that a change of mind about parsing never
+requires spending page loads again. The table therefore carries `started_on`/`ended_on`
+and `is_current`, with a `NULLS NOT DISTINCT` unique index over
+(person_urn, company_urn, company_name, title, started_on) as the upsert target — LinkedIn
+omits dates and urns on old roles often enough that a plain unique index would insert a
+duplicate row on every re-scrape.
+
+## D94 — foreign keys only on `runs` and `searches`, never on a LinkedIn URN
+2026-08-08, Task 13. `raw_captures.run_id`, `search_results.search_id` and
+`search_results.run_ref` are real foreign keys: those parents are rows we create
+ourselves, so requiring them cannot reject true data.
+
+No URN column has one. `persons.current_company_urn`, `person_experience.company_urn`,
+`company_people.person_urn`, `person_posts.person_urn` and `jobs.company_urn` all
+routinely arrive before the entity they name has ever been scraped — a search result
+names an employer we have never visited. A foreign key there would reject a fact
+LinkedIn actually told us, which turns an integrity constraint into data loss. Pinned by
+`tests/schema-migration.test.ts`, which fails if any `references` clause lands on a
+`_urn` column.
+
+## D95 — ids are `text`, including the numeric-looking ones
+2026-08-08, Task 13. Company urns and job posting ids look like integers, and are stored
+as text anyway. They arrive as strings in Voyager JSON; text round-trips them exactly,
+where a numeric column invites a silent reformat (leading zeros, exponent notation) and
+has an overflow edge no id should ever depend on. It also keeps every id column in the
+schema the same type, so a join written from memory is right.
+
+## D96 — the migration is idempotent, and re-applying it is part of the proof
+2026-08-08, Task 13. Every `create` in the migration is `if not exists` and nothing in it
+drops, truncates or deletes. `npm run db:verify` applies it from scratch via
+`supabase db reset`, then applies the same file a second time through psql with
+`ON_ERROR_STOP=1`, then compares the catalog fingerprint before and after — a re-apply
+that errors or that changes the schema fails the check.
+
+A migration that applied cleanly once is not proven; the failure this guards against is
+an operator re-running the file by hand against a database that already has it, which is
+the normal thing to do when you are unsure whether it ran. The static half is in
+`tests/schema-migration.test.ts` so the property is also checked offline, with no Docker.
