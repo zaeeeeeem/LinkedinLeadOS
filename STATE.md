@@ -465,50 +465,67 @@ not reachable while runs are sequential under one tab lease, with the fix settle
 capture time.
 
 ## In progress
-Task 15 — capture fixture. **Offline complete; one live run done and it found a real bug in
-this task's own code, now fixed. A second live run is needed before this is Built.**
+Task 15 — capture fixture. **Offline complete. Two live runs done. Both found bugs in this
+task's own code. Not Built: the captures do not contain the profile, and D116 is open.**
 
-`src/capabilities/profile.capture/{url,patterns,read,constants,index}.ts` + README, and
-`src/core/fixtures/{fieldmap,promote}.ts` + `scripts/promote-fixtures.ts`
-(`npm run fixtures:promote`). Decisions D110–D114.
+Code: `src/capabilities/profile.capture/{url,patterns,read,constants,index}.ts` + README,
+`src/core/fixtures/{fieldmap,promote}.ts`, `scripts/promote-fixtures.ts`. Decisions D110–D116.
 
-**Live run 1 — `01KZH9VVPKB5JEVEBW7G2JJ6F3`, 2026-08-08, against `/in/tankots/`.** Exit 0, no
-challenge, 19.1s, 1 page load + 1 profile open recorded, 25 responses archived, 0 misses,
-lease released. Everything the safety model promised held. What it did **not** get is the
-profile: LinkedIn answered `readyState: "complete"` with `scrollHeight === innerHeight === 798`
-— an empty SPA shell — so nothing scrolled, no lazily-loaded section fetched, and the one
-profile endpoint that did answer (`voyagerIdentityDashProfiles`, 1,335 bytes) was a
-urn-resolution call carrying `entityUrn` + `versionTag` and nothing else. The receipt said
-`passes: 0` and warned about none of it. See D114.
+**Live run 1 — `01KZH9VVPKB5JEVEBW7G2JJ6F3`, `/in/tankots/`.** Exit 0, no challenge, 19.1s,
+1 page load + 1 profile open, 25 responses archived, 0 misses, lease released. Every safety
+property held. It did not capture the profile, and warned about none of it.
 
-Fixed here: `waitForLayout` polls the document height until it exceeds the viewport *and*
-stops changing before anything is measured or scrolled, and a page that never lays out now
-raises `PAGE_NOT_LAID_OUT` on the receipt. `--layout-timeout-ms` exposes the window.
+**Probe run 2 — `01KZHAHJ7504QSV57YC5RBZEV3`, same profile, tab visible to the operator.**
+Run because run 1's diagnosis was an inference, not a check. It falsified that diagnosis.
 
-Also learned live, and now recorded on `patterns.ts`' guesses: 6 of the 7 `specific` patterns
-have never fired. The real profile page hits `/voyager/api/graphql` with
-`queryId=voyagerIdentityDashProfiles.b5c27c04968c409fc0ed3546575b9b7a`, plus
-`/voyager/api/me`, `/voyager/api/voyagerIdentityDashNotificationCards`,
-`voyagerFeedDashGlobalNavs`, and messaging endpoints — 8 profile-carrying responses that no
-specific pattern matched (`PATTERN_MISMATCH`). Per the task file this was reported, not
-retried.
+What is now measured, not assumed:
+- `document.documentElement.scrollHeight` is **798 and never changes** — `body` computes
+  `overflow-y: hidden`. The page is nonetheless fully rendered: 875,004 chars of DOM, 23
+  `main section`s, 30,963 chars of text. The real scroller is `main#workspace`,
+  `overflow-y: scroll`, `scrollHeight 7348`, `clientHeight 746`. (D115)
+- Scrolling that scroller rendered 14 more sections and produced **zero** new network
+  responses.
+- Across both runs, **no captured response carries the person's profile content.** The only
+  profile endpoint that answers is `voyagerIdentityDashProfiles` at 1,335 bytes — a urn
+  resolution (`entityUrn` + `versionTag`). The rest is app chrome and messaging. (D116)
+- `outerHTML` contained `urn:li:fsd_profile` at 3.1s and not at 4.6s — consistent with the
+  payload arriving in the **main document response** and being consumed on hydration.
 
-Proven: 607/607 tests pass offline (98 new), typecheck clean. Mutations verified to bite:
-moving `drain()` out of the `finally` fails the halt-mid-capture archive test (staged with a
-body still on the wire); halting on `unrecognized` response statuses fails the 403 warning
-test; dropping the pre-navigation `profile_open` check fails the daily-limit refusal test;
-re-tiering the broad net as specific fails three pattern tests; reverting `waitForLayout` to
-a single measurement fails six, including the live regression staged verbatim
-(1333×798, scrollHeight 798).
+Fixed here: `VIEWPORT_EXPRESSION` measures the tallest genuinely-scrollable element
+(`overflow-y` auto/scroll/overlay, `clientHeight >= 200`) and falls back to the document, so
+the scroll budget is `scrollHeight - scrollerHeight`; `waitForLayout` polls until that
+settles; `PAGE_NOT_LAID_OUT` warns when it never does. D114's fix as first written would have
+raised that warning on **every** LinkedIn capture — a false alarm on a rendered page.
 
-`fixtures/profile.get/` currently holds 9 promoted fixtures + `FIELD-MAP.md` from run 1.
-They are **not sufficient for Task 16** — the field map finds the target's urn, and finds
-name/headline/title only in the operator's own `/voyager/api/me`, the global nav and the
-notification cards. No `location`, no `experience`, no `about`, no `skills` for the target.
+Proven: 611/611 offline, typecheck clean (102 new tests). `VIEWPORT_EXPRESSION` is executed
+as real JavaScript against a stub page carrying the probe's exact numbers (1333×798, document
+798, `main#workspace` 7348/746, plus the clamped `overflow:hidden` `<p>`s that must not count
+as scrollers). Mutations verified to bite: measuring the document instead of the scroller;
+`drain()` out of the `finally`; halting on `unrecognized` response statuses; dropping the
+pre-navigation `profile_open` check; re-tiering the broad net; reverting `waitForLayout` to a
+single measurement.
+
+`fixtures/profile.get/` holds 9 fixtures + `FIELD-MAP.md`, and they are **not usable for
+Task 16**: they name the target's urn, and name/headline/title only from the operator's own
+`/voyager/api/me`, the global nav and notification cards. No location, experience, about or
+skills for the target.
+
+Budget spent so far today: 2 page loads, 1 profile open (deduped by ref).
 
 ## Next
-Task 15's second live run, operator-supervised, with the layout fix in:
-`cap profile.capture --url=https://www.linkedin.com/in/tankots/` (the profile_open is already
-deduped for today, so it costs 1 page load and 0 profile opens), then
-`npm run fixtures:promote -- --latest`. Task 16 is blocked until the field map names real
-paths to the target's name, headline, location and experience.
+Resolve **D116**, which Tasks 16 and 17 both turn on. The next probe is cheap and decisive:
+watch the **document** response for the target URL alongside the API patterns, and check
+whether its body carries the profile payload.
+- If it does: `profile.get` parses the embedded JSON out of the navigation response — still a
+  captured response body, not parsed HTML (D1). `patterns.ts` gains a document pattern.
+- If it does not: profiles must be reached by client-side navigation (feed → profile inside
+  the SPA) to force the Voyager fetches, which changes how every reader capability navigates
+  and needs a spec note.
+
+Costs 1 page load, 0 profile opens (the ref is already deduped for today). Task 16 stays
+blocked until a field map names real paths to the target's name, headline, location and
+experience.
+
+**Leftover:** probe run 2 deliberately left a LinkedIn tab open in the automation Chrome for
+the operator to inspect. Close it before the next capability run, or `--force-release` if it
+wedges the lease.

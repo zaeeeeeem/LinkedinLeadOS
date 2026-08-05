@@ -1101,7 +1101,8 @@ The vanity keeps its case in the navigable url and is lower-cased only in the `r
 the vanity is LinkedIn's identifier and not ours to fold, while the ref exists to make two
 spellings of one profile one budget entry.
 
-## D114 — `readyState: "complete"` is not layout; the capture waits for the document to grow
+## D114 — `readyState: "complete"` is not layout; the capture waits for the page to settle
+**Superseded in part by D115 — the diagnosis below was wrong about *why*. Read D115 with it.**
 2026-08-08. Task 15, from the first live run. `WorkerTab.navigate` resolves when
 `document.readyState === "complete"`, which is correct for what Task 4 promised and is not
 the same thing as the page having rendered. On LinkedIn it fires while the SPA is still an
@@ -1132,3 +1133,67 @@ The second half of this is that the failure was silent. A page that never laid o
 raises `PAGE_NOT_LAID_OUT` on the receipt. A capture that got the urn and nothing else must
 not be indistinguishable from a complete one — that is the "every silent-loss path is made
 visible" rule, and this is what it looks like when it is missing.
+
+## D115 — LinkedIn scrolls an inner element, so the document height means nothing (corrects D114)
+2026-08-08. Task 15, from an operator-supervised probe (`01KZHAHJ7504QSV57YC5RBZEV3`) run
+specifically because D114's diagnosis was an inference from one number and had not been
+checked against the live page. It was wrong, and this is what the page actually does.
+
+**Measured, over 32 seconds on a real profile with the tab visible:**
+
+- `document.documentElement.scrollHeight` was `798` at 3.1s and still `798` at 32.4s.
+  `document.body` computes `overflow-y: hidden`. That number is a constant on this page.
+- The page was nevertheless fully rendered: `main section` count went 4 → 5 → 8 → 9 → 23,
+  `document.body.innerText.length` reached 30,963, and the DOM reached 875,004 characters.
+- The real scroller is `main#workspace`: `overflow-y: scroll`, `scrollHeight 7348`,
+  `clientHeight 746`.
+
+So D114's premise — "the page had not laid out" — was false. The page had laid out; the
+measurement was pointed at the wrong element. Worse, D114's fix would have made this louder
+rather than better: `waitForLayout` would poll a constant for its whole window and then raise
+`PAGE_NOT_LAID_OUT` on a perfectly rendered page, which is a false alarm on every LinkedIn
+capture. D114's *shape* survives — waiting for a settled measurement, and reporting when it
+never settles, is right — but it has to measure the element the page actually scrolls.
+
+`VIEWPORT_EXPRESSION` now picks the tallest element that is genuinely scrollable
+(`scrollHeight > clientHeight + 50`, `clientHeight >= 200`, computed `overflow-y` in
+`auto`/`scroll`/`overlay`) and falls back to the document when there is none, so an ordinary
+page is still measured correctly. `overflow-y: hidden` is excluded deliberately: the probe
+found clamped `<p>` elements with `scrollHeight 1260` against `clientHeight 210`, which are
+truncated text, not scrollers. The scroll budget is `scrollHeight - scrollerHeight`, the
+scroller's own visible height, not the window's.
+
+The lesson is the one the probe existed to teach, and it is worth more than the fix: **one
+number that agrees with a hypothesis is not evidence for it.** `scrollHeight === innerHeight`
+was consistent with "empty page" and with "inner scroller", and the whole of D114 was written
+without distinguishing them. The distinguishing observation cost one page load and settled it
+in 32 seconds.
+
+## D116 — the profile's own content does not arrive on a watched Voyager endpoint
+2026-08-08. Task 15, same probe. Recorded as an open finding, not a resolved design.
+
+Across two live loads of the same profile, 24–25 LinkedIn API responses were captured and
+**not one carried the person's profile content.** The only profile endpoint that answered was
+`voyagerIdentityDashProfiles` at 1,335 bytes — a urn resolution returning `entityUrn` and
+`versionTag`. Everything else was app chrome: `voyagerGlobalAlerts`, `ChameleonConfig`,
+`premium/featureAccess`, `/voyager/api/me`, `voyagerFeedDashGlobalNavs`,
+`JobSeekerPreferences`, `NotificationCards`, `LegoDashPageContents`, and messaging.
+
+Scrolling the real scroller rendered 14 more sections (9 → 23) and produced **zero** new
+network responses. So the content those sections rendered from was already client-side, and
+it did not come through a URL our patterns watch.
+
+One further observation, unexplained: `document.documentElement.outerHTML` contained
+`urn:li:fsd_profile` at 3.1s and did not at 4.6s or at any point after. That is consistent
+with the payload arriving inside the main document response and being consumed during
+hydration — which would mean the data *is* on the network and *is* capturable, in the
+navigation response the tap does not currently watch, because `/in/<vanity>` is not an API
+path.
+
+This is not yet established, and it is the question Task 16 and Task 17 turn on. The next
+probe is cheap and decisive: watch the **document** response for the target URL as well, and
+check whether its body carries the profile payload. If it does, `profile.get` parses the
+embedded JSON out of the navigation response — still a captured response body, still not
+parsed HTML (D1). If it does not, the profile must be reached by client-side navigation
+(feed → profile inside the SPA), which forces the Voyager fetches, and that is a change to
+how every reader capability navigates.

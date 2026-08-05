@@ -31,7 +31,20 @@ export type ReadCursor = {
   pause(min?: number, max?: number): Promise<number>;
 };
 
-export type Viewport = { width: number; height: number; scrollHeight: number };
+export type Viewport = {
+  width: number;
+  height: number;
+  /** Height of whatever this page actually scrolls — an inner element on
+   *  LinkedIn, the document on an ordinary page. */
+  scrollHeight: number;
+  /** True when the scrollable thing is an inner element, not the document. */
+  innerScroller: boolean;
+  /** Visible height of that scroller. */
+  scrollerHeight: number;
+  /** `document.documentElement.scrollHeight`, kept for diagnosis — on LinkedIn
+   *  it is a constant equal to the viewport and means nothing (D115). */
+  documentScrollHeight: number;
+};
 
 export type LayoutResult = {
   viewport: Viewport | null;
@@ -53,16 +66,44 @@ export type ReadResult = {
 };
 
 /**
- * One round trip, three numbers. Reading the viewport is a navigation-support
- * DOM read (D1) — it decides where to dispatch a wheel event, not what any field
- * contains.
+ * One round trip: the viewport, and the height of whatever this page actually
+ * scrolls. A navigation-support DOM read (D1) — it decides where to dispatch a
+ * wheel event and how far, never what any field contains.
+ *
+ * It does **not** trust `document.documentElement.scrollHeight`. Measured on a
+ * real LinkedIn profile (2026-08-08, probe run `01KZHAHJ7504QSV57YC5RBZEV3`):
+ * the document sat at `scrollHeight === clientHeight === 798` for 32 seconds
+ * with `body { overflow: hidden }`, while the page was fully rendered — 875KB of
+ * DOM, 23 sections, 31KB of text — inside `main#workspace`, which carried
+ * `overflow-y: scroll`, `scrollHeight 7348`, `clientHeight 746`. LinkedIn scrolls
+ * an inner element, so the document height is a constant that says nothing about
+ * whether the page has content. See D115.
+ *
+ * So it picks the tallest genuinely-scrollable element on the page and falls
+ * back to the document when there is none — a page that scrolls normally is
+ * still measured correctly.
  */
 export const VIEWPORT_EXPRESSION = `(() => {
   try {
+    var best = null;
+    var els = document.querySelectorAll('*');
+    for (var i = 0; i < els.length; i++) {
+      var el = els[i];
+      if (el.clientHeight < 200) continue;
+      if (el.scrollHeight <= el.clientHeight + 50) continue;
+      var oy = getComputedStyle(el).overflowY;
+      if (oy !== 'auto' && oy !== 'scroll' && oy !== 'overlay') continue;
+      if (best === null || el.scrollHeight > best.scrollHeight) best = el;
+    }
+    var docH = (document.documentElement && document.documentElement.scrollHeight) || 0;
     return {
       width: window.innerWidth || 0,
       height: window.innerHeight || 0,
-      scrollHeight: (document.documentElement && document.documentElement.scrollHeight) || 0,
+      scrollHeight: best ? best.scrollHeight : docH,
+      /** True when an inner element scrolls, not the document. */
+      innerScroller: !!best,
+      scrollerHeight: best ? best.clientHeight : (window.innerHeight || 0),
+      documentScrollHeight: docH,
     };
   } catch (e) { return null; }
 })()`;
@@ -73,7 +114,8 @@ function isViewport(v: unknown): v is Viewport {
   return (
     typeof o["width"] === "number" && o["width"] > 0 &&
     typeof o["height"] === "number" && o["height"] > 0 &&
-    typeof o["scrollHeight"] === "number"
+    typeof o["scrollHeight"] === "number" &&
+    typeof o["innerScroller"] === "boolean"
   );
 }
 
@@ -177,7 +219,8 @@ export async function readLikeAHuman(o: {
 
   // Never wheel further than the document actually is: past the bottom the
   // events land on nothing, which is both useless and a shape no reader makes.
-  const scrollable = viewport ? Math.max(0, viewport.scrollHeight - height) : Infinity;
+  const visible = viewport ? viewport.scrollerHeight : height;
+  const scrollable = viewport ? Math.max(0, viewport.scrollHeight - visible) : Infinity;
 
   let notches = 0;
   let scrolled = 0;

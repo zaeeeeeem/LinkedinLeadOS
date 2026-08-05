@@ -59,13 +59,26 @@ function fakeTab(viewport: unknown, sequence?: unknown[]): ReadTab & { expressio
 }
 
 /** Layout already settled, for the tests that are about scrolling, not waiting. */
-const SETTLED = (v: { width: number; height: number; scrollHeight: number } | null) => ({
+const SETTLED = (v: ReturnType<typeof vp> | null) => ({
   viewport: v, settled: v !== null, polls: 1, waitedMs: 0,
 });
 
 const noSleep = async () => {};
 
-const VIEWPORT = { width: 1440, height: 900, scrollHeight: 9000 };
+/** An ordinary page: the document scrolls. */
+function vp(scrollHeight: number, o: { innerScroller?: boolean; scrollerHeight?: number } = {}) {
+  const height = 900;
+  return {
+    width: 1440,
+    height,
+    scrollHeight,
+    innerScroller: o.innerScroller ?? false,
+    scrollerHeight: o.scrollerHeight ?? height,
+    documentScrollHeight: o.innerScroller ? height : scrollHeight,
+  };
+}
+
+const VIEWPORT = vp(9000);
 
 describe("readLikeAHuman", () => {
   it("measures the page with the viewport read and nothing else", async () => {
@@ -112,11 +125,11 @@ describe("readLikeAHuman", () => {
     // A page barely taller than the viewport: one short pass and then done, no
     // matter how many passes were asked for.
     const cursor = fakeCursor();
-    const short = { width: 1440, height: 900, scrollHeight: 1100 };
+    const short = vp(1100);
     const result = await readLikeAHuman({ tab: fakeTab(short), cursor, passes: 6, rng: () => 0.5, layout: SETTLED(short) });
 
     expect(result.passes).toBe(1);
-    expect(result.scrolled).toBe(200); // scrollHeight - height, exactly
+    expect(result.scrolled).toBe(200); // scrollHeight - visible height, exactly
   });
 
   it("never scrolls back further than it has come", async () => {
@@ -186,8 +199,8 @@ describe("waitForLayout — the regression from the first live capture", () => {
     // readyState complete with scrollHeight === innerHeight === 798, so the old
     // single-measurement read scrolled nothing and the capture came back holding
     // the profile's urn and none of its content.
-    const shell = { width: 1333, height: 798, scrollHeight: 798 };
-    const laidOut = { width: 1333, height: 798, scrollHeight: 6400 };
+    const shell = { width: 1333, height: 798, scrollHeight: 798, innerScroller: false, scrollerHeight: 798, documentScrollHeight: 798 };
+    const laidOut = { width: 1333, height: 798, scrollHeight: 6400, innerScroller: true, scrollerHeight: 746, documentScrollHeight: 798 };
     const tab = fakeTab(laidOut, [shell, shell, laidOut, laidOut, laidOut]);
 
     const layout = await waitForLayout(tab, { pollMs: 0, sleep: noSleep });
@@ -198,13 +211,11 @@ describe("waitForLayout — the regression from the first live capture", () => {
   });
 
   it("does not settle while the document is still growing", async () => {
-    const growing = [
-      { width: 1000, height: 800, scrollHeight: 1200 },
-      { width: 1000, height: 800, scrollHeight: 2400 },
-      { width: 1000, height: 800, scrollHeight: 3600 },
-      { width: 1000, height: 800, scrollHeight: 3600 },
-      { width: 1000, height: 800, scrollHeight: 3600 },
-    ];
+    const at = (h: number) => ({
+      width: 1000, height: 800, scrollHeight: h,
+      innerScroller: true, scrollerHeight: 760, documentScrollHeight: 800,
+    });
+    const growing = [at(1200), at(2400), at(3600), at(3600), at(3600)];
     const layout = await waitForLayout(fakeTab(growing.at(-1), growing), { pollMs: 0, sleep: noSleep });
     expect(layout.settled).toBe(true);
     expect(layout.viewport!.scrollHeight).toBe(3600);
@@ -213,7 +224,7 @@ describe("waitForLayout — the regression from the first live capture", () => {
   });
 
   it("reports not-settled rather than hanging when the page never grows", async () => {
-    const shell = { width: 1333, height: 798, scrollHeight: 798 };
+    const shell = vp(900);
     const layout = await waitForLayout(fakeTab(shell), { timeoutMs: 5, pollMs: 1, sleep: noSleep });
     expect(layout.settled).toBe(false);
     expect(layout.viewport).toEqual(shell);
@@ -228,8 +239,8 @@ describe("waitForLayout — the regression from the first live capture", () => {
   });
 
   it("is what readLikeAHuman uses when no layout is handed to it", async () => {
-    const shell = { width: 1333, height: 798, scrollHeight: 798 };
-    const laidOut = { width: 1333, height: 798, scrollHeight: 6400 };
+    const shell = vp(900);
+    const laidOut = vp(6400, { innerScroller: true, scrollerHeight: 860 });
     const cursor = fakeCursor();
     const result = await readLikeAHuman({
       tab: fakeTab(laidOut, [shell, laidOut, laidOut, laidOut]),
@@ -246,7 +257,7 @@ describe("waitForLayout — the regression from the first live capture", () => {
   });
 
   it("still dwells, and says so, when the page never laid out", async () => {
-    const shell = { width: 1333, height: 798, scrollHeight: 798 };
+    const shell = vp(900);
     const cursor = fakeCursor();
     const result = await readLikeAHuman({
       tab: fakeTab(shell), cursor, passes: 4, rng: () => 0.5,
@@ -257,5 +268,85 @@ describe("waitForLayout — the regression from the first live capture", () => {
     expect(result.passes).toBe(0);
     // The fact is on the result, which is what the receipt's warning reads.
     expect(cursor.pauses).toHaveLength(1);
+  });
+});
+
+describe("VIEWPORT_EXPRESSION, executed as real javascript", () => {
+  /** Runs the expression the way Chrome does, against a stub page. The
+   *  expression is a string, so nothing else in this repo type-checks it. */
+  function evaluateAgainst(page: {
+    innerWidth: number;
+    innerHeight: number;
+    documentScrollHeight: number;
+    elements: Array<{ clientHeight: number; scrollHeight: number; overflowY: string }>;
+  }): unknown {
+    const document = {
+      documentElement: { scrollHeight: page.documentScrollHeight },
+      querySelectorAll: () => page.elements,
+    };
+    const getComputedStyle = (el: { overflowY: string }) => ({ overflowY: el.overflowY });
+    const window = { innerWidth: page.innerWidth, innerHeight: page.innerHeight };
+    return new Function(
+      "document", "getComputedStyle", "window",
+      `return (${VIEWPORT_EXPRESSION});`,
+    )(document, getComputedStyle, window);
+  }
+
+  it("measures the inner scroller on a real LinkedIn profile, not the document", () => {
+    // The exact numbers from probe run 01KZHAHJ7504QSV57YC5RBZEV3: the document
+    // is pinned at one viewport with body{overflow:hidden} while main#workspace
+    // holds 7348px of content. Measuring the document said "nothing to scroll"
+    // on a page that was fully rendered.
+    const measured = evaluateAgainst({
+      innerWidth: 1333,
+      innerHeight: 798,
+      documentScrollHeight: 798,
+      elements: [
+        { clientHeight: 746, scrollHeight: 7348, overflowY: "scroll" }, // main#workspace
+        { clientHeight: 210, scrollHeight: 1260, overflowY: "hidden" }, // a clamped <p>
+        { clientHeight: 245, scrollHeight: 770, overflowY: "hidden" },
+      ],
+    }) as Record<string, unknown>;
+
+    expect(measured["scrollHeight"]).toBe(7348);
+    expect(measured["scrollerHeight"]).toBe(746);
+    expect(measured["innerScroller"]).toBe(true);
+    // The old measurement, kept only so a receipt can show why it was wrong.
+    expect(measured["documentScrollHeight"]).toBe(798);
+  });
+
+  it("ignores overflow:hidden elements — clamped text is not a scroller", () => {
+    const measured = evaluateAgainst({
+      innerWidth: 1333, innerHeight: 798, documentScrollHeight: 798,
+      elements: [{ clientHeight: 210, scrollHeight: 1260, overflowY: "hidden" }],
+    }) as Record<string, unknown>;
+    expect(measured["innerScroller"]).toBe(false);
+    expect(measured["scrollHeight"]).toBe(798);
+  });
+
+  it("falls back to the document on an ordinary page that scrolls normally", () => {
+    const measured = evaluateAgainst({
+      innerWidth: 1280, innerHeight: 800, documentScrollHeight: 5200, elements: [],
+    }) as Record<string, unknown>;
+    expect(measured["innerScroller"]).toBe(false);
+    expect(measured["scrollHeight"]).toBe(5200);
+    expect(measured["scrollerHeight"]).toBe(800);
+  });
+
+  it("settles and scrolls on the LinkedIn shape, where the document measurement did not", async () => {
+    const linkedin = {
+      width: 1333, height: 798, scrollHeight: 7348,
+      innerScroller: true, scrollerHeight: 746, documentScrollHeight: 798,
+    };
+    const cursor = fakeCursor();
+    const result = await readLikeAHuman({
+      tab: fakeTab(linkedin), cursor, passes: 4, rng: () => 0.5, sleep: noSleep,
+    });
+
+    expect(result.layout.settled).toBe(true);
+    expect(result.passes).toBe(4);
+    expect(result.scrolled).toBeGreaterThan(0);
+    // Never further than the scroller actually has: 7348 - 746.
+    expect(result.scrolled).toBeLessThanOrEqual(7348 - 746);
   });
 });

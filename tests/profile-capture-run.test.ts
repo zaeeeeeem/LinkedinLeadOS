@@ -108,7 +108,10 @@ class FakeTab implements TabLike {
   foreground = { ok: true, via: "already" as const, hidden: false };
   /** A laid-out page by default. Set to a one-viewport shell to stage the
    *  regression from the first live run. */
-  viewport: unknown = { width: 1440, height: 900, scrollHeight: 5000 };
+  viewport: unknown = {
+    width: 1440, height: 900, scrollHeight: 5000,
+    innerScroller: true, scrollerHeight: 860, documentScrollHeight: 900,
+  };
 
   constructor(private readonly page: FakePage) {}
 
@@ -467,7 +470,10 @@ describe("profile.capture — the gates", () => {
     // fetched — and, before this warning existed, an ok receipt that said nothing.
     const { outcome, cursor } = invoke({
       tune: (s) => {
-        s.tab.viewport = { width: 1333, height: 798, scrollHeight: 798 };
+        s.tab.viewport = {
+          width: 1333, height: 798, scrollHeight: 798,
+          innerScroller: false, scrollerHeight: 798, documentScrollHeight: 798,
+        };
       },
     });
     const { receipt, exit } = await outcome;
