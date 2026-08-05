@@ -324,8 +324,64 @@ rolled-back transaction to prove future tables inherit the rules. Both new live 
 were verified to bite against the pre-fix migration: 78 leaked privileges at step 6, and
 6 privileges on a newly created table at step 7. Full run green at 9 steps.
 
+Task 12 — capability registry, CLI, preflight, and `health.check` (the M1 gate).
+`src/cli/{types,registry,flags,budget,preflight,run,index}.ts` plus
+`src/capabilities/health.check/`. A capability declares name, risk (`local` /
+`read-cheap` / `read-metered`, D84), a zod args schema, `needsBrowser`/`needsAuth`, a cost
+function over the three §8 spend kinds, and a `run` receiving a prepared context (run
+context, args, flags, run-scoped budget, login state, and — only when it asked for one —
+session, worker tab, network tap, human cursor, raw archive and its lease record).
+`cap list` emits the §4.5 manifest (name, risk, summary, JSON-schema args, cost at
+default args, plus the lease state and the exit-code table). The registry is built by
+scanning `src/capabilities/`, so adding a capability is adding one directory and no CLI
+wiring exists to forget (D81); the directory name must equal the capability name.
+Universal flags §4.4 are handled once, for every capability: `--run-id`, `--dry-run`,
+`--fields`, `--no-store`, `--budget` (D83), plus `--force-release` — D16's escape hatch,
+which drops a wedged lease after naming its holder on the receipt, backed by a new
+`forceReleaseLease()` in the lease module. Preflight runs §8's order (Chrome → CDP →
+logged in → budget → lease → worker tab), determining login from the `li_at` cookie via
+`Storage.getCookies` with zero LinkedIn requests (D80). Capabilities return a result, not
+a receipt: the runner owns run_id, artifacts, measured cost, the exit code and teardown
+(D82).
+
+Proven: 51 new offline tests (424/424 across the suite), typecheck clean. Among them —
+all seven failure classes thrown from a capability body reach the exit code their receipt
+names *and* leave the lease free and the tab closed; an unclassified throw becomes
+`CAPABILITY_FAILED`/exit 1 the same way; preflight stops at login with exit 4 and at
+budget with exit 7, in both cases having opened no tab and taken no lease, and having
+closed the session it did open; a failed login probe is exit 6, not exit 4; a lease held
+by another live run refuses with exit 6 and survives the refusal; `--dry-run` opens no
+session at all (the fake's `openSession` is never called), takes no lease, and reports a
+budget that would refuse rather than pretending; `--budget` bites twice, refusing the
+second page load of `--budget=1` with `BUDGET_INVOCATION_CAP` while `--budget=10000`
+still cannot buy past the §8 hourly default; receipt cost is measured from real ledger
+spends; the crash-cleanup thunk releases the tab and lease from mid-run; and
+`checkLogin` never returns the cookie's value. The tests fake only Chrome — lease,
+budget, run context, tap, cursor and archive are the real modules over temp paths — and
+six compile-time assertions pin that `WorkerTab`, `BrowserSession`, `CdpClient` and
+`RunContext` satisfy the structural types the runner consumes (verified to fail: breaking
+`TabLike.screenshot` breaks the build). Two subprocess tests exercise the real CLI:
+`cap list` returns the manifest, and `emitReceipt` exits 2/3/4/5/6/7/1 for the matching
+failure class.
+
+Live, M1 gate, against the automation Chrome (151.0.7922.76): `health.check` with Chrome
+already up returned `ok`, exit 0, `launched: false` in 230ms; with the automation Chrome
+killed first it returned `ok`, exit 0, `launched: true` in 1801ms. Both reported
+`login.cookie: "present"` (expires 2027-08-07), `foreground.via: "already"` — so
+`Target.activateTarget`, the only path that touches the operator's window, was never
+reached — five events on disk (`cdp.send`, `nav.start`, `nav.done`, `render.wait`,
+`cdp.send`), `summary.json` written, `runs/tab.lock` gone afterwards, and the automation
+Chrome's page-target count back at 1, its starting value, with no leftover worker tab.
+The cold start reached a working CDP endpoint in 1.8s on the unchanged D14 flag set, with
+nothing blocking it. Also live: `cap list` returned the manifest; a wedged lease (a
+recycled pid, D16's exact scenario) showed up in `cap list`, blocked a run with
+`TAB_LEASE_HELD`/exit 6, and `--force-release` recovered it while naming
+`run wedged-01 (pid 1, salesnav.leads.list)` on the receipt; an unknown argument exited 1
+with `ARGS_INVALID`; an unknown capability exited 1 with `CAPABILITY_UNKNOWN` naming what
+does exist.
+
 ## In progress
 _(nothing)_
 
 ## Next
-See `docs/plans/m1-m3/tasks/` for the next task.
+Task 14 — Supabase store client (M2). See `docs/plans/m1-m3/tasks/`.

@@ -335,3 +335,30 @@ export async function releaseLease(o: { runId: string; path?: string }): Promise
   }
   return true;
 }
+
+/**
+ * Drops the lease whoever holds it — the operator's escape hatch from D16.
+ *
+ * D16 refuses any age-based staleness rule, so a crashed run whose pid gets
+ * recycled by an unrelated process leaves a lease that reads as live forever and
+ * wedges the tab. That was accepted deliberately, on the condition that the way
+ * out is an explicit operator action rather than a timer. This is that action:
+ * it never runs on its own, only behind `--force-release`, and it returns the
+ * record it removed so the caller can put the holder it just evicted on the
+ * receipt. Taking a lease away without saying whose it was is how one run
+ * silently ends up driving another run's tab.
+ */
+export async function forceReleaseLease(
+  path: string = defaultLeasePath(),
+): Promise<{ released: boolean; state: LeaseState; priorHolder: LeaseRecord | null }> {
+  const state = await inspectLease(path);
+  if (state.state === "free") return { released: false, state, priorHolder: null };
+  const priorHolder = "holder" in state ? state.holder : null;
+  try {
+    await unlink(path);
+  } catch (e) {
+    if (isMissing(e)) return { released: false, state: { state: "free" }, priorHolder: null };
+    rethrow(path, e);
+  }
+  return { released: true, state, priorHolder };
+}
