@@ -74,6 +74,11 @@ constant is 7 days, not the 24h any limit actually enforces, because Task 13's
 ledger file is the only copy of spend history that exists, so compaction is deliberately
 conservative.
 
-**The approach settled here:** once Task 14 gives `budget_ledger` a real writer and it is
-confirmed to actually receive spend rows, narrow `COMPACTION_RETENTION_MS` to `DAY_MS`.
-No other change needed — the constant is already the single place retention is decided.
+**The approach settled here:** once `budget_ledger` has a real writer and it is confirmed
+to actually receive spend rows, narrow `COMPACTION_RETENTION_MS` to `DAY_MS`. No other
+change needed — the constant is already the single place retention is decided.
+
+**Update 2026-08-08 (Task 14):** Task 14 shipped the store client and the *person* write
+path only; its task file scopes it to person data, so `budget_ledger` still has no writer
+and the ledger file is still the only copy of spend history. This stays open, and the
+trigger is now "whichever task first mirrors spend into Supabase", not Task 14.

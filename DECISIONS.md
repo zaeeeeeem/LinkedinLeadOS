@@ -792,3 +792,72 @@ work on the verifier and do nothing on the operator's actual database.
 
 The rule is therefore stated in the migration's own header, where someone about to edit it
 will read it, and pinned by a test asserting that header is still there.
+
+## D100 — a store failure never carries a string the database wrote
+2026-08-08, Task 14. `storeError` builds its own message from the operation, the table and
+the SQLSTATE, and puts `{op, table, status, sqlstate}` in `evidence`. The PostgREST error's
+`message`, `details` and `hint` are never forwarded.
+
+Postgres writes the offending values straight into its own error text — a unique violation
+reads `Key (urn)=(urn:li:fsd_profile:ACoAAB…) already exists` — and PostgREST passes that
+through untouched. Receipts go to stdout (D3), so forwarding the driver's message would
+print captured LinkedIn data into the agent's transcript, which the recording rules forbid
+outright. The whole driver error is attached as a **non-enumerable** `cause` instead:
+reachable under a debugger, invisible to `JSON.stringify`, so it cannot reach a receipt or
+an NDJSON line by accident. Rejected: forwarding the message for unclassified codes only —
+the classification is exactly what is uncertain there, so that is the case most likely to
+leak.
+
+## D101 — the person upsert is three ordered requests, not a transaction
+2026-08-08, Task 14. `upsertPerson` issues: upsert the person, upsert the experience rows,
+then delete that person's experience rows the capture no longer lists. PostgREST wraps each
+request in its own transaction, so no single request half-lands; the seam is between them.
+
+The order is the decision. Deleting first, or deleting inside the same statement, would mean
+a failure before the insert lands destroys employment history the store had and this run
+cannot replace. In the order above every failure leaves *extra* rows and never missing ones:
+person only, or person plus new rows plus stale ones. Both writes are upserts on a declared
+conflict target (`urn`; the `nulls not distinct` natural-key index), so a retry re-sends rows
+that already landed and updates them in place — proven against the real database, including
+the all-nulls experience row. `StoreWriteError.stored` carries the count that actually landed
+so the receipt's `partial.stored` is truthful.
+
+Rejected: a Postgres function called over RPC to get real atomicity. It buys atomicity for
+one entity write and costs a second migration, a second place the schema is defined, and
+logic that can only be tested with Docker running — while the non-atomic version's worst
+case is a stale row that the next successful run removes.
+
+## D102 — omitted means "not observed", null means "observed empty"; first_seen is the database's clock
+2026-08-08, Task 14. A field absent from a `PersonInput` is left out of the payload, so
+PostgREST does not include it in the `on conflict do update` set and the stored value
+survives. An explicit `null` is sent and overwrites. A parser that cannot tell "the capture
+did not contain this" from "the profile does not have this" must omit.
+
+`last_seen` is stamped from the caller's clock (injectable, which is what makes freshness
+testable). `first_seen` is never sent at all and stays the column default: a column present
+in an upsert payload is also updated on conflict, so sending `first_seen` would reset it on
+every re-scrape. The two therefore come from different clocks by design.
+
+## D103 — a nonsense duration fails the run; it never becomes a default
+2026-08-08, Task 14. `parseDuration` accepts a whole number with an optional `ms|s|m|h|d`
+suffix, and throws `INVALID_DURATION` (exit 1) on anything else — including `1.5d`, `7d12h`,
+`-1`, and `7w`. A typo that silently became the 7-day default would be indistinguishable
+from working; one that silently became `0` would re-fetch every profile against the budget
+that exists to prevent exactly that.
+
+`isFresh`'s edges are chosen the same way: a missing or unparseable `last_seen` is stale
+(the store cannot say how old the row is, so it does not get to claim it is new), the
+comparison is strict so a row exactly max-age old is stale, `max-age 0` is always stale, and
+a `last_seen` in the future is fresh because that is clock skew against Postgres, not
+evidence about the row.
+
+## D104 — the vanity lookup reports ambiguity instead of resolving or refusing it
+2026-08-08, Task 14. `persons.vanity` is deliberately not unique (Task 13): LinkedIn
+reassigns vanity URLs, so two profiles can hold the same string at different times.
+`findPersonByVanity` returns the most recently seen match and sets `vanityMatches` to the
+exact number of rows that matched. Above 1 means the caller is looking at a reused handle
+and should resolve by urn.
+
+Rejected: throwing on more than one match, which would make a routine LinkedIn fact into a
+failed run; and returning all matches, which pushes a decision onto every caller that all of
+them would resolve the same way.

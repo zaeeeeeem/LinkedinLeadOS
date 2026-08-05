@@ -324,6 +324,51 @@ rolled-back transaction to prove future tables inherit the rules. Both new live 
 were verified to bite against the pre-fix migration: 78 leaked privileges at step 6, and
 6 privileges on a newly created table at step 7. Full run green at 9 steps.
 
+Task 14 — store client, freshness, and the person write path. `src/core/store/
+{constants,config,client,freshness,types,persons,index}.ts`: `readStoreConfig` /
+`isStoreConfigured` / `requireStoreConfig` (a `.env` read through Node's own
+`process.loadEnvFile`, no dependency added) so a `--skip-store` run can ask whether the
+store exists without a missing `.env` ending it; `getStore()` memoizing one service-role
+client per configuration; `parseDuration` / `isFresh` for the `--max-age` grammar (§7);
+`upsertPerson` / `findPersonByUrn` / `findPersonByVanity` plus row types matching the
+Task 13 migration. Failures map to one code per operator action — `STORE_UNAVAILABLE`
+(transient, exit 6), `STORE_UNAUTHORIZED`, `STORE_SCHEMA_MISMATCH`, `STORE_WRITE_REJECTED`,
+`STORE_{READ,WRITE}_FAILED` (all fatal, exit 1) — and carry **no string the database
+wrote**, because Postgres puts the offending urn straight into its own error text and
+receipts go to stdout (D100); the driver error survives as a non-enumerable `cause`.
+`upsertPerson` is three ordered requests, not a transaction: person, then experience
+upsert, then the delete of rows this capture no longer lists, ordered so a failure between
+them leaves *extra* rows and never missing ones, with `StoreWriteError.stored` naming what
+actually landed for the receipt's `partial.stored` (D101). Omitted fields are left alone
+and explicit nulls overwrite; `first_seen` is never sent, so a re-scrape cannot reset it
+(D102). Nonsense durations are fatal rather than defaults, and a missing `last_seen` is
+always stale (D103). The vanity lookup returns the newest match and reports how many
+matched, since vanity is reassignable and not unique (D104).
+
+Proven: 77 new tests (450/450 across the suite, three consecutive runs with no flake),
+typecheck clean. 33 offline pin the duration grammar and every freshness edge; 23 offline
+pin the configuration probe and each failure classification, including that a synthetic
+23505 carrying a urn and a name leaks neither into the message nor the evidence nor
+`JSON.stringify` of the error; 10 offline drive the **real** supabase-js against a stub
+PostgREST on loopback — a hand-written fake of the query builder would let a request shape
+PostgREST rejects pass as correct — pinning the conflict targets, uniform bulk-row keys,
+delete-after-insert ordering, the no-experience-touched path, byte-identical retries, and
+the stored count at each of the three failure points. 11 integration tests run against the
+local stack and skip visibly without it (`[skip] store integration tests — local Supabase
+is not reachable at …`): full suite is 450/450 with Supabase up and 439 passed / 11 skipped
+with it unreachable. They prove `last_seen` bumping with `first_seen` held, omitted-vs-null,
+that the `nulls not distinct` natural key collapses a re-scraped all-nulls experience row
+onto the same id through PostgREST's `on_conflict`, experience replacement keeping the
+surviving row's id, `[]` clearing and omitted touching nothing, a retry converging to one
+person and two experience rows, both lookups, and `vanityMatches: 2` on a shared handle.
+Verified to bite by mutation: relaxing the freshness boundary to `<=` failed 1 test, adding
+the driver's `details` to the evidence failed 2, and dropping the omitted-experience guard
+failed 9.
+
+Not done here, and not asked for by the task file: nothing yet writes `runs`,
+`raw_captures`, `budget_ledger` or `parse_drift` — B3 (narrowing the budget ledger's
+compaction window once Supabase mirrors it) therefore stays open.
+
 ## In progress
 _(nothing)_
 
