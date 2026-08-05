@@ -12,7 +12,12 @@
  *   4. applies the migration file a SECOND time, straight through psql with
  *      ON_ERROR_STOP=1, over the database that already has it
  *   5. compares the catalog again — a re-apply that changed the schema is a failure
- *   6. smoke transaction: insert into every table, read it back, then ROLLBACK, so the
+ *   6. grants, read from the live catalog: anon and authenticated must hold nothing on any
+ *      public table, and a table created after the migration must inherit that. This has to
+ *      be checked here and not in the offline test — the privilege that was wrong (anon
+ *      holding TRUNCATE, from Supabase's bootstrap default ACL) is one the migration never
+ *      wrote, so nothing that reads the migration text can see it.
+ *   7. smoke transaction: insert into every table, read it back, then ROLLBACK, so the
  *      tables are proven queryable and writable without leaving a row behind
  *
  * Exits 0 on success, 1 on any mismatch, with the first difference named.
@@ -174,6 +179,63 @@ if (catalogFingerprint(first) !== catalogFingerprint(second)) {
   fail("the catalog changed between the first and second apply");
 }
 console.log("    identical");
+
+say("checking live grants — anon and authenticated must hold nothing");
+const leaked = psql(`
+  select grantee, table_name, privilege_type
+    from information_schema.role_table_grants
+   where table_schema = 'public' and grantee in ('anon', 'authenticated')
+   order by table_name, grantee, privilege_type
+`);
+if (leaked.length > 0) {
+  const shown = leaked.slice(0, 8).map((r) => `${r[0]} holds ${r[2]} on ${r[1]}`);
+  fail(
+    `anon/authenticated hold ${leaked.length} privileges they should not:\n  - ` +
+      `${shown.join("\n  - ")}${leaked.length > 8 ? `\n  - … and ${leaked.length - 8} more` : ""}`,
+  );
+}
+// Named explicitly because RLS does not cover TRUNCATE, so this is the one an
+// RLS-is-enough reading would miss.
+for (const table of Object.keys(SPEC.tables)) {
+  for (const role of ["anon", "authenticated"]) {
+    const [[held]] = psql(
+      `select has_table_privilege('${role}', 'public.${table}', 'TRUNCATE')`,
+    );
+    if (held !== "f") fail(`${role} can TRUNCATE public.${table}`);
+  }
+}
+const missing = psql(`
+  select t.table_name, p.priv
+    from information_schema.tables t
+    cross join (values ('SELECT'), ('INSERT'), ('UPDATE'), ('DELETE')) p(priv)
+   where t.table_schema = 'public' and t.table_type = 'BASE TABLE'
+     and not has_table_privilege('service_role', 'public.' || t.table_name, p.priv)
+`);
+if (missing.length > 0) {
+  fail(`service_role is missing ${missing.map((r) => `${r[1]} on ${r[0]}`).join(", ")}`);
+}
+console.log(`    anon/authenticated hold 0 privileges; service_role can read and write all ${Object.keys(first).length}`);
+
+say("checking a table created after the migration inherits the same defaults");
+const probe = psql(null, {
+  input: `
+begin;
+create table public._grant_probe (id int);
+select 'anon_privs', count(*) from information_schema.role_table_grants
+  where table_schema = 'public' and table_name = '_grant_probe' and grantee in ('anon', 'authenticated');
+select 'service_select', has_table_privilege('service_role', 'public._grant_probe', 'SELECT');
+rollback;
+`,
+});
+const anonPrivs = probe.find((r) => r[0] === "anon_privs");
+const serviceSelect = probe.find((r) => r[0] === "service_select");
+if (!anonPrivs || anonPrivs[1] !== "0") {
+  fail(`a newly created table gave anon/authenticated ${anonPrivs?.[1]} privileges`);
+}
+if (!serviceSelect || serviceSelect[1] !== "t") {
+  fail("a newly created table did not grant service_role SELECT");
+}
+console.log("    a new table grants anon nothing and service_role SELECT");
 
 say("smoke transaction: writing one row into every table, then rolling back");
 const smoke = `

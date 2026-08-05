@@ -246,8 +246,8 @@ upsert index (D93). Foreign keys exist only on `runs` and `searches`, never on a
 column, because a person's employer is routinely known before that company is scraped
 (D94); ids are `text` everywhere (D95). `budget_ledger` carries a table comment saying
 it is a reporting mirror and that `runs/budget.ndjson` is the ledger of record (D11).
-RLS is on with no policies and the only grants are to `service_role`, so the anon key
-reaches nothing (D91).
+RLS is on with no policies, anon and authenticated are explicitly revoked, and the only
+grants are to `service_role` (D91, corrected by D97).
 
 Proven: 52 new offline tests (337/337 across the suite), typecheck clean — they pin the
 table and column coverage against `schema.spec.json`, the urn keying, the append-only
@@ -262,6 +262,30 @@ catalog fingerprint, then a smoke transaction inserted and read back one row in 
 the 13 tables and rolled back, leaving `runs` empty (D96). Verified to bite: adding a
 column to `schema.spec.json` that the migration does not create failed the run at step 3
 naming `persons.nonexistent_column`.
+
+Reviewed 2026-08-08 — one real bug, and it was in a property the tests claimed to prove.
+The migration and `STATE.md` both said anon and authenticated reach nothing; the live
+database granted both of them TRUNCATE, REFERENCES and TRIGGER on all 13 tables, and
+`set role anon; truncate persons;` emptied the table. RLS does not cover TRUNCATE, and
+the privileges came from Supabase's bootstrap default ACL for role `postgres`, which a
+`grant` can only add to, never remove. The offline test regexed the migration text for
+`to anon`, found nothing and passed — a privilege the file never wrote is invisible to a
+test that reads the file (D97). Fixed: explicit `revoke all … from anon, authenticated`
+on tables and sequences, plus `alter default privileges` so later migrations inherit the
+revokes and pick up the `service_role` grants that `on all tables` could not give them.
+Also: `raw_captures.run_id` loses `on delete cascade`, which deleted the index into the
+raw archive while the gzipped bodies stayed on disk — a run delete with captures now
+fails instead of orphaning files (D98); the migration header states it is never to be
+edited once applied, since `if not exists` makes an added column a silent no-op that
+`db:verify` cannot catch because it resets first (D99); and the "exactly one migration
+file" assertion is gone, having been set to break on the next schema change.
+
+Proven: 342/342 (5 new offline tests, typecheck clean). The grants claim moved into
+`npm run db:verify`, which now queries `information_schema.role_table_grants`,
+`has_table_privilege` for TRUNCATE specifically, and creates a probe table inside a
+rolled-back transaction to prove future tables inherit the rules. Both new live checks
+were verified to bite against the pre-fix migration: 78 leaked privileges at step 6, and
+6 privileges on a newly created table at step 7. Full run green at 9 steps.
 
 ## In progress
 _(nothing)_

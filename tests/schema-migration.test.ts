@@ -28,7 +28,13 @@ const sql = migrationFiles
   .map((f) => readFileSync(join(MIGRATIONS_DIR, f), "utf8"))
   .join("\n");
 
-/** The body of one `create table if not exists <name> ( ... );` block. */
+/**
+ * The body of one `create table if not exists <name> ( ... );` block, with `--` line
+ * comments stripped. Stripping matters: a comma inside a comment would otherwise split
+ * the column list at the wrong place, and a commented column would be read as a column
+ * named `--`. (No string literal in this migration contains `--`, so a naive strip is
+ * safe here and would fail loudly, via a broken column list, if that ever changed.)
+ */
 function tableBody(name: string): string {
   const open = new RegExp(
     `create\\s+table\\s+if\\s+not\\s+exists\\s+public\\.${name}\\s*\\(`,
@@ -42,7 +48,7 @@ function tableBody(name: string): string {
     if (sql[i] === "(") depth++;
     else if (sql[i] === ")") depth--;
   }
-  return sql.slice(m.index + m[0].length, i - 1);
+  return sql.slice(m.index + m[0].length, i - 1).replace(/--[^\n]*/g, "");
 }
 
 /** Top-level (depth-0) comma-separated items of a create-table body. */
@@ -66,8 +72,10 @@ function tableItems(body: string): string[] {
 const tableNames = Object.keys(spec.tables);
 
 describe("migration covers spec §7", () => {
-  it("declares exactly one migration file", () => {
-    expect(migrationFiles).toHaveLength(1);
+  it("includes the M1-M3 migration", () => {
+    // Deliberately not a count: the next schema change adds a second file, and every
+    // assertion here reads all of them concatenated, so a count would only break.
+    expect(migrationFiles).toContain("20260808120000_m1_m3_schema.sql");
   });
 
   it.each(tableNames)("declares table %s", (name) => {
@@ -141,6 +149,15 @@ describe("foreign keys only where they cannot lie", () => {
     expect(tableBody("search_results")).toMatch(/references\s+public\.searches\s*\(search_id\)/i);
   });
 
+  it("does not cascade a run delete into raw_captures", () => {
+    // The gzipped bodies on disk are the durable copy (D2). Cascading would drop the
+    // index into them and leave files nobody can find, so the delete must fail instead.
+    const item = tableItems(tableBody("raw_captures"))
+      .find((i) => /references\s+public\.runs/i.test(i));
+    expect(item).toBeDefined();
+    expect(item!).not.toMatch(/on\s+delete\s+cascade/i);
+  });
+
   it("puts no foreign key on any LinkedIn URN column", () => {
     for (const name of tableNames) {
       for (const item of tableItems(tableBody(name))) {
@@ -162,13 +179,53 @@ describe("exposure is explicit and denies by default", () => {
     expect(sql).not.toMatch(/create\s+policy/i);
   });
 
-  it("grants to service_role and to nobody else", () => {
+  it("writes every grant in the file to service_role and to nobody else", () => {
     const grants = [...sql.matchAll(/grant\s+[\s\S]*?\s+to\s+([\w,\s]+);/gi)].map((m) => m[1]!);
     expect(grants.length).toBeGreaterThan(0);
     for (const to of grants) {
       expect(to.trim()).toBe("service_role");
     }
     expect(sql).not.toMatch(/\bto\s+(anon|authenticated|public)\b/i);
+  });
+
+  it("revokes from anon and authenticated instead of relying on RLS", () => {
+    // RLS does not cover TRUNCATE, and Supabase's bootstrap default ACL hands anon and
+    // authenticated TRUNCATE/REFERENCES/TRIGGER/MAINTAIN on every table a migration
+    // creates. A grant only adds, so only an explicit revoke removes them (D97).
+    expect(sql).toMatch(
+      /revoke\s+all\s+on\s+all\s+tables\s+in\s+schema\s+public\s+from\s+anon,\s*authenticated;/i,
+    );
+    expect(sql).toMatch(
+      /revoke\s+all\s+on\s+all\s+sequences\s+in\s+schema\s+public\s+from\s+anon,\s*authenticated;/i,
+    );
+  });
+
+  it("sets the same rules as defaults, so later migrations inherit them", () => {
+    // `on all tables` is a snapshot; without these, a table added by Task 14 would come
+    // back with anon holding TRUNCATE and service_role holding nothing.
+    expect(sql).toMatch(
+      /alter\s+default\s+privileges[\s\S]{0,60}revoke\s+all\s+on\s+tables\s+from\s+anon,\s*authenticated;/i,
+    );
+    expect(sql).toMatch(
+      /alter\s+default\s+privileges[\s\S]{0,60}revoke\s+all\s+on\s+sequences\s+from\s+anon,\s*authenticated;/i,
+    );
+    expect(sql).toMatch(
+      /alter\s+default\s+privileges[\s\S]{0,120}grant[\s\S]{0,80}on\s+tables\s+to\s+service_role;/i,
+    );
+  });
+
+  it("says in the file that the grants claim is only provable against the database", () => {
+    // The property this file cannot check. If the pointer to db:verify goes away, so
+    // does the only signal that the offline assertions above are not the whole proof.
+    expect(sql).toMatch(/db:verify/);
+  });
+});
+
+describe("the migration is append-only", () => {
+  it("says so in the file, because editing it is a silent no-op", () => {
+    // `create table if not exists` ignores an added column outright, with no error, and
+    // db:verify resets first so it only ever exercises a fresh apply (D99).
+    expect(sql).toMatch(/DO NOT EDIT THIS FILE ONCE IT HAS BEEN APPLIED/);
   });
 });
 

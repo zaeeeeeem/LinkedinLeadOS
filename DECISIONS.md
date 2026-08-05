@@ -656,3 +656,65 @@ A migration that applied cleanly once is not proven; the failure this guards aga
 an operator re-running the file by hand against a database that already has it, which is
 the normal thing to do when you are unsure whether it ran. The static half is in
 `tests/schema-migration.test.ts` so the property is also checked offline, with no Docker.
+
+## D97 — RLS is not deny-by-default on its own; anon and authenticated are revoked explicitly
+2026-08-08, from review of Task 13. **This corrects D91**, which claimed "anon and
+authenticated reach nothing at all". That was false against the live database, and the
+test that was supposed to prove it could not have seen it.
+
+Measured on the local stack: every table the migration created carried
+`anon = REFERENCES, TRIGGER, TRUNCATE` and the same for `authenticated`. Verified
+reachable — `set role anon; truncate persons;` emptied the table (rolled back). RLS
+filters rows for select/insert/update/delete and says nothing about table-level
+privileges, so it never covered TRUNCATE at all.
+
+The source is Supabase's bootstrap default ACL for role `postgres` on `public`
+(`pg_default_acl` shows `anon=Dxtm/postgres`), not anything this migration wrote. A
+`grant` only ever adds privileges, so no grant statement could have removed them. The
+migration now ends with explicit `revoke all … from anon, authenticated` on tables and
+sequences, plus `alter default privileges` so a table added by a later migration inherits
+the same treatment rather than arriving with TRUNCATE handed out again. The default
+privileges also *grant* to `service_role`, because `grant … on all tables` is a snapshot
+of the tables that exist at that moment and Task 14's tables would otherwise get nothing.
+
+Not reachable over the Data API today — PostgREST issues no DDL — so this was a standing
+privilege contradicting the stated model rather than a live hole. `TRIGGER` is the one to
+remember if a `security definer` RPC is ever added.
+
+The general lesson, which is D-worthy on its own: **a claim about privileges can only be
+proven against a database.** The offline test regexed the migration text for `to anon`,
+found nothing, and passed — while the database granted to anon. The text was clean; the
+privilege was one the file never wrote. `npm run db:verify` now queries
+`information_schema.role_table_grants` and `has_table_privilege`, and creates a probe
+table inside a rolled-back transaction to prove future tables inherit the rules. Both
+assertions were verified to fail against the pre-fix migration: 78 leaked privileges, and
+6 on a newly created table.
+
+## D98 — deleting a run does not cascade into `raw_captures`
+2026-08-08, from review of Task 13. The foreign key `raw_captures.run_id → runs.run_id`
+loses its `on delete cascade` and takes the default `no action`.
+
+The gzipped bodies live on disk under `runs/<run_id>/raw/` and are the durable copy (D2);
+`raw_captures` is only the index into them. Cascading deleted the index while leaving the
+files, which is the worst of both — the bytes are still on disk consuming space and no
+query can find them. With `no action`, deleting a run that has captures fails instead, so
+whoever is deleting has to deal with the files. Rejected: `on delete set null`, which
+`run_id text not null` forbids and which would produce the same orphan in a different
+shape.
+
+`search_results.search_id` keeps its cascade: nothing on disk is keyed by a search id, so
+deleting a search really does dispose of everything it produced.
+
+## D99 — a migration is never edited once applied; the next change is a new file
+2026-08-08, from review of Task 13. Recorded because the failure mode is silent in both
+directions.
+
+Every statement in the M1–M3 migration is `if not exists`, which is what makes re-applying
+it safe (D96) and simultaneously makes editing it useless: adding a column to an existing
+`create table if not exists` block is ignored outright, with no error and no warning.
+`npm run db:verify` cannot catch it either — step 2 runs `supabase db reset` first, so the
+check only ever exercises a fresh apply, where the edited file is correct. The edit would
+work on the verifier and do nothing on the operator's actual database.
+
+The rule is therefore stated in the migration's own header, where someone about to edit it
+will read it, and pinned by a test asserting that header is still there.
