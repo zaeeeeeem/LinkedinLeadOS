@@ -1,5 +1,4 @@
 import { BudgetLedger } from "../core/budget/ledger.js";
-import type { BudgetLimits } from "../core/budget/constants.js";
 import { RawArchive } from "../core/archive/raw.js";
 import { HumanCursor } from "../core/input/cursor.js";
 import { acquireLease, forceReleaseLease, inspectLease, releaseLease } from "../core/lease/tab-lease.js";
@@ -158,17 +157,20 @@ export async function execute(o: ExecuteOptions): Promise<Outcome> {
     }));
   }
 
-  // `--budget=<n>` reaches the ledger as a limit override, which the ledger
-  // accepts only when it *lowers* a default (§8), and reaches RunBudget as a
-  // per-invocation cap. Both, because they answer different questions: the
-  // override bounds the rolling window, the cap bounds this invocation.
-  const limits: Partial<BudgetLimits> | undefined =
-    flags.budget === null ? undefined : { pageLoadsPerHour: flags.budget, pageLoadsPerDay: flags.budget };
+  // `--budget=<n>` is a cap on *this invocation*, enforced only by RunBudget.
+  //
+  // It is deliberately not also a ledger limit override. The ledger's windows
+  // count every run's page loads, so an override compares the operator's number
+  // against other runs' spend: with 40 page loads already in the hour, a run
+  // asking for 2 with `--budget=5` was refused with "limit is 5, already at 40",
+  // naming a limit nobody hit and stopping a run that was well inside its own
+  // cap. The effective ceiling is min(invocation cap, ledger limit) either way —
+  // the ledger's own §8 limits stay the account-safety floor and nothing here
+  // can raise them, which is all §4.4's "only lowers" asks for.
   let ledger: BudgetLedger;
   try {
     ledger = BudgetLedger.open({
       ...(o.budgetPath === undefined ? {} : { path: o.budgetPath }),
-      ...(limits === undefined ? {} : { limits }),
     });
   } catch (e) {
     return finishWith(run, buildErr({
@@ -196,15 +198,26 @@ export async function execute(o: ExecuteOptions): Promise<Outcome> {
       events: run,
       leasePath,
       deps,
+      // Registered from inside preflight, the moment there is anything to
+      // release. Registering it here, after preflight returned, left a window
+      // between acquiring the lease and opening the worker tab in which a throw
+      // from a CDP listener would reach `uncaughtException` with nothing to run.
+      onCleanup: (fn) => o.onCleanup?.(async () => {
+        if (bundleRef.current) {
+          try {
+            bundleRef.current.tap.stop();
+          } catch { /* teardown reports nothing */ }
+        }
+        await fn();
+      }),
     });
     warnings.push(...prepared.warnings);
-    const acquired = prepared;
-    o.onCleanup?.(async () => {
-      await tearDownQuietly(acquired, bundleRef.current, run.runId, leasePath, deps);
-    });
 
     const browser = buildBundle(def, prepared, deps, run);
+    // Published before the tap is started, so a throw from `start()` still
+    // reaches teardown holding the tap it was in the middle of attaching.
     bundleRef.current = browser;
+    browser?.tap.start();
     const result = await def.run({
       run, args, flags, budget, estimate, login: prepared.login, browser,
     });
@@ -256,7 +269,6 @@ function buildBundle(
   // The run context is the tap's event sink, so `capture.hit` / `capture.miss`
   // land in this run's events.ndjson rather than nowhere (§5, D5).
   const tap = deps.makeTap({ session, tab, archive, events: run });
-  tap.start();
   return { session, tab, tap, cursor: deps.makeCursor(tab), archive, lease: prepared.lease! };
 }
 

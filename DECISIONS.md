@@ -879,6 +879,17 @@ exit code (7) because the agent's branch is the same, and a distinct code becaus
 operator action is not: one says raise your own flag, the other says wait out a
 LinkedIn-facing limit. A shared code would make `log:why` unable to tell those apart.
 
+**Revised 2026-08-08, from review — the ledger override is gone.** The first cut also
+passed `--budget` to `BudgetLedger` as a limit override. The ledger's windows count
+*every* run's page loads, so that compared the operator's number against other runs'
+spend: with 40 page loads already in the hour, a run wanting 2 with `--budget=5` was
+refused `BUDGET_EXCEEDED` — "limit is 5, already at 40" — naming a limit nobody hit and
+stopping a run well inside its own cap. On any account that had done work in the last
+hour the flag was unusable, and it produced exactly the receipt `RunBudget` exists to
+avoid. Only the invocation cap remains. The effective ceiling is
+min(invocation cap, ledger limit), so §4.4's "can only lower" still holds — the ledger's
+own §8 limits stay the floor and nothing can raise them.
+
 ## D84 — `risk: "local"`, and `needsAuth` defaults to `needsBrowser` but can be declined
 2026-08-08, Task 12. Two additions to §3's capability shape, both for the same reason.
 

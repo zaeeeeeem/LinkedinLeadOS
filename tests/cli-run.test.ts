@@ -426,11 +426,37 @@ describe("--budget only ever lowers", () => {
     expect(receipt.cost.page_loads).toBe(1);
   });
 
+  it("does not measure the invocation cap against other runs' spend", async () => {
+    // The bug this pins: --budget also lowered the ledger's rolling hourly
+    // limit, which counts every run. With 40 page loads already spent in the
+    // hour, `--budget=5` was refused with "limit is 5, already at 40" — a limit
+    // nobody hit, on a run well inside its own cap.
+    mkdirSync(paths.runsDir, { recursive: true });
+    const now = new Date().toISOString();
+    writeFileSync(
+      paths.budgetPath,
+      Array.from({ length: 40 }, (_, i) =>
+        JSON.stringify({ ts: now, run_id: `earlier-${i}`, capability: "profile.get", kind: "page_load", n: 1 }),
+      ).join("\n") + "\n",
+    );
+    const def = okCapability({
+      run: async ({ budget }) => {
+        await budget.spend({ kind: "page_load" });
+        await budget.spend({ kind: "page_load" });
+        return {};
+      },
+    });
+    const { receipt, exit } = await invoke({ def, flags: { budget: 5 } }).outcome;
+    expect(exit).toBe(EXIT.OK);
+    expect(receipt.cost.page_loads).toBe(2);
+  });
+
   it("cannot raise a default limit", async () => {
     const def = okCapability({
       run: async ({ budget }) => {
-        // 61 page loads is over the §8 hourly default of 60. --budget=10000 must
-        // not buy headroom the ledger's own limit refuses.
+        // 61 page loads is over the §8 hourly default of 60. The effective
+        // ceiling is min(invocation cap, ledger limit), so a large --budget
+        // buys no headroom the ledger itself refuses.
         await budget.check({ kind: "page_load", n: 61 });
         return {};
       },
@@ -460,6 +486,44 @@ describe("--budget only ever lowers", () => {
 });
 
 describe("crash cleanup", () => {
+  it("can release the lease from the window between taking it and opening the tab", async () => {
+    let cleanup: (() => Promise<void>) | null = null;
+    let freedMidPreflight = false;
+    const session = new FakeSession();
+    // Stand exactly where a throw from a CDP listener would land: the lease is
+    // held, the worker tab is not open yet, and nothing else knows.
+    session.openWorkerTab = async () => {
+      expect((await inspectLease(paths.leasePath)).state).toBe("held");
+      await cleanup!();
+      freedMidPreflight = (await inspectLease(paths.leasePath)).state === "free";
+      return session.tab;
+    };
+    await execute({
+      def: okCapability(), rawArgs: {}, flags: { ...DEFAULT_FLAGS }, ...paths,
+      deps: { openSession: async () => session },
+      onCleanup: (fn) => { cleanup = fn; },
+    });
+    expect(freedMidPreflight).toBe(true);
+  });
+
+  it("stops the tap even when starting it is what threw", async () => {
+    let stopped = false;
+    const tap = {
+      start: () => { throw new Error("listener attach failed"); },
+      stop: () => { stopped = true; },
+      running: false,
+      watching: [],
+    };
+    const { receipt, exit } = await execute({
+      def: okCapability(), rawArgs: {}, flags: { ...DEFAULT_FLAGS }, ...paths,
+      deps: { openSession: async () => new FakeSession(), makeTap: () => tap as never },
+    });
+    expect(exit).toBe(EXIT.GENERIC);
+    expect(receipt.ok).toBe(false);
+    expect(stopped).toBe(true);
+    expect(await inspectLease(paths.leasePath)).toEqual({ state: "free" });
+  });
+
   it("hands out a teardown thunk that releases the tab and the lease", async () => {
     let cleanup: (() => Promise<void>) | null = null;
     const session = new FakeSession();

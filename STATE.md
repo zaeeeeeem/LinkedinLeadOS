@@ -380,6 +380,22 @@ recycled pid, D16's exact scenario) showed up in `cap list`, blocked a run with
 with `ARGS_INVALID`; an unknown capability exited 1 with `CAPABILITY_UNKNOWN` naming what
 does exist.
 
+Reviewed 2026-08-08 — one real bug and two partial-failure windows, all three now pinned
+by tests verified to fail against the pre-fix code. `--budget` no longer doubles as a
+ledger limit override (D83 revision): the override was measured against *every* run's
+spend, so with 40 page loads already in the hour a run wanting 2 under `--budget=5` was
+refused with "limit is 5, already at 40" — a limit nobody hit — which made the flag
+unusable on any account that had done work that hour. The invocation cap alone remains,
+and the effective ceiling is still min(cap, ledger limit). The teardown thunk is now
+registered from inside preflight the moment anything is held, closing the window between
+taking the lease and opening the worker tab in which a CDP-listener throw reached
+`uncaughtException` with nothing to run — it left the wedged lease `--force-release`
+exists for. And the browser bundle is published before `tap.start()` rather than after,
+so a throw from attaching the tap's listener still reaches teardown holding the tap the
+`catch` believed it had stopped. Proven: 427/427 (3 new), typecheck clean; live
+`health.check --budget=5` returned ok / exit 0 with the lease released and the page-target
+count back at 1.
+
 ## In progress
 _(nothing)_
 

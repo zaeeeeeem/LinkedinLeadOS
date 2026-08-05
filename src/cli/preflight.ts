@@ -110,6 +110,13 @@ export type PreflightInput = {
   events?: EventSink;
   leasePath?: string;
   deps: PreflightDeps;
+  /**
+   * Handed a teardown thunk as soon as this preflight holds anything at all.
+   * The thunk reads the live `Prepared`, so it releases whatever has been
+   * acquired by the time it is called — which is what makes it correct in the
+   * window between taking the lease and opening the tab.
+   */
+  onCleanup?: (fn: () => Promise<void>) => void;
 };
 
 /** What preflight leaves behind for the runner to hand to the capability and,
@@ -142,6 +149,10 @@ export async function preflight(input: PreflightInput): Promise<Prepared> {
     login: { logged_in: false, cookie: "unknown" },
     warnings: [],
   };
+
+  input.onCleanup?.(async () => {
+    await teardown(prepared, input);
+  });
 
   try {
     // 1 + 2. Chrome on the dedicated profile and port, and a CDP socket that
