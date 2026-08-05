@@ -252,20 +252,24 @@ lock stale cannot all "win" it) so two racing spends against the same limit cann
 observe "under limit" and both commit; a lock that can never be stolen (unwritable
 directory) reports fatal `BUDGET_LEDGER_UNWRITABLE` instead of spinning, and one that is
 genuinely held reports retryable `BUDGET_LEDGER_BUSY` after a bounded wait.
-`spend()` also compacts the ledger to the widest window (24h) plus the new record on
-every write (D72) — otherwise-unbounded growth being re-parsed in full on every call.
-Proven: 29 tests pass offline in `mkdtemp` temp dirs (314/314 across the suite),
-typecheck clean, three consecutive clean runs — among them, each of the four limits
-tripping exactly at its boundary and not one spend earlier, window expiry for both the
-hourly and daily windows, distinct-profile dedupe including reopening an already-counted
-profile at a full quota, a corrupt line failing both `usage()` and `spend()` closed (and
-staying closed rather than being compacted past), an override above the default being
-ignored while one below it is honored, an uncreatable ledger directory classified fatal
-and non-retryable, ten spends racing a limit of five landing exactly five recorded ledger
-lines, eight trials of six racers finding one pre-planted stale lock each landing exactly
-one recorded spend, a live lock that never ages into stale timing out at the configured
-deadline rather than hanging, and compaction dropping a 25-hour-old entry while keeping a
-1-hour-old one and the new spend.
+`spend()` also compacts the ledger to `COMPACTION_RETENTION_MS` (7 days — wider than the
+24h any limit enforces, because nothing mirrors this file until Task 14; B3 tracks
+narrowing it once that lands) plus the new record on every write (D72), fsyncing the tmp
+file before the rename that publishes it so a crash between the two cannot surface as an
+empty ledger granting a fresh quota (D72 revision). Proven: 31 tests pass offline in
+`mkdtemp` temp dirs (316/316 across the suite), typecheck clean, three consecutive clean
+runs — among them, each of the four limits tripping exactly at its boundary and not one
+spend earlier, window expiry for both the hourly and daily windows, distinct-profile
+dedupe including reopening an already-counted profile at a full quota, a corrupt line
+failing both `usage()` and `spend()` closed (and staying closed rather than being
+compacted past), an override above the default being ignored while one below it is
+honored, an uncreatable ledger directory classified fatal and non-retryable, ten spends
+racing a limit of five landing exactly five recorded ledger lines, eight trials of six
+racers finding one pre-planted stale lock each landing exactly one recorded spend, a live
+lock that never ages into stale timing out at the configured deadline rather than
+hanging, and compaction dropping an entry past the retention window while keeping one
+inside it (both a 25-hour-old entry, kept, and one just past `COMPACTION_RETENTION_MS`,
+dropped) alongside the new spend.
 
 ## In progress
 _(nothing)_

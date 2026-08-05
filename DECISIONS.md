@@ -634,3 +634,24 @@ tmp-then-rename, keeping only entries within 24h plus the just-recorded spend, o
 every call — the one place already holding the full parsed list under the lock.
 `check()` and `usage()` stay pure reads and never write. Operator-approved
 explicitly, given the direct conflict with the task file's original wording.
+
+Revised same day, from review, twice:
+
+1. The first cut wrote the tmp file and renamed it with no `fsync`. Rename is
+   atomic against a process crash but not against power loss or a kernel panic —
+   the rename can reach disk before the tmp file's bytes do, and the ledger comes
+   back reading zero spends. That flips this module's one required property:
+   `appendFile`'s failure mode was a rejected partial line (fail closed); an
+   un-synced compacted rewrite's failure mode is a healthy-looking empty file
+   granting a fresh quota against an account that already spent it (fail open).
+   `writeCompacted` now opens the tmp file, writes, calls `fh.sync()`, then
+   closes and renames — the sync makes the bytes durable before the rename
+   publishes them.
+2. The retention window was 24h, matched to the widest limit window. But D72's
+   safety argument — "long-term history belongs to Supabase" — assumes a mirror
+   that does not exist yet: Task 13's `budget_ledger` table has no writer until
+   Task 14. Until then this file is the *only* copy of spend history, so
+   compaction dropping anything past 24h destroys it outright. Retention is now
+   `COMPACTION_RETENTION_MS` (7 days, `src/core/budget/constants.ts`), separate
+   from the 24h window every limit actually enforces — narrow this back to 24h
+   once Task 14's mirror exists.

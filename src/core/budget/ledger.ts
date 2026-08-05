@@ -4,6 +4,7 @@ import { dirname } from "node:path";
 import { randomUUID } from "node:crypto";
 import { CapabilityError, EXIT } from "../run/receipt.js";
 import {
+  COMPACTION_RETENTION_MS,
   DAY_MS,
   DEFAULT_BUDGET_LIMITS,
   HOUR_MS,
@@ -338,19 +339,32 @@ export async function check(o: CheckInput): Promise<void> {
 }
 
 /**
- * Rewrites the ledger keeping only entries within the widest window any
- * limit uses (a day) plus the just-evaluated spend, atomically via
- * tmp-then-rename. Compaction is a deliberate deviation from the task
- * file's literal "never rewritten or truncated" line — see D72 — traded for
- * bounding a file every `check`/`usage` call otherwise re-parses in full
- * forever. Nothing outside every limit's window is ever needed again to
- * enforce a limit; anything wanting the full history reads Supabase.
+ * Rewrites the ledger keeping only entries within `COMPACTION_RETENTION_MS`
+ * plus the just-evaluated spend, atomically via tmp-then-rename with an
+ * fsync before the rename publishes it (a crash between the two must never
+ * surface as an empty ledger — that reads as full budget, the one thing
+ * this module exists to prevent). Compaction is a deliberate deviation from
+ * the task file's literal "never rewritten or truncated" line — see D72 —
+ * traded for bounding a file every `check`/`usage` call otherwise re-parses
+ * in full forever. The retention window is wider than any limit's own
+ * window because nothing mirrors this file yet (D11 assumed a Supabase
+ * mirror; that is Task 14) — until it exists, this is the only copy.
  */
 async function writeCompacted(path: string, kept: SpendRecord[], appended: SpendRecord): Promise<void> {
   const body = [...kept, appended].map((e) => JSON.stringify(e)).join("\n") + "\n";
   const tmp = `${path}.tmp.${process.pid}.${randomUUID()}`;
   try {
-    await writeFile(tmp, body, "utf8");
+    const fh = await open(tmp, "w");
+    try {
+      await fh.writeFile(body, "utf8");
+      // Rename is atomic against a process crash but not against a power
+      // loss or kernel panic: without this, the rename can reach disk
+      // before the tmp file's bytes do, and the ledger comes back reading
+      // zero spends — fail-open, the one thing this module must never do.
+      await fh.sync();
+    } finally {
+      await fh.close();
+    }
     await rename(tmp, path);
   } catch (e) {
     await unlink(tmp).catch(() => {});
@@ -392,7 +406,7 @@ export async function spend(o: SpendInput): Promise<SpendRecord> {
       n,
       ...(o.ref !== undefined ? { ref: o.ref } : {}),
     };
-    const kept = entries.filter((e) => withinWindow(e.ts, nowMs, DAY_MS));
+    const kept = entries.filter((e) => withinWindow(e.ts, nowMs, COMPACTION_RETENTION_MS));
     await writeCompacted(path, kept, record);
     return record;
   });

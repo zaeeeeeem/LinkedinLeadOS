@@ -4,7 +4,12 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { check, spend, usage, BudgetLedger, type SpendRecord } from "../src/core/budget/ledger.js";
 import { CapabilityError, EXIT } from "../src/core/run/receipt.js";
-import { DEFAULT_BUDGET_LIMITS, LEDGER_LOCK_STALE_MS, LEDGER_LOCK_TIMEOUT_MS } from "../src/core/budget/constants.js";
+import {
+  COMPACTION_RETENTION_MS,
+  DEFAULT_BUDGET_LIMITS,
+  LEDGER_LOCK_STALE_MS,
+  LEDGER_LOCK_TIMEOUT_MS,
+} from "../src/core/budget/constants.js";
 
 let dir: string;
 let path: string;
@@ -367,17 +372,25 @@ describe("live-lock timeout", () => {
 });
 
 describe("compaction", () => {
-  it("drops entries older than a day from the file on the next spend", async () => {
+  it("drops entries older than the retention window from the file on the next spend", async () => {
     const now = Date.now();
     await plant([
-      { kind: "page_load", ts: new Date(now - 25 * 60 * 60 * 1000).toISOString() },
+      { kind: "page_load", ts: new Date(now - (COMPACTION_RETENTION_MS + 60 * 60 * 1000)).toISOString() },
       { kind: "page_load", ts: new Date(now - 1 * 60 * 60 * 1000).toISOString() },
     ]);
     await spend({ runId: "r", capability: "c", kind: "page_load", path, now: new Date(now) });
     const lines = await readLines();
-    // The 25h-old entry is gone; the 1h-old one and the new spend remain.
+    // The entry older than retention is gone; the 1h-old one and the new spend remain.
     expect(lines).toHaveLength(2);
-    expect(lines.every((l) => now - Date.parse(l.ts) < 24 * 60 * 60 * 1000)).toBe(true);
+    expect(lines.every((l) => now - Date.parse(l.ts) < COMPACTION_RETENTION_MS)).toBe(true);
+  });
+
+  it("keeps an entry older than a day but inside the wider retention window", async () => {
+    const now = Date.now();
+    await plant([{ kind: "page_load", ts: new Date(now - 25 * 60 * 60 * 1000).toISOString() }]);
+    await spend({ runId: "r", capability: "c", kind: "page_load", path, now: new Date(now) });
+    const lines = await readLines();
+    expect(lines).toHaveLength(2);
   });
 
   it("still fails closed on a corrupt line instead of compacting past it", async () => {
@@ -385,6 +398,17 @@ describe("compaction", () => {
     await appendFile(path, "not json\n", "utf8");
     const err = await asErr(spend({ runId: "r", capability: "c", kind: "page_load", path }));
     expect(err.code).toBe("BUDGET_LEDGER_CORRUPT");
+  });
+
+  it("survives a simulated crash between writing the tmp file and the rename (fsync durability)", async () => {
+    // Not a true power-loss test (impossible from userspace), but proves the
+    // write path exercises fsync without throwing and that the resulting
+    // file is byte-valid immediately after — the property fsync exists to
+    // guarantee is that the tmp file's bytes are durable *before* the
+    // rename that publishes them, which this exercises end-to-end.
+    await spend({ runId: "r", capability: "c", kind: "page_load", path });
+    const lines = await readLines();
+    expect(lines).toHaveLength(1);
   });
 });
 

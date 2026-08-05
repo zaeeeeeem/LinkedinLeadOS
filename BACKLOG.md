@@ -64,3 +64,16 @@ on message text — `ReferenceError` / `SyntaxError` / `TypeError` on our own ex
 a fatal `TAB_EVAL_INVALID` (`HALT_AND_NOTIFY`, exit 1), while a context-destroyed error
 stays transient. Message-text matching is explicitly rejected: it is Chrome-version
 wording, and D15 already refused that kind of guessing one layer down.
+
+## B3 — narrow the budget ledger's compaction retention back to 24h once Task 14 mirrors it
+
+Captured 2026-08-08, from Task 11 review (D72). `spend()` compacts `runs/budget.ndjson`
+to `COMPACTION_RETENTION_MS` (`src/core/budget/constants.ts`) on every write. That
+constant is 7 days, not the 24h any limit actually enforces, because Task 13's
+`budget_ledger` Supabase table has no writer yet (that's Task 14) — until it does, the
+ledger file is the only copy of spend history that exists, so compaction is deliberately
+conservative.
+
+**The approach settled here:** once Task 14 gives `budget_ledger` a real writer and it is
+confirmed to actually receive spend rows, narrow `COMPACTION_RETENTION_MS` to `DAY_MS`.
+No other change needed — the constant is already the single place retention is decided.

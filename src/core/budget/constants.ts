@@ -13,6 +13,17 @@ export function defaultBudgetPath(): string {
 export const HOUR_MS = 60 * 60 * 1000;
 export const DAY_MS = 24 * 60 * 60 * 1000;
 
+/**
+ * How long compaction (D72) keeps a ledger line before dropping it. Wider
+ * than `DAY_MS`, the widest window any limit actually enforces, because the
+ * Supabase mirror D72 assumed as the real long-term copy (D11: "the table
+ * may later mirror the file for reporting") has no writer yet — that is
+ * Task 14. Until it lands, this is the only copy of spend history, so
+ * compaction is deliberately conservative rather than matching the
+ * enforcement window exactly. Revisit down to `DAY_MS` once Task 14 ships.
+ */
+export const COMPACTION_RETENTION_MS = 7 * DAY_MS;
+
 /** The closed set of spend kinds §8 tracks. */
 export const SPEND_KINDS = ["page_load", "search_page", "profile_open"] as const;
 export type SpendKind = (typeof SPEND_KINDS)[number];
