@@ -748,7 +748,43 @@ snapshot capture, Task 17 = parser, Task 19 = wire e2e). History below stands as
 record that forced the decision. Decisions D120–D123.
 
 > The identity half of that decision was falsified by Task 16's own live run and replaced by
-> D130 — identity comes from the DOM too. See the Task 16 entry above and `## Next`.
+> D130 — identity comes from the DOM too. See the Task 16 entry above and `Task 21 (part 1 of 2) — **company surface probe: the instrument is built and tested; the live
+run has not happened.** `src/capabilities/company.probe/` (url, patterns, surface, constants,
+index, README), `src/core/fixtures/sweep.ts`, `scripts/sweep-sources.ts` (`npm run sweep`).
+Decisions D170–D179.
+
+`company.probe` loads `/company/<slug>/` and its `about` / `posts` / `people` / `jobs`
+sub-pages as five cold loads, one page load each and **no profile_open**, archiving every
+response body and one DOM snapshot per sub-page, with the challenge gate before and after
+each sub-page and `tap.drain()` in a `finally` covering the whole loop. Its own daily
+sub-cap is 12 page loads and **zero** search pages and profile opens (D170); the task's
+six-load per-invocation ceiling is in code and not raisable by a flag.
+
+What is genuinely new rather than reused: a per-sub-page **structural measurement** — which
+element actually scrolls (D115 discipline, not `main#workspace` assumed), whether the page's
+own tab links are real `a[href]`s or SPA routes, how much embedded `ld+json` /
+`application/json` the document carries, and the `componentkey` namespace inventory — all of
+it counts, tag names and dotted namespaces only, never a value (D176). And the **sweep**,
+which works backwards from values the operator reads off the page to the source and path
+that carries them (D173), with the three sources read strictly apart (D174).
+
+Reused, not forked: `profile.capture`'s pacing constants, `readLikeAHuman`,
+`captureDomSnapshot`, `summarizeCaptures`, `documentPattern`, `isLinkedInApiUrl`,
+`sessionUrnsOf`. Two additive parameters were added to `profile.capture/patterns.ts`
+(D178) and the scroller-selection rule was extracted so both surfaces ask it the same way
+(D177) — behaviour unchanged, existing tests still green.
+
+Proven: **911/911 offline (93 new), typecheck clean.** Mutations verified to bite: reading a
+DOM snapshot's inline scripts as `embedded-json`; reading the document response's markup;
+dropping the drain so a body still in flight at a mid-run halt is lost. `surfaceExpression`
+is executed as real JavaScript against a cheerio-parsed document, so the selectors are tested
+against markup rather than against a stub that agrees with them.
+
+**Not built, and blocked on the live run:** fixtures, `FIELD-MAP.md`, the pinning tests, the
+company identity verdict, and the source verdicts Tasks 22–25 are waiting on. Per D152 none
+of it may be written from an assumption. **Spend so far: 0 of 6 budgeted page loads.**
+
+## Next`.
 
 **D116 probe — run `01KZJ09FEEYGY8WYDD3RQA0BH2`, `/in/tankots/`.** Exit 0, no challenge,
 29.9s, 1 page load, **0 profile opens** (the ref was inside its 24h dedupe window), 26
@@ -797,7 +833,34 @@ the first to dispatch, on Opus, per the m1-m3 execution protocol (fresh subagent
 reviewer after each). Read `docs/plans/m4-l1-readers/README.md` then `CONTEXT.md` before
 dispatching.
 
-**Task 20 is done (see Built).** The next task to dispatch is **Task 21**, the first probe.
+**Task 20 is done (see Built). Task 21's offline half is done (see Built).**
+
+**The next action is a live, operator-supervised probe run** — Task 21 cannot finish without
+it, and Tasks 22–25 stay blocked until it does. Nothing about the company surface has been
+measured yet; every field's source is currently unknown, not assumed.
+
+Run, with the operator watching and a company already linked from the stored M3 profile as
+the target:
+
+```
+npm run cap -- company.probe --url=<company url>
+```
+
+Then, offline:
+
+```
+npm run fixtures:promote -- --run=<runId> --capability=company.get --subject=<vanity>
+npm run sweep -- --run=<runId> --want-file=fixtures/company.get/wanted.json \
+  --out=docs/capabilities/company-surface-field-map.md
+```
+
+`wanted.json` is the operator's ground truth read off the rendered page — `[{"field":
+"name", "value": "…"}, …]` for each §7 column of `companies`, `company_posts`,
+`company_people` and `jobs`. It is gitignored along with the rest of `fixtures/`.
+
+Budget: 5 page loads for the probe (6 allowed), 0 profile opens. Expect
+`PATTERN_MISMATCH` — on a first probe of an unmeasured surface that is the reading the
+patterns exist to produce, not an alarm.
 
 **Operator check on the next real Chrome use:** the launcher's reuse decision changed. A normal
 run should behave exactly as before (`launched: false` against the Chrome already on 9223). The

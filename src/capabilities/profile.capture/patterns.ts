@@ -110,11 +110,16 @@ function documentKey(rawUrl: string): string | null {
  * profile's sub-pages or the API calls about the same person — the question it
  * answers is "did the payload arrive in the navigation response", and a pattern
  * that also caught the Voyager calls could not answer it.
+ *
+ * `name` exists because a run that loads several documents needs one watch per
+ * document to tell their hit counts apart: five patterns all called
+ * `profile-document` would report as one row and answer nothing (Task 21 loads
+ * five company sub-pages). Omitted, the name is unchanged.
  */
-export function documentPattern(targetUrl: string): TieredPattern {
+export function documentPattern(targetUrl: string, name: string = DOCUMENT_PATTERN_NAME): TieredPattern {
   const wanted = documentKey(targetUrl);
   return {
-    name: DOCUMENT_PATTERN_NAME,
+    name,
     tier: "specific",
     match: (url: string) => wanted !== null && documentKey(url) === wanted,
   };
@@ -215,15 +220,23 @@ function pathOf(rawUrl: string): string {
  * Pure: it reads captures and misses and touches nothing. The counts it produces
  * are the acceptance evidence for this whole task, so they are computed in one
  * tested function rather than inline in the capability where nothing checks them.
+ *
+ * `isRelevant` decides which bodies count as carrying the subject's data — the
+ * `profile_ish` columns below. It is injectable because "a body about a person"
+ * and "a body about a company" are different questions asked of the same
+ * machinery, and a second copy of this function is how the two would drift
+ * apart. Omitted, it is `isProfileIsh` and nothing changes.
  */
 export function summarizeCaptures(
   captures: readonly Capture[],
   misses: readonly CaptureMiss[],
   patterns: readonly TieredPattern[] = PROFILE_PATTERNS,
+  o: { isRelevant?: (body: string) => boolean } = {},
 ): CaptureSummary {
+  const isRelevant = o.isRelevant ?? isProfileIsh;
   const specific = specificNames(patterns);
   const endpoints: EndpointRow[] = captures.map((c) => {
-    const profileIsh = isProfileIsh(c.body);
+    const profileIsh = isRelevant(c.body);
     return {
       path: pathOf(c.url),
       query_id: queryIdOf(c.url),

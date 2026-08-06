@@ -8,7 +8,9 @@ Task 14 (store patterns), Task 19 (`profile.get` composition as the template)
 > the operator's exception decision is in `DECISIONS.md`. Verify both before writing any
 > parse code (CONTEXT rule 1).
 >
-> *Source verdict from Task 21:* _to be filled in by Task 21._
+> *Source verdict from Task 21:* **not yet measured.** `company.probe` exists and is
+> tested (D170–D179), but the live run has not happened, so no field's source is known.
+> Do not begin: there is nothing on disk to write a parser against (D152).
 
 ## Objective
 

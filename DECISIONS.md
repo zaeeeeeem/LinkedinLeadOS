@@ -1967,3 +1967,184 @@ a window, which is what restores the target. If it does not, the launch path's d
 still have no context — the next invocation then relaunches again rather than wedging. Making
 the launch path also require a target would change discovery on that path, which B5 explicitly
 put out of scope.
+
+## D170 — the company probe is its own capability, not a `--probe` flag on a company reader (2026-08-09)
+
+**Decision.** `src/capabilities/company.probe/`, registered like any other capability and
+run through the same runner: preflight, tab lease, budget ledger, challenge gate,
+raw-first archive, receipt. Task 21's alternative — a `--probe` face of the eventual
+capture path — was rejected.
+
+**Why.** A capability is the unit the ledger's per-capability sub-cap is keyed on (D153,
+D161). A `--probe` flag on `company.get` would spend against `company.get`'s cap, so a
+morning of probing would eat the reader's budget for the day, and no cap could be set that
+was tight for the probe and loose for the reader. As its own name it takes
+`{ pageLoadsPerDay: 12, searchPagesPerDay: 0, distinctProfilesPerDay: 0 }` — twelve is two
+full probe runs, and the two zeroes are enforced assertions that this capability never
+searches and never opens a profile.
+
+It also keeps `company.get` (Task 22) from having to exist before it can be designed, which
+is the ordering D152 exists to impose.
+
+**Rejected: a script.** CONTEXT rule 8 forbids it, and correctly — an ad-hoc script has no
+lease, so it can run beside another capability on the same Chrome, and no ledger, so its
+loads are invisible to every limit that protects the account.
+
+## D171 — one page load per sub-page, and the tab links are measured rather than clicked (2026-08-09)
+
+**Decision.** The probe navigates to `/company/<slug>/`, `…/about/`, `…/posts/`,
+`…/people/` and `…/jobs/` as five separate cold loads. It does **not** click LinkedIn's own
+tabs, and it records, per sub-page, the url it asked for beside the url it landed on
+(`SUBPAGE_REDIRECTED` when they differ).
+
+The SPA question Task 21 asks — is a sub-page reachable only by an in-page route — is
+answered from the DOM instead: the surface probe reports, per sub-page, whether the page
+carries a real `a[href]` to it and how many. An `href` means a cold load is the page's own
+navigation rather than something this toolkit invented.
+
+**Why not click.** Clicking is more code, more state and more ways to be mid-transition
+when the snapshot is taken, and its payoff is a page load saved — but the loads are already
+inside a six-load budget and the probe's product is *comparable* per-sub-page evidence.
+Five cold loads give five documents, five snapshots and five clean capture attributions; a
+click gives a DOM that changed under a tap whose cursor cannot separate what the click
+fetched from what was already there.
+
+**Why measure the links anyway.** A sub-page with no `href` anywhere is a sub-page Tasks
+22–25 cannot reach the way this probe did, and that is exactly the kind of thing that is
+invisible until it is measured. Cheap: it rides on the one `Runtime.evaluate` already
+being made.
+
+## D172 — a sub-page that fetches nothing is a finding, not a failure (2026-08-09)
+
+**Decision.** Where `profile.capture` throws `TAP_TIMEOUT` when the broad net answers
+nothing, the probe records `api_response: false`, warns `SUBPAGE_NO_API_RESPONSE`, and
+carries on to the scroll, the snapshot and the surface measurement.
+
+**Why the two differ.** `profile.capture` exists to capture a payload, so no payload means
+the page load was wasted and stopping is right. The probe exists to *find out where the
+payload is*, and "this tab issues no API call, so its data is in the document response or
+the DOM only" is one of the four answers it was built to return. Throwing would discard the
+document response and the snapshot — the two artifacts that would have contained the answer.
+
+The timeout is also shorter here (15s against 25s) for the same reason: the cost of waiting
+is seconds on a question whose answer is informative either way.
+
+## D173 — the sweep works backwards from values the operator states, not forwards from key names (2026-08-09)
+
+**Decision.** `src/core/fixtures/sweep.ts`. The operator reads the rendered page and states
+ground truth — "the website is `acme.example`" — and the sweep reports every place that
+value actually appears, in which source, at which path. `scripts/sweep-sources.ts` runs it
+over an archived run and renders the FIELD-MAP.
+
+**Why not another probe list.** `buildFieldMap`'s `FieldProbe` (D-era Task 15) works
+forwards: describe what a field might be *called* and report every path that matches. That
+is the right tool for a surface nobody has seen, and it is also how D119's trap got into a
+field map and how `location` came back as `105,570 followers` (D128) — a path can match the
+shape of a field and hold something else.
+
+Working backwards makes a hit meaning-checked by construction: it *is* the value, so it
+cannot be the wrong field of the right shape. That is the property Task 21's acceptance
+criteria ask for ("meaning-checked assertions, not shape-only") and it is not obtainable
+from a key-name probe at all.
+
+Both remain. The forward map inventories a surface; the backward sweep decides a source.
+
+## D174 — the three sources are read strictly, and a snapshot's inline scripts are not "embedded json" (2026-08-09)
+
+**Decision.** The sweep reads each document by exactly one rule:
+
+- a captured JSON response → `voyager-body`, the whole body;
+- the **initial document response** → `embedded-json` only, from
+  `<script type="application/ld+json">` and `<script type="application/json">`, addressed
+  by a path into the parsed JSON. Its markup is never read;
+- the **DOM snapshot** → `dom-snapshot` only, from markup. Its inline scripts are never
+  read as `embedded-json`.
+
+**Why the last one needed saying.** A DOM snapshot is an HTML document and it contains the
+same `<script type="application/json">` tags the original document did. Sweeping them and
+labelling the result `embedded-json` would report a *DOM read* as the sanctioned source
+D117 permits, and every consumer downstream reads that label to decide whether it may act
+without an operator decision. The snapshot is post-hydration state, not something a server
+sent. Both boundaries are regression-tested and both tests were verified to fail against
+the unguarded version.
+
+**Preference order** when several sources carry a field: `voyager-body` >
+`embedded-json` > `dom-snapshot`, which is `CLAUDE.md`'s own order. An exact match sorts
+ahead of a substring match, because an exact hit is a path a parser reads directly.
+
+## D175 — the committed FIELD-MAP carries no captured value (2026-08-09)
+
+**Decision.** `renderSweep` prints field names, sources, files, paths and match kinds, and
+**no sample values**, unless `--samples` is passed. The no-samples rendering is what goes
+in `docs/capabilities/`; a `--samples` copy belongs in `fixtures/`, which is gitignored.
+
+**Why.** Task 21 requires the FIELD-MAP to land in git while `fixtures/` stays out of it,
+and RECORDING requires "never the captured value itself if it is personal data — name the
+fixture and path instead". A company's own name is public business data, but the same
+document maps the `people` sub-page, and there the values are individuals. A rule that
+depended on classifying each field would be wrong the first time someone added a field.
+
+Meaning is not lost: it moves to the pinning tests, which live beside the gitignored
+fixture and already carry real values by established practice
+(`parse.fixture.test.ts` asserts a real profile urn and a real city).
+
+## D176 — the probe's receipt reports the page's construction, never its content (2026-08-09)
+
+**Decision.** The surface measurement returns counts, tag names, element ids, and
+`componentkey` values reduced to their **dotted namespace** — everything after the last `.`
+is cut off, which is exactly where an id sits. `com.linkedin.sdui.organization.card.ref<ID>Topcard`
+reports as `com.linkedin.sdui.organization.card`. A key with no dot at all is bucketed as
+`(no dotted namespace)` rather than reported verbatim.
+
+**Why.** §4.1/D3 keep captured data off stdout, and the obvious way to break that here is a
+namespace inventory: it looks structural, and on the profile surface the analogous
+attribute embeds the subject's profile id and, in one case, a `urn:li:member:` on a Connect
+button. The values are all in the archived snapshot, where the offline sweep reads them
+without printing them. Pinned by a test that asserts the rendered report contains neither
+the id nor the member urn that were in the input.
+
+The same rule governs the globals inventory: only names this build asked about
+(`PAYLOAD_GLOBALS`) may come back, so a page answering with something else cannot put an
+unreviewed string on the receipt.
+
+## D177 — the scroller-selection rule is one implementation, embedded by both page scripts (2026-08-09)
+
+**Decision.** `SCROLLER_SELECTION_JS` is extracted from `VIEWPORT_EXPRESSION` in
+`profile.capture/read.ts` and embedded by both it and the company surface probe. Behaviour
+is unchanged and the existing real-JS execution tests still pass against it.
+
+**Why.** D115 is a measurement of *one* page; the rule that found it — the tallest element
+with a real `overflow-y` and a viewport's worth of height — is what carries to a surface
+nobody has measured. CONTEXT rule 3 says measure each surface's scroller rather than
+assuming `main#workspace`, and two copies of the selection rule would be two answers the
+day one of them was tuned. The company probe additionally reports *which* element won, so
+the measurement is on the receipt rather than implied.
+
+## D178 — `documentPattern` takes a name and `summarizeCaptures` takes a relevance rule (2026-08-09)
+
+**Decision.** Two additive parameters on `profile.capture/patterns.ts`, both defaulted so
+nothing existing changes: `documentPattern(url, name?)` and
+`summarizeCaptures(captures, misses, patterns?, { isRelevant? })`.
+
+**Why.** A run that loads five documents needs one watch per document or their hit counts
+report as one row and answer nothing — D120 added the document watch precisely so the
+question "did the payload arrive in the navigation response" became answerable per
+document. And "does this body carry the subject's data" is the same machinery asked of a
+company instead of a person; a second copy of `summarizeCaptures` is a copy that drifts,
+which is the failure D120 itself was.
+
+The `profile_ish` column keeps its name rather than being generalized. Renaming it would
+touch `profile.capture`'s receipt shape, which `profile.get` and the live gates already
+read; the company probe maps it to `company_ish` in its own receipt, which costs one line.
+
+## D179 — the probe counts person-carrying bodies separately from company-carrying ones (2026-08-09)
+
+**Decision.** Each sub-page reports both `company_ish` (`isCompanyIsh`, the company/job/post
+urn family) and `person_ish` (`isProfileIsh`, unchanged).
+
+**Why.** The `people` sub-page is the one surface in this family that carries person urns
+and may carry no company marker at all. A probe reporting only company markers would say
+"nothing here" about the surface with the most identity risk — Task 24 calls it a person-urn
+minefield, and D119's trap has now been found in four separate places. Two columns cost
+nothing and make the emptiness of one of them a fact rather than an absence. Pinned by a
+test that gives the people sub-page a person-only body and asserts both columns.

@@ -5,7 +5,9 @@
 **Decisions owned:** D200–D209
 
 > **Blocked until** Task 21's people fixture exists and any DOM-source decision for the
-> company surface is recorded. *Source verdict from Task 21:* _to be filled in by Task 21._
+> company surface is recorded. *Source verdict from Task 21:* **not yet measured.** `company.probe` exists and is
+> tested (D170–D179), but the live run has not happened, so no field's source is known.
+> Do not begin: there is nothing on disk to write a parser against (D152).
 
 ## Objective
 

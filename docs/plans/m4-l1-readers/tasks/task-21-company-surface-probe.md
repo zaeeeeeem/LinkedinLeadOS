@@ -56,3 +56,15 @@ companies, scroller, sub-page navigation model) recorded in D170–D179.
   against the fixture including at least one trap (an operator urn or a sidebar/related
   company) that must not resolve.
 - **Discipline gate** — all four m1-m3 review shapes walked.
+
+---
+
+## Progress (2026-08-09)
+
+**Part 1 — the instrument — is built, tested and committed.** `company.probe`, the sweep,
+the sub-cap, D170–D179, 911/911 offline. See `STATE.md`.
+
+**Part 2 — the measurement — has not happened.** It needs one operator-supervised live run
+(5 of the 6 budgeted page loads), and everything this task actually delivers comes out of
+it: fixtures, `FIELD-MAP.md`, the pinning tests, the company identity verdict, and the
+source verdicts written into Tasks 22–25. The exact commands are at the end of `STATE.md`.

@@ -285,3 +285,40 @@ describe("documentPattern", () => {
     expect(summary.unmatched_profile_ish).toBe(0);
   });
 });
+
+describe("the two things Task 21 added, and what must not have changed", () => {
+  const target = "https://www.linkedin.com/in/jane-doe/";
+
+  it("names a document pattern when asked, and keeps the old name when not", () => {
+    expect(documentPattern(target).name).toBe(DOCUMENT_PATTERN_NAME);
+    expect(documentPattern(target, "document-about").name).toBe("document-about");
+    // Naming changes nothing about what it matches.
+    const a = documentPattern(target).match as (url: string) => boolean;
+    const b = documentPattern(target, "document-about").match as (url: string) => boolean;
+    expect(a(target)).toBe(b(target));
+    expect(a("https://www.linkedin.com/in/someone-else/")).toBe(b("https://www.linkedin.com/in/someone-else/"));
+  });
+
+  it("takes an injected relevance rule, and still defaults to isProfileIsh", () => {
+    const company = "https://www.linkedin.com/voyager/api/graphql?queryId=voyagerOrganizationDashCompanies.aa";
+    const captures = [
+      capture({
+        url: company,
+        body: JSON.stringify({ entityUrn: "urn:li:fsd_company:1441" }),
+        patterns: ["linkedin-api"],
+      }),
+    ];
+
+    // Default: a company body carries no person marker, so nothing is relevant.
+    expect(summarizeCaptures(captures, []).profile_ish).toBe(0);
+    // Injected: the same body, asked the company question.
+    const injected = summarizeCaptures(captures, [], PROFILE_PATTERNS, {
+      isRelevant: (body) => body.includes("urn:li:fsd_company:"),
+    });
+    expect(injected.profile_ish).toBe(1);
+    expect(injected.endpoints[0]!.profile_ish).toBe(true);
+    // The relevance rule decides `profile_ish`, never which patterns matched.
+    expect(injected.endpoints[0]!.patterns).toEqual(["linkedin-api"]);
+    expect(injected.unmatched_profile_ish).toBe(1);
+  });
+});

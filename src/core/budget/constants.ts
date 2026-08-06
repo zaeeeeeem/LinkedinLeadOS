@@ -104,6 +104,13 @@ export const CAPABILITY_SUB_CAPS: Readonly<Record<string, CapabilitySubCaps>> = 
   // reading `capability: "profile.get"`. It therefore needs its own entry:
   // inheriting profile.capture's would silently leave it on the fallback.
   "profile.get": { pageLoadsPerDay: 200, searchPagesPerDay: 0, distinctProfilesPerDay: 90 },
+  // A probe is a measuring instrument, not a reader. Its whole job is a handful
+  // of loads on one target, and its stated per-run ceiling is 6 (CONTEXT rule
+  // 8) — so 12 is two full probe runs in a day and nothing more. Zeroes for the
+  // other two kinds are assertions, not allowances: a probe that ever recorded
+  // a search page or a profile open would be doing something it was not built
+  // to do, and a cap of zero is what turns that into exit 7 instead of a habit.
+  "company.probe": { pageLoadsPerDay: 12, searchPagesPerDay: 0, distinctProfilesPerDay: 0 },
 };
 
 /** The daily sub-caps in force for one capability. Never returns uncapped. */
