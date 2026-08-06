@@ -1263,3 +1263,107 @@ that value. The failure is invisible until it is in production against real pros
 
 Marked, not dropped: an operator needs to see that the only `person_urn` in a body is their
 own. That is a finding about the capture, not noise to hide.
+
+## D120 — the profile's own document response is watched by name, and "specific" is read from the watched list (2026-08-09)
+
+**Decision.** `documentPattern(targetUrl)` builds a `specific` pattern matching the initial
+navigation response for one profile, and `profile.capture` watches it alongside
+`PROFILE_PATTERNS`. Matching is on host-plus-path with query, fragment, trailing slash,
+subdomain and case discarded; an unparseable url matches nothing rather than throwing, because
+the predicate runs inside a CDP event handler where a throw is an unhandled rejection.
+
+**Why a separate pattern rather than widening the broad net.** `/in/<vanity>` is a page, not an
+API path, so `isLinkedInApiUrl` rejects it by design and no broad pattern can reach it. Widening
+the net to "any linkedin.com response" would archive every asset and every tracking beacon on the
+page — D110 already excluded telemetry by name for exactly that reason. The document is one known
+url per run, so naming it costs one pattern and keeps the net's meaning intact.
+
+The pattern is deliberately exact: it does not match the profile's sub-pages or the Voyager calls
+about the same person. The question it exists to answer is "did the payload arrive in the
+navigation response", and a pattern that also caught the API calls could not answer it.
+
+**Also fixed here, and it is the part worth remembering.** `summarizeCaptures` accepts a pattern
+list but derived "which names are `specific`" from the module-level `PROFILE_PATTERNS` constant.
+So a pattern constructed at run time was `specific` by its own `tier` field and *unknown* to the
+count that reads tiers — the document capture was reported as `unpredicted`, which fed
+`unmatched_profile_ish`, which raised `PATTERN_MISMATCH`: "profile payloads arrived on endpoints
+no specific pattern matched", naming the one pattern that had just matched exactly. The warning
+would have appeared on the receipt of the probe that exists to read that warning. Specific names
+are now derived from the list passed in.
+
+This is the general shape of it: a function that takes a parameter and then consults a module
+constant for a property *of that parameter* has two sources of truth, and the default argument
+hides it. Caught by a test that built a summary over a run-time pattern, which nothing before
+had done because nothing before had a run-time pattern.
+
+## D121 — the profile payload in the document is a server-rendered UI tree, not addressable data; D116 resolves to its second branch (2026-08-09)
+
+**Finding, measured, not inferred.** Run `01KZJ09FEEYGY8WYDD3RQA0BH2` captured the document
+response for `/in/tankots/`: 200, 1,004,191 bytes, archived. D116's hypothesis was half right and
+the half that failed is the one that decides the design.
+
+**What is in there.** The document carries `window.__como_rehydration__`, a JSON array of 174
+streaming chunks which concatenate into a React Server Components flight stream — 376 rows, 375 of
+which parse as JSON, 38,419 nodes, max depth 75. The subject's content is genuinely present:
+
+- headline — `CEO at Wispr Flow | IOI Medalist | Forbes 30 under 30 | Stanford CS + AI`
+- location — `San Francisco, California, United States`
+- current company and school — `Wispr Flow · Stanford University`
+- `firstName: "Tanay"` / `lastName: "Kothari"` / `vanityName: "tankots"`
+
+**Why it is not usable, and this is the whole entry.** None of it is addressed by a field name.
+The headline lives at `$[162].value[3].textProps.children[0]`, in a node whose only keys are
+`maxLineCountExpression`, `textColorExpression` and `textProps`. A *stranger's* headline — one of
+the "people also viewed" suggestions in the sidebar — lives at `$[169].value[3]`, in a node with
+**the same keys, the same shape, and the same path pattern**. Nothing in the tree says "this one
+is the subject". The only thing separating the prospect from a suggestion is the flight row index,
+which is rendering order.
+
+There is no `headline` key, no `location` key, no `positions` array, no entity boundary, and no
+subject urn anywhere in the document — the only person urns in it are the *operator's* own
+member id, carried in A/B tracking (D119's exact trap, found again in a new place).
+
+So a parser here would read element text at a hardcoded position in a layout tree. That is what
+D117 kept forbidden in the same breath as it permitted embedded JSON: the rule's line is between
+"a JSON blob with a stable shape that drifts when LinkedIn changes its API" and "rendered text
+that drifts when a designer changes the layout". A serialized JSX tree is the second one written
+in JSON syntax, and D117's permission does not reach it. Confirming: the `firstName`/`lastName`
+that *do* appear under real keys are arguments to a *future* request
+(`...actions[].value.content.screen.requestedArguments.payload.firstName`, the payload of the
+"Manage notifications about Tanay Kothari" screen), not a record of the person.
+
+**What the run did establish.** The subject's urn is available and stable:
+`voyagerIdentityDashProfiles` returns `identityDashProfilesByMemberIdentity["*elements"][0]` =
+`urn:li:fsd_profile:ACoAAE1JGFIB…`. That is §7's identity, from a real Voyager body, on a
+`specific` pattern that matched. Identity is solved; content is not.
+
+**Consequence.** D116's second branch is now the measured answer: a hard navigation to
+`/in/<vanity>` is served server-rendered and issues no Voyager call carrying profile content —
+across three live loads, 24, 25 and 26 API responses, zero with the subject's content. Reaching
+the content requires the SPA to fetch it client-side, which is a change to how every reader
+capability navigates and needs an operator decision and a spec note before any of it is built.
+Recorded here rather than acted on for that reason.
+
+**Cost of establishing it:** one page load, zero profile opens (the ref was inside its 24h dedupe
+window), exit 0, no challenge.
+
+## D122 — an automation Chrome with no windows is "up" to discovery and dead to every browser command (2026-08-09)
+
+**Environment finding.** The first attempt at the probe failed preflight with
+`CDP_PROTOCOL_ERROR` / exit 6: `Storage.getCookies was rejected by Chrome: Browser context
+management is not supported.` The automation Chrome was running, on the right profile, with D14's
+exact four flags, and `GET /json/version` answered normally with the browser websocket url.
+
+`GET /json/list` returned `[ ]`. Every window had been closed — the leftover tab from probe run 2
+that `STATE.md` warned about — and on macOS Chrome stays resident with no browser context. In that
+state `isChromeUp` is true, `ensureChrome` reuses the process, and the first browser-level command
+fails. Killing the process and letting `ensureChrome` relaunch it fixed it immediately; the
+profile's `li_at` is on disk and was untouched.
+
+Worth writing down because the receipt sends you the wrong way: exit 6 `RETRY_BACKOFF` on a
+transport-shaped error reads as a CDP hiccup, and retrying can never fix it — the condition is
+permanent until someone restarts Chrome. D13's question ("will a retry change this?") is answered
+*no* here and the code says yes, because the transport classified it (D15) and the transport
+genuinely cannot tell. Not fixed in this commit: the fix belongs with whoever owns preflight, and
+the candidate is for `ensureChrome`'s reuse path to require a non-empty `/json/list` rather than a
+bare `/json/version` answer. Filed in `BACKLOG.md`.

@@ -1,7 +1,9 @@
 import { describe, expect, it } from "vitest";
 import {
   BROAD_PATTERN_NAME,
+  DOCUMENT_PATTERN_NAME,
   PROFILE_PATTERNS,
+  documentPattern,
   isLinkedInApiUrl,
   isProfileIsh,
   queryIdOf,
@@ -210,5 +212,76 @@ describe("summarizeCaptures", () => {
   it("reports every registered pattern, including the ones that never fired", () => {
     const summary = summarizeCaptures([], []);
     expect(summary.patterns.map((p) => p.name)).toEqual(PROFILE_PATTERNS.map((p) => p.name));
+  });
+});
+
+/**
+ * D116's probe. No watched Voyager endpoint carried the subject's content across
+ * two live loads, and `urn:li:fsd_profile` appeared in `outerHTML` at 3.1s and
+ * not at 4.6s — consistent with the payload arriving in the navigation response
+ * and being consumed on hydration. `/in/<vanity>` is not an API path, so the
+ * broad net cannot see it; the document has to be watched by name.
+ */
+describe("documentPattern", () => {
+  const target = "https://www.linkedin.com/in/tankots/";
+  const test = (url: string): boolean => {
+    const m = documentPattern(target).match;
+    return typeof m === "function" ? m(url) : false;
+  };
+
+  it("matches the navigation response for exactly this target", () => {
+    expect(test("https://www.linkedin.com/in/tankots/")).toBe(true);
+  });
+
+  it("matches regardless of trailing slash, query string or fragment", () => {
+    // LinkedIn appends `?trk=`/`?lipi=` to its own in-app links, and a redirect
+    // can drop the trailing slash. All of these are the same document.
+    expect(test("https://www.linkedin.com/in/tankots")).toBe(true);
+    expect(test("https://www.linkedin.com/in/tankots/?trk=public-profile")).toBe(true);
+    expect(test("https://www.linkedin.com/in/tankots/#experience")).toBe(true);
+    expect(test("https://ca.linkedin.com/in/tankots/")).toBe(true);
+  });
+
+  it("does not match another profile, a sub-page, or a non-linkedin host", () => {
+    expect(test("https://www.linkedin.com/in/someone-else/")).toBe(false);
+    expect(test("https://www.linkedin.com/in/tankots/details/experience/")).toBe(false);
+    expect(test("https://www.linkedin.com/feed/")).toBe(false);
+    expect(test("https://example.com/in/tankots/")).toBe(false);
+  });
+
+  it("does not match the api calls the page makes about the same person", () => {
+    // The document pattern answers "did the payload arrive in the navigation
+    // response". If it also caught the Voyager calls, it could not answer that.
+    expect(test("https://www.linkedin.com/voyager/api/graphql?queryId=voyagerIdentityDashProfiles.7a")).toBe(false);
+  });
+
+  it("refuses an unparseable url instead of throwing inside the tap's listener", () => {
+    // This runs inside a CDP event handler, where a throw is an unhandled
+    // rejection and the tap stops delivering (D51's reasoning, one layer up).
+    expect(test("not a url")).toBe(false);
+    expect(() => documentPattern("not a url")).not.toThrow();
+    expect(test("")).toBe(false);
+  });
+
+  it("is a `specific` pattern, so a document hit is not counted as unpredicted", () => {
+    expect(documentPattern(target).tier).toBe("specific");
+    expect(documentPattern(target).name).toBe(DOCUMENT_PATTERN_NAME);
+  });
+
+  it("is watchable by the tap and reportable by the summary", () => {
+    const patterns: readonly TieredPattern[] = [...PROFILE_PATTERNS, documentPattern(target)];
+    const _watchable: readonly WatchPattern[] = patterns;
+    void _watchable;
+    const summary = summarizeCaptures(
+      [capture({ url: target, body: '<html>urn:li:fsd_profile:ACoAAB</html>', patterns: [DOCUMENT_PATTERN_NAME] })],
+      [],
+      patterns,
+    );
+    const row = summary.patterns.find((p) => p.name === DOCUMENT_PATTERN_NAME)!;
+    expect(row.hits).toBe(1);
+    expect(row.profile_ish).toBe(1);
+    // Matched by a specific pattern, so it is not part of the "endpoints nobody
+    // predicted" count — the whole point of naming it.
+    expect(summary.unmatched_profile_ish).toBe(0);
   });
 });

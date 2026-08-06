@@ -6,7 +6,7 @@ import { assertNoChallenge, recordChallenge } from "../../core/challenge/detect.
 import { classifyResponse } from "../../core/challenge/classify.js";
 import type { ChallengeDetection } from "../../core/challenge/classify.js";
 import { CHALLENGE_PRECEDENCE } from "../../core/challenge/classify.js";
-import { BROAD_PATTERN_NAME, PROFILE_PATTERNS, summarizeCaptures } from "./patterns.js";
+import { BROAD_PATTERN_NAME, PROFILE_PATTERNS, documentPattern, summarizeCaptures } from "./patterns.js";
 import type { EndpointRow } from "./patterns.js";
 import { normalizeProfileUrl } from "./url.js";
 import { readLikeAHuman } from "./read.js";
@@ -81,7 +81,12 @@ export const capability = defineCapability({
     await budget.check({ kind: "page_load", n: 1 });
     await budget.check({ kind: "profile_open", ref: target.ref });
 
-    for (const pattern of PROFILE_PATTERNS) tap.watch(pattern);
+    // The document response for this exact target, alongside the API patterns.
+    // `/in/<vanity>` is a page rather than an API path, so no broad pattern can
+    // reach it and D116's question — is the profile payload server-rendered into
+    // the navigation response — is unanswerable without naming it (D120).
+    const patterns = [...PROFILE_PATTERNS, documentPattern(target.url)];
+    for (const pattern of patterns) tap.watch(pattern);
     const since = tap.cursor;
 
     // Spent before the navigation, not after: a crash mid-load must leave the
@@ -166,7 +171,7 @@ export const capability = defineCapability({
       await tap.drain();
     }
 
-    const summary = summarizeCaptures(tap.captures(), tap.misses());
+    const summary = summarizeCaptures(tap.captures(), tap.misses(), patterns);
 
     // The status gate. `classifyResponse` is deny-list plus status (D61), so it
     // runs over what the page fetched rather than over the page itself.

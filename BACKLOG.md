@@ -99,3 +99,28 @@ list — stamp each upserted experience row with the writing run's id (or reuse 
 which is already the caller's stamp) and delete `person_urn = X and last_seen < stamp`. A
 concurrent writer with a later stamp then wins cleanly instead of the two deleting each
 other, and the query stops carrying an id list that grows with the person's job history.
+
+## B5 — `ensureChrome` reuses a Chrome that has no browser context left
+
+Captured 2026-08-09, Task 16 (D122). A running automation Chrome whose windows have all
+been closed answers `GET /json/version` normally and returns an empty `GET /json/list`. On
+that process every browser-level command fails — preflight dies at `Storage.getCookies`
+with `CDP_PROTOCOL_ERROR` / exit 6 and the message "Browser context management is not
+supported". `isChromeUp` is true throughout, so `ensureChrome` reuses it and never
+relaunches.
+
+The receipt actively misleads: exit 6 is `RETRY_BACKOFF`, and no retry can ever change this
+— the condition holds until someone restarts Chrome by hand. It cost one confused cycle to
+diagnose during the D116 probe.
+
+**The approach settled here:** on the *reuse* path only, require `GET /json/list` to return
+at least one target before accepting the endpoint as healthy; treat an empty list as "not
+up" and fall through to the existing launch path, which already handles a profile held by
+another process. Discovery on the launch path is unchanged, and nothing about the attach
+surface moves. The alternative — opening a tab to test, then closing it — costs a real CDP
+round trip on every invocation to check a condition that is rare, and `/json/list` is a
+plain HTTP GET that already exists in the discovery module.
+
+Not fixed in Task 16's commit because `ensureChrome` is Task 2's module and preflight is
+Task 12's; this is a behaviour change to the launcher's reuse decision and belongs with
+whoever next touches it, with a test that fakes an empty `/json/list`.

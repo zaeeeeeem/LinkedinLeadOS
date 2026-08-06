@@ -67,9 +67,67 @@ export const PROFILE_PATTERNS: readonly TieredPattern[] = [
 /** The net every capture is measured against, and the one `waitFor` waits on. */
 export const BROAD_PATTERN_NAME = "linkedin-api";
 
-const SPECIFIC_NAMES: ReadonlySet<string> = new Set(
-  PROFILE_PATTERNS.filter((p) => p.tier === "specific").map((p) => p.name),
-);
+/** The navigation response for the profile being captured. */
+export const DOCUMENT_PATTERN_NAME = "profile-document";
+
+/**
+ * Identity of a LinkedIn *page* url, for comparing two spellings of one document.
+ *
+ * Query, fragment, trailing slash, host subdomain and case are all discarded:
+ * LinkedIn appends `trk`/`lipi` to its own in-app links, serves `ca.linkedin.com`
+ * and `www.linkedin.com` interchangeably, and a redirect can drop the trailing
+ * slash. None of those change which document was served. `null` for anything
+ * unparseable or not LinkedIn's, so a non-match is never a throw.
+ */
+function documentKey(rawUrl: string): string | null {
+  let url: URL;
+  try {
+    url = new URL(rawUrl);
+  } catch {
+    return null;
+  }
+  const host = url.hostname.toLowerCase();
+  if (host !== "linkedin.com" && !host.endsWith(".linkedin.com")) return null;
+  return url.pathname.replace(/\/+$/, "").toLowerCase();
+}
+
+/**
+ * Watches the initial document response for one specific profile url.
+ *
+ * `/in/<vanity>` is a page, not an API path, so `isLinkedInApiUrl` rejects it and
+ * the broad net cannot see it — the document has to be named. D116 measured that
+ * across two live loads of one profile, 24–25 API responses were captured and not
+ * one carried the subject's content, while `urn:li:fsd_profile` was present in
+ * `outerHTML` at 3.1s and gone at 4.6s. That is what a server-rendered payload
+ * consumed on hydration looks like, and this pattern is what turns it from an
+ * inference into a captured body.
+ *
+ * Reading fields out of that body is governed by D117: the JSON LinkedIn embeds
+ * in the document is fair game, addressed by a path into the parsed JSON; markup,
+ * element text and CSS selectors are not.
+ *
+ * The match is exact on the target document. It deliberately does not match the
+ * profile's sub-pages or the API calls about the same person — the question it
+ * answers is "did the payload arrive in the navigation response", and a pattern
+ * that also caught the Voyager calls could not answer it.
+ */
+export function documentPattern(targetUrl: string): TieredPattern {
+  const wanted = documentKey(targetUrl);
+  return {
+    name: DOCUMENT_PATTERN_NAME,
+    tier: "specific",
+    match: (url: string) => wanted !== null && documentKey(url) === wanted,
+  };
+}
+
+/** The `specific` names among a given pattern list. Derived from the list the
+ *  caller actually watched, not from `PROFILE_PATTERNS`: a pattern built at run
+ *  time for one target (`documentPattern`) is specific, and measuring it against
+ *  the static constant would report every hit on it as an endpoint nobody
+ *  predicted — a `PATTERN_MISMATCH` warning about the one pattern that matched. */
+function specificNames(patterns: readonly TieredPattern[]): ReadonlySet<string> {
+  return new Set(patterns.filter((p) => p.tier === "specific").map((p) => p.name));
+}
 
 /**
  * Substrings that only appear in a body carrying person data.
@@ -163,6 +221,7 @@ export function summarizeCaptures(
   misses: readonly CaptureMiss[],
   patterns: readonly TieredPattern[] = PROFILE_PATTERNS,
 ): CaptureSummary {
+  const specific = specificNames(patterns);
   const endpoints: EndpointRow[] = captures.map((c) => {
     const profileIsh = isProfileIsh(c.body);
     return {
@@ -174,7 +233,7 @@ export function summarizeCaptures(
       file: c.archived.file,
       patterns: c.patterns,
       profile_ish: profileIsh,
-      unpredicted: !c.patterns.some((name) => SPECIFIC_NAMES.has(name)),
+      unpredicted: !c.patterns.some((name) => specific.has(name)),
     };
   });
 

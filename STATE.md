@@ -519,20 +519,54 @@ That gives the D116 probe below a defined success condition.
 
 Budget spent so far today: 2 page loads, 1 profile open (deduped by ref).
 
+Task 16 — profile parser. **Blocked, and the blocker is now measured rather than suspected.**
+D116 is resolved and it resolved to its *second* branch, which is the one that needs an
+operator decision. Decisions D120–D122. No parser is written yet, deliberately.
+
+**D116 probe — run `01KZJ09FEEYGY8WYDD3RQA0BH2`, `/in/tankots/`.** Exit 0, no challenge,
+29.9s, 1 page load, **0 profile opens** (the ref was inside its 24h dedupe window), 26
+responses archived, 0 misses, lease released. `documentPattern` worked: the navigation
+response was captured, 200, 1,004,191 bytes, `profile_ish: true`.
+
+**What it settled (D121).** The document *does* carry the subject's headline, location,
+current company and name — inside `window.__como_rehydration__`, a React Server Components
+flight stream (174 chunks, 376 rows, 38,419 nodes, depth 75). But none of it is addressed by
+a field name. The headline sits at `$[162].value[3].textProps.children[0]`; a **stranger's**
+headline from the "people also viewed" sidebar sits at `$[169].value[3]` in a node with the
+same keys and the same shape. Nothing marks which is the subject except flight-row order.
+There is no `headline` key, no `positions` array, and no subject urn in the document at all —
+the only person urns in it are the operator's own, in A/B tracking (D119's trap, found again).
+Reading it would be element text at a hardcoded position, which is exactly what D117 kept
+forbidden when it permitted embedded JSON.
+
+**What is solved:** identity. `voyagerIdentityDashProfiles` returns the subject's urn
+(`identityDashProfilesByMemberIdentity["*elements"][0]`) from a real Voyager body on a
+`specific` pattern. Content is not solved.
+
+Also shipped in this commit, offline and tested: `documentPattern`, and a fix to
+`summarizeCaptures`, which read "which patterns are specific" from the module constant
+instead of the list it was passed — so the document capture counted as `unpredicted` and
+raised `PATTERN_MISMATCH` on the very receipt the probe existed to read (D120).
+
+`fixtures/profile.get/` is still **empty**, and still honestly so. A diagnostic
+`--all` promotion of this run promoted 8 bodies with **subject_match: 0** — including the
+operator's own `/voyager/api/me` — and was reverted; the document body itself is not JSON, so
+promotion skips it as `not_json`.
+
+Proven: 626/626 offline (15 new), typecheck clean. The new tests pin the document pattern's
+matching (trailing slash, query, fragment, subdomain; not another profile, not a sub-page, not
+the API calls, not a non-LinkedIn host), that an unparseable url returns false instead of
+throwing inside the tap's listener, and that a run-time `specific` pattern is not counted as
+unpredicted — that last one fails against the pre-fix `summarizeCaptures`.
+
 ## Next
-Resolve **D116**, which Tasks 16 and 17 both turn on. The next probe is cheap and decisive:
-watch the **document** response for the target URL alongside the API patterns, and check
-whether its body carries the profile payload.
-- If it does: `profile.get` parses the embedded JSON out of the navigation response — still a
-  captured response body, not parsed HTML (D1). `patterns.ts` gains a document pattern.
-- If it does not: profiles must be reached by client-side navigation (feed → profile inside
-  the SPA) to force the Voyager fetches, which changes how every reader capability navigates
-  and needs a spec note.
+**Operator decision required before Task 16 can start.** Per D121, reaching profile content
+means making the SPA fetch it client-side (feed → profile in-app), which changes how every
+reader capability navigates and is a spec change, not a task-16 implementation detail. The
+cheap next probe, if approved: load `/feed/`, then navigate to the profile *inside* the app and
+watch whether `voyagerIdentityDashProfileCards` / `ProfileComponents` answer with content.
+Estimated cost 2 page loads, 1 profile open (a different profile, or `in:tankots` once its
+window rolls).
 
-Costs 1 page load, 0 profile opens (the ref is already deduped for today). Task 16 stays
-blocked until a field map names real paths to the target's name, headline, location and
-experience.
-
-**Leftover:** probe run 2 deliberately left a LinkedIn tab open in the automation Chrome for
-the operator to inspect. Close it before the next capability run, or `--force-release` if it
-wedges the lease.
+**Leftover:** none. The automation Chrome was restarted during this task (D122 / B5) and its
+worker tab was released cleanly; `runs/tab.lock` is gone and the lease is free.

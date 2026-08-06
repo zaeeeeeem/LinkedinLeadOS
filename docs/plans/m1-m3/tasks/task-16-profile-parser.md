@@ -2,6 +2,24 @@
 
 **Model:** Opus · **Depends on:** Task 15 (its fixture and field map), Task 14 (row types) · **Spec:** §6, D1/D2/D5
 
+> **2026-08-09 — the acceptance criteria below rest on a premise that is false, and this
+> task is blocked on an operator decision, not on effort.** "fixture tests green on this
+> machine (fixtures exist from Task 15)" assumed Task 15 produced a fixture carrying the
+> subject's profile. It did not, and D121 establishes why: a hard navigation to
+> `/in/<vanity>` is served server-rendered, issues no Voyager call carrying the subject's
+> content (three live loads: 24, 25 and 26 API responses, zero with it), and the payload in
+> the document is a React Server Components UI tree in which the subject's headline is
+> structurally indistinguishable from a sidebar suggestion's. There is nothing to write a
+> parser against and nothing a better parser design would recover.
+>
+> D116's second branch — make the SPA fetch the profile client-side — is a change to how
+> every reader capability navigates and needs an operator decision plus a spec note first.
+> **Until that lands, "extract URN, name, headline, location and experience from the real
+> capture" is not achievable, and the honest criteria are:** contract tests green everywhere,
+> fixture tests present and skipping visibly, typecheck clean. Do not satisfy the original
+> wording by writing a parser against a synthesized fixture — a parser proven only against a
+> body we invented is exactly the failure D119 and D12 exist to prevent.
+
 ## Objective
 
 A pure parser turning a captured profile response body into typed person + experience
