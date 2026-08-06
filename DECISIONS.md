@@ -1741,3 +1741,17 @@ spreads its input into the PostgREST payload, so an extra property becomes an un
 column and the whole write fails. Rejected: silently discarding descriptions during parsing —
 raw-first means the projection may be narrower than the capture, but the parser should preserve
 what it understood for a later migration or re-projection.
+
+## D133 — a DOM identity needs a subject card and a recognizable card-name boundary (2026-08-09)
+
+**Decision.** A card-ref profile urn is trusted only when at least one resolved card describes
+the subject (not only `SuggestedForYou`) and unrecognized card names are no more than half of all
+resolved cards. `checkDomIdentityScope` is the single implementation of that rule; both the
+capture receipt's HTML wrapper and the profile parser delegate to it.
+
+**Why.** `SuggestedForYou` is namespaced by the subject's id while carrying other people, so its
+namespace alone cannot certify subject content. A majority of unknown names is D127's signal
+that the longest-common-prefix cut may have moved into the card-name suffix, making the urn wrong
+by the same characters. Rejected: recomputing these guards in the parser after
+`checkDomIdentity` — two copies of a load-bearing identity rule can drift, and it parsed the same
+875KB snapshot twice for no additional evidence.

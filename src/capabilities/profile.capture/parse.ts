@@ -1,14 +1,13 @@
 import * as cheerio from "cheerio";
 import type { AnyNode, Element } from "domhandler";
 import {
-  STRANGER_CARDS,
   resolveSubjectScope,
   type HitBasis,
   type SubjectScope,
 } from "../../core/fixtures/dommap.js";
 import { EXIT, type Warning } from "../../core/run/receipt.js";
 import type { ExperienceInput, PersonInput } from "../../core/store/types.js";
-import { checkDomIdentity } from "./identity.js";
+import { checkDomIdentityScope } from "./identity.js";
 
 export const DOM_SOURCE = "dom-snapshot" as const;
 
@@ -234,11 +233,11 @@ function companyNameFrom(value: string | undefined): string | undefined {
   return name === "" ? undefined : name;
 }
 
-function companyId($: cheerio.CheerioAPI, root: cheerio.Cheerio<Element>): string | undefined {
+function companyUrn($: cheerio.CheerioAPI, root: cheerio.Cheerio<Element>): string | undefined {
   for (const href of root.find("a[href*='/company/']").map((_, node) => $(node).attr("href") ?? "").get()) {
     try {
       const segment = new URL(href, "https://www.linkedin.com").pathname.match(/^\/company\/(\d+)\/?$/)?.[1];
-      if (segment !== undefined) return segment;
+      if (segment !== undefined) return `urn:li:fsd_company:${segment}`;
     } catch {
       // A malformed href is just absent corroboration, never a parser failure.
     }
@@ -284,7 +283,7 @@ function experienceRow(
   if (title === undefined && inferredCompany === undefined && date === null) return null;
 
   const value: ExperienceInput = {};
-  const urn = companyId($, root);
+  const urn = companyUrn($, root);
   if (urn !== undefined) value.company_urn = urn;
   if (inferredCompany !== undefined) value.company_name = inferredCompany;
   if (title !== undefined) value.title = title;
@@ -372,24 +371,17 @@ export function parseProfileSnapshot(
   // subject. Make that missing precondition a parse refusal, not an unchecked
   // default.
   if (options.sessionUrns.length === 0) return refused("PARSE_SESSION_IDENTITY_UNAVAILABLE");
-  const identity = checkDomIdentity(html, options);
-  if (identity.isSession) return refused("PARSE_IDENTITY_IS_SESSION");
-  if (!identity.resolved) return refused("PARSE_IDENTITY_UNRESOLVED");
-
   let $: cheerio.CheerioAPI;
+  let scope: SubjectScope;
   try {
     $ = cheerio.load(html);
+    scope = resolveSubjectScope($);
   } catch {
     return refused("PARSE_IDENTITY_UNRESOLVED");
   }
-  const scope = resolveSubjectScope($);
-  const subjectCards = scope.cards.filter((candidate) =>
-    !(STRANGER_CARDS as readonly string[]).includes(candidate.name),
-  );
-  const unknownMajority = scope.unrecognisedCards.length > scope.cards.length / 2;
-  if (scope.profileUrn === null || subjectCards.length === 0 || unknownMajority) {
-    return refused("PARSE_IDENTITY_UNRESOLVED");
-  }
+  const identity = checkDomIdentityScope(scope, options);
+  if (identity.isSession) return refused("PARSE_IDENTITY_IS_SESSION");
+  if (!identity.resolved || scope.profileUrn === null) return refused("PARSE_IDENTITY_UNRESOLVED");
 
   const warnings: ProfileParseWarning[] = [];
   const top = parseTopcard($, scope, warnings);

@@ -563,11 +563,15 @@ turns an archived DOM snapshot into DOM-sourced wrappers around Task 14's `Perso
 `ExperienceInput`, preserving descriptions and corroboration outside the explicit
 `toPersonStoreInput` projection (D132). Identity comes only from the card-ref namespace and is
 refused when the cards disagree, only `SuggestedForYou` is present, the id is the session's, or
-the caller cannot supply the `/voyager/api/me` comparison set (D131). Missing fields carry typed
-exit-5 drift warnings; absent experience stays distinct from observed-empty; output is bounded
-at 100 positions with every dropped candidate reported. Proven: 740/740 offline (23 new),
+the caller cannot supply the `/voyager/api/me` comparison set (D131); the subject-card and
+card-name-boundary trust rule has one implementation shared by capture and parser (D133).
+Missing fields carry typed exit-5 drift warnings; absent experience stays distinct from
+observed-empty; output is bounded
+at 100 positions with every dropped candidate reported. Numeric company paths are normalized to
+`urn:li:fsd_company:<id>` before reaching either store field. Proven: 741/741 offline (24 new),
 typecheck clean. The promoted fixture yields the required urn, name, headline, location and six
-newest-first positions with company, dates and descriptions; its 16 non-subject member urns are
+newest-first positions with company, dates and descriptions; all five populated company ids are
+urn-shaped, and its 16 non-subject member urns are
 absent from parser output. Four guards were mutation-verified: suggestion-only refusal, required
 session comparison, missing-headline drift, and truncation visibility. No live run — this parser
 is pure and Task 17 specifies fixture verification, so it spent zero page loads.
@@ -692,7 +696,7 @@ Updated with that decision: `CLAUDE.md`'s network-tap rule, the spec's 2026-08-0
 `tasks/task-17-profile-parser.md`. Task 17 now implements it; `resolveSubjectScope` produces the
 urn and the parser refuses every untrusted identity outcome before exposing a store projection.
 
-**Decision-number ranges.** D130 was taken by this operator decision; Task 17 used D131–D132
+**Decision-number ranges.** D130 was taken by this operator decision; Task 17 used D131–D133
 from its D131–D139 range (D18).
 
 - **Task 19 — wire `profile.get` end to end** (`tasks/task-19-profile-get-e2e.md`, Opus) = M3 gate.

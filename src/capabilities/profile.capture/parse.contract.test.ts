@@ -1,8 +1,9 @@
 import { describe, expect, it } from "vitest";
-import { CARD_REF_PREFIX } from "../../core/fixtures/dommap.js";
+import * as cheerio from "cheerio";
+import { CARD_REF_PREFIX, resolveSubjectScope } from "../../core/fixtures/dommap.js";
 import { EXIT } from "../../core/run/receipt.js";
 import type { upsertPerson } from "../../core/store/persons.js";
-import { checkDomIdentity } from "./identity.js";
+import { checkDomIdentity, checkDomIdentityScope } from "./identity.js";
 import {
   MAX_EXPERIENCE_ROWS,
   parseProfileSnapshot,
@@ -43,9 +44,10 @@ function standaloneExperience(o: {
   company: string;
   dates: string;
   description?: string;
+  companyHref?: string;
 }): string {
   return `<div componentkey="entity-collection-item-one">
-    <a href="/company/example/"><p>${o.title}</p><p>${o.company} · Full-time</p><p>${o.dates}</p></a>
+    <a href="${o.companyHref ?? "/company/example/"}"><p>${o.title}</p><p>${o.company} · Full-time</p><p>${o.dates}</p></a>
     ${o.description === undefined ? "" : `<div><p><span>${o.description}<button>…see more</button></span></p></div>`}
   </div>`;
 }
@@ -84,7 +86,7 @@ const COMPLETE = page(
 
 describe("parseProfileSnapshot identity and scoping", () => {
   it("uses the DOM identity wrapper and reports only non-sensitive identity facts", () => {
-    expect(checkDomIdentity(COMPLETE)).toEqual({
+    const finding = {
       resolved: true,
       urnKind: "urn:li:fsd_profile",
       vanityKnown: true,
@@ -93,7 +95,9 @@ describe("parseProfileSnapshot identity and scoping", () => {
       unrecognisedCards: [],
       memberUrns: 1,
       isSession: false,
-    });
+    };
+    expect(checkDomIdentity(COMPLETE)).toEqual(finding);
+    expect(checkDomIdentityScope(resolveSubjectScope(cheerio.load(COMPLETE)))).toEqual(finding);
     expect(JSON.stringify(checkDomIdentity(COMPLETE))).not.toContain(SUBJECT_ID);
   });
 
@@ -138,6 +142,22 @@ describe("parseProfileSnapshot identity and scoping", () => {
     ]);
     expect(JSON.stringify(toPersonStoreInput(result))).not.toContain("description");
     expect(JSON.stringify(toPersonStoreInput(result))).not.toContain("source");
+  });
+
+  it("normalizes a numeric company URL to the company urn family used by the store", () => {
+    const result = parse(page(
+      topcard({ headline: "Subject headline", location: "Lahore, Punjab, Pakistan" }),
+      card("ExperienceTopLevelSection", standaloneExperience({
+        title: "Current Role",
+        company: "Numeric Company",
+        dates: "Aug 2021 - Present",
+        companyHref: "/company/1234/",
+      })),
+    ));
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(result.experience?.[0]?.value.company_urn).toBe("urn:li:fsd_company:1234");
+    expect(result.person.value.current_company_urn).toBe("urn:li:fsd_company:1234");
   });
 
   it("extracts nothing when SuggestedForYou is the only card", () => {

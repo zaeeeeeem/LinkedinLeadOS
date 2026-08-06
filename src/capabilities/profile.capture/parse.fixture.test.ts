@@ -31,6 +31,11 @@ describe.skipIf(fixtures.length === 0)(
         expect(result.experience?.every((row) => row.source === "dom-snapshot")).toBe(true);
         expect(result.experience?.every((row) => Boolean(row.value.title))).toBe(true);
         expect(result.experience?.every((row) => Boolean(row.value.company_name))).toBe(true);
+        expect(result.experience?.filter((row) => row.value.company_urn)).toHaveLength(5);
+        expect(result.experience?.filter((row) => row.value.company_urn).every((row) =>
+          /^urn:li:(fsd_company|fs_normalized_company|company):/.test(row.value.company_urn!),
+        )).toBe(true);
+        expect(result.person.value.current_company_urn).toMatch(/^urn:li:fsd_company:/);
         expect(result.experience?.every((row) => Boolean(row.value.started_on))).toBe(true);
         expect(result.experience?.every((row) => row.description !== undefined)).toBe(true);
         // The card is newest-first, including the two nested roles under one

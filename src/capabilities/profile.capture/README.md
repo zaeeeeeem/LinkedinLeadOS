@@ -97,6 +97,10 @@ experience descriptions beside the store rows. `toPersonStoreInput` is the expli
 the store; parser-only source tags, descriptions and corroboration cannot become PostgREST
 columns (D132).
 
+Numeric `/company/<id>/` links are normalized to `urn:li:fsd_company:<id>` before projection,
+matching the company urn family used by field maps and future company rows. Vanity company links
+remain name-only; a slug is not promoted into an identity.
+
 The parser requires the session's person urns from `/voyager/api/me`. If that comparison set is
 empty, card refs do not agree, only `SuggestedForYou` is present, or the resolved urn is the
 operator's own, it returns no person. Missing content fields degrade individually and carry

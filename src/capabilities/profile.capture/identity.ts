@@ -1,6 +1,10 @@
 import * as cheerio from "cheerio";
 import { personUrnsIn } from "../../core/fixtures/promote.js";
-import { STRANGER_CARDS, resolveSubjectScope } from "../../core/fixtures/dommap.js";
+import {
+  STRANGER_CARDS,
+  resolveSubjectScope,
+  type SubjectScope,
+} from "../../core/fixtures/dommap.js";
 
 /**
  * The subject's identity for one capture.
@@ -205,6 +209,17 @@ export function checkDomIdentity(
     return NO_DOM_IDENTITY;
   }
 
+  return checkDomIdentityScope(scope, o);
+}
+
+/** Applies D130's trust rule to an already-resolved scope. The parser uses this
+ * entry point so the load-bearing rule has one implementation and the 875KB
+ * snapshot is parsed only once; the capture receipt wrapper above preserves its
+ * total string-in/string-out interface. */
+export function checkDomIdentityScope(
+  scope: SubjectScope,
+  o: { sessionUrns?: readonly string[] } = {},
+): DomIdentityFinding {
   const session = new Set(o.sessionUrns ?? []);
   const strangers = new Set<string>(STRANGER_CARDS);
   const profileUrn = scope.profileUrn;
