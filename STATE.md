@@ -757,3 +757,32 @@ been selected yet.
 
 **Leftover:** none. The live M3 gate and cache check both exited 0, `runs/tab.lock` is absent,
 and the automation Chrome remains available on port 9223.
+
+## 2026-08-09 — CDP transport fix (branch `fix-cdp-transport`, off `main`)
+
+Out of band with the M4 task numbering, because it is core transport, not a capability.
+
+**Built.** `CdpClient` opens its socket with the `ws` package and `skipUTF8Validation: true`
+(plus an explicit 512 MB `maxPayload`, no permessage-deflate). `ws` is now a runtime
+dependency. Fixes D309: Node's global `WebSocket` killed the *connection* on any inbound text
+frame that was not valid UTF-8, which is how `Network.getResponseBody` relays document bodies —
+so any capability fetching such a body lost its CDP socket mid-run, not just Task 29.
+
+Bodies that decode lossily are tagged `lossyUtf8` on the capture, the archive sidecar, and the
+`capture.hit` event, because the decoded string substitutes U+FFFD for the bad bytes and D2's
+"raw first" would otherwise become quietly false (D310).
+
+Blast radius: `src/core/cdp/client.ts` only — it holds the sole `new WebSocket(...)`. The tap,
+tab and session take a `CdpClient` and were untouched.
+
+Proven offline: 788/788 pass on this branch, typecheck clean. Two new tests reproduce D309 in
+the suite — a reply frame carrying `0xED 0xA0 0x80` or `0xC3 0x28` killed the client before the
+swap and dispatches normally after it. The socket-error test now drives `ws` instead of
+monkeypatching the global, and asserts the cause survives as `evidence`.
+
+**Not done: the live re-probe.** No LinkedIn contact was made. Task 29's permalink has not been
+re-attempted, so Task 29 is not yet unblocked — that needs one operator-supervised page load.
+
+**Note on branch state.** This sits on `main`, which is behind the M4 task branches
+(`task-22`…`task-30`, `plan-m4-l1-readers`). Each of those carries the same latent transport bug
+and should be rebased onto this before its next live run.
