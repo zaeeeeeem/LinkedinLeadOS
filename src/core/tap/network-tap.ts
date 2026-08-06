@@ -54,6 +54,15 @@ export type Capture = {
   bytes: number;
   archived: ArchivedCapture;
   capturedAt: string;
+  /**
+   * The body reached us through a lossy UTF-8 decode: it is not byte-exact
+   * (D310). Set when a text body came back holding U+FFFD, which Chrome and the
+   * transport substitute for bytes that are not valid UTF-8. Conservative on
+   * purpose — a body that genuinely contains U+FFFD is flagged too, because the
+   * two are indistinguishable by the time we hold a string, and a false "maybe
+   * lossy" is cheap while a missed one turns a lost byte into a parser mystery.
+   */
+  lossyUtf8?: true;
 };
 
 export type MissReason =
@@ -510,6 +519,7 @@ export class NetworkTap {
    *  nothing here may throw, because there is no caller to throw to. */
   async #fetchAndArchive(entry: Inflight): Promise<void> {
     let bytes: Buffer;
+    let lossyUtf8 = false;
     try {
       const r = await this.#cdp.send<{ body: string; base64Encoded?: boolean }>(
         "Network.getResponseBody",
@@ -518,6 +528,9 @@ export class NetworkTap {
         this.#bodyTimeoutMs,
       );
       bytes = r.base64Encoded ? Buffer.from(r.body, "base64") : Buffer.from(r.body, "utf8");
+      // A base64 body is exact by construction; only a text body can have lost
+      // bytes on the way here (D310).
+      lossyUtf8 = !r.base64Encoded && r.body.includes("�");
     } catch (cause) {
       this.#recordMiss(entry, "body-unavailable", messageOf(cause));
       return;
@@ -539,6 +552,7 @@ export class NetworkTap {
         pattern: entry.patterns[0]!,
         ...(entry.method !== undefined ? { method: entry.method } : {}),
         ...(entry.contentType !== undefined ? { contentType: entry.contentType } : {}),
+        ...(lossyUtf8 ? { lossyUtf8: true as const } : {}),
       });
     } catch (cause) {
       // Raw-first (D2) is not advisory: a body no one archived is a body no one
@@ -561,6 +575,7 @@ export class NetworkTap {
       bytes: bytes.length,
       archived,
       capturedAt: archived.capturedAt,
+      ...(lossyUtf8 ? { lossyUtf8: true as const } : {}),
     };
     this.#captures.push(capture);
 
@@ -576,6 +591,9 @@ export class NetworkTap {
         file: archived.file,
         request_id: capture.requestId,
         ...(archived.warning ? { archive_warning: archived.warning.code } : {}),
+        // D310: visible in `log:why`, so a body that lost bytes on the way in is
+        // findable later without re-reading every sidecar.
+        ...(capture.lossyUtf8 ? { lossy_utf8: true } : {}),
       },
     });
 

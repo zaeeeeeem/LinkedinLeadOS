@@ -1895,3 +1895,38 @@ here rather than taken unilaterally.
 
 **Scope of the bug is wider than Task 29.** Any capability fetching any body with invalid
 UTF-8 loses its connection mid-run. Task 29 is where it was first cornered, not where it ends.
+
+## D310 — The CDP transport is `ws` with UTF-8 validation off, and lossy bodies are tagged (2026-08-09)
+
+**Decided (operator-approved).** `CdpClient` now opens its socket with the `ws` package,
+`skipUTF8Validation: true`, an explicit `maxPayload` of 512 MB, and `perMessageDeflate: false`.
+`ws` moves from devDependency to runtime dependency; it was already installed and already used
+by the test suite, so nothing new enters the supply chain.
+
+**Why.** D309 measured the cause: Node's global `WebSocket` (undici) fails the *connection* —
+not the frame — on an inbound text frame that is not valid UTF-8, which RFC 6455 permits and
+which is fatal here, because `Network.getResponseBody` relays document bodies as text frames.
+The suite now reproduces it offline: before the swap, a reply frame carrying `0xED 0xA0 0x80`
+or `0xC3 0x28` killed the client with `CDP_SOCKET_ERROR`; after it, the reply is dispatched and
+the connection still round-trips. This was never specific to Task 29 — any capability fetching
+any such body lost its connection mid-run.
+
+**Blast radius is one constructor.** `new WebSocket(...)` appears only in `src/core/cdp/client.ts`.
+The tap, the tab, and the session take a `CdpClient` and were not touched.
+
+**The cost, and what is done about it.** `skipUTF8Validation` does not preserve the bad bytes.
+The frame is still decoded with `Buffer.toString("utf8")`, so invalid sequences arrive as
+U+FFFD. The payload parses as JSON, but the archived body is then **not byte-exact**, and
+"raw first" (D2) would quietly become false on exactly these pages.
+
+So a text body that comes back containing U+FFFD is tagged `lossyUtf8` on the capture, on the
+archive sidecar, and on the `capture.hit` event. The flag is deliberately conservative: a body
+that genuinely contains U+FFFD is tagged too, because by the time we hold a string the two are
+indistinguishable. A base64 body is never tagged — those bytes are exact by construction. The
+point is that a parser drift chased months from now can tell "LinkedIn changed the field" from
+"we lost bytes reading it".
+
+**Rejected: byte-exact capture via `Fetch.takeResponseBodyAsStream`.** It would preserve the
+bytes, but it requires `Fetch.enable` — request interception on the one account we have. The
+detection surface is not worth an edge case in a handful of documents, when the alternative is
+knowing precisely which captures were affected.

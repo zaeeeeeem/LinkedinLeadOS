@@ -23,3 +23,11 @@ export const KEEPALIVE_TIMEOUT_MS = 10_000;
  * proves the socket still round-trips without widening the attach surface (D8).
  */
 export const KEEPALIVE_METHOD = "Browser.getVersion";
+
+/**
+ * Ceiling on one inbound frame. Set explicitly rather than inherited: a body or
+ * a DOM snapshot is the largest thing that ever crosses this socket, and a cap
+ * that bites would fail precisely on the biggest, most valuable pages. `ws`
+ * would otherwise default to 100 MB.
+ */
+export const MAX_FRAME_BYTES = 512 * 1024 * 1024;

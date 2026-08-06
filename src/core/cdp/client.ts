@@ -1,3 +1,4 @@
+import WebSocket, { type MessageEvent as WsMessageEvent } from "ws";
 import { CapabilityError, EXIT } from "../run/receipt.js";
 import {
   CONNECT_TIMEOUT_MS,
@@ -5,6 +6,7 @@ import {
   KEEPALIVE_INTERVAL_MS,
   KEEPALIVE_METHOD,
   KEEPALIVE_TIMEOUT_MS,
+  MAX_FRAME_BYTES,
 } from "./constants.js";
 
 /** A protocol event: any inbound frame without an `id`. */
@@ -165,7 +167,18 @@ export class CdpClient {
     return new Promise<CdpClient>((resolve, reject) => {
       let ws: WebSocket;
       try {
-        ws = new WebSocket(url);
+        // D309: `ws`, not Node's global WebSocket, and the option is the whole
+        // reason. Undici validates inbound text frames as UTF-8 and *fails the
+        // connection* — not the frame — when they are not, which is legal per
+        // RFC 6455 and fatal here: `Network.getResponseBody` relays document
+        // bodies as text frames, and some LinkedIn documents are not valid
+        // UTF-8. Under the global socket that killed the run, on any capability
+        // that touched such a body. See D310 for what the decoded string costs.
+        ws = new WebSocket(url, {
+          skipUTF8Validation: true,
+          maxPayload: MAX_FRAME_BYTES,
+          perMessageDeflate: false,
+        });
       } catch (cause) {
         reject(transient("CDP_CONNECT_FAILED", `invalid CDP WebSocket URL ${url}: ${String(cause)}`));
         return;
@@ -294,7 +307,7 @@ export class CdpClient {
     }
   }
 
-  #onMessage(ev: MessageEvent): void {
+  #onMessage(ev: WsMessageEvent): void {
     this.#lastActivity = Date.now();
 
     // A frame we cannot read is not worth killing the connection over, but it is
