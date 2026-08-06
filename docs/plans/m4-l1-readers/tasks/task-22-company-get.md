@@ -2,17 +2,29 @@
 
 **Model:** Opus · **Depends on:** Task 21 (fixtures + FIELD-MAP + source decision),
 Task 14 (store patterns), Task 19 (`profile.get` composition as the template)
-**Spec:** §7 companies, §9 · **Decisions owned:** ~~D180–D189~~ **D184–D189** — D180, D181
-and D182 were taken by Task 21's review round, D183 by its first live run (see
-`DECISIONS.md` numbering notes)
+**Spec:** §7 companies, §9 · **Decisions owned:** ~~D180–D189~~ **D185–D189** — D180–D182
+were taken by Task 21's review round and D183–D184 by its live run (see `DECISIONS.md`
+numbering notes)
 
-> **Blocked until** Task 21's fixtures exist on disk and, if the surface is DOM-sourced,
-> the operator's exception decision is in `DECISIONS.md`. Verify both before writing any
-> parse code (CONTEXT rule 1).
+> **UNBLOCKED 2026-08-09.** Task 21's live run is done and its fixtures are on disk.
 >
-> *Source verdict from Task 21:* **not yet measured.** `company.probe` exists and is
-> tested (D170–D179), but the live run has not happened, so no field's source is known.
-> Do not begin: there is nothing on disk to write a parser against (D152).
+> *Source verdict from Task 21:* **every §7 `companies` column comes from a captured
+> body — no DOM exception is needed for this surface (D184).** `website`, `hq`, `about`
+> and `founded` come from the document's own embedded JSON, which D117 already permits;
+> `name`, `vanity`, `industry` and the post/people/job fields come from Voyager responses.
+>
+> Read `docs/capabilities/company-surface-field-map.md` before writing any parse code, and
+> note two things it tells you:
+>
+> 1. LinkedIn's embedded JSON is **not** in a `<script>` tag. It is in Big Pipe data
+>    islands, `<code id="bpr-guid-N">`, entity-escaped. `embeddedJsonOf` reads them.
+> 2. Four rows are still marked DOM-only and **none of them needs an exception** — they
+>    are rendered composites. Read the structured field and format it:
+>    `size_range` ← `employeeCountRange.{start,end}`; `hq_full` ←
+>    `address.{line1,city,geographicArea,postalCode,country}`; `post_comments` ←
+>    `numComments`; `job_posted` ← `listedAt` (epoch ms). Never parse the rendered string.
+>
+> Run: `01KZKGD683T76H70YA4DMRCRZH` (company/wisprflow, 5 cold sub-page loads, exit 0).
 
 ## Objective
 

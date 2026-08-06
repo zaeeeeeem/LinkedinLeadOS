@@ -74,6 +74,11 @@ export type EmbeddedReport = {
   ldJsonChars: number;
   applicationJson: number;
   applicationJsonChars: number;
+  /** `<code id="bpr-guid-N">` — LinkedIn's Big Pipe data islands, and the only
+   *  one of the three carriers it actually uses. Zero for both script types and
+   *  a large number here is the normal reading on this surface (D184). */
+  bprIslands: number;
+  bprIslandChars: number;
   /** Which of `PAYLOAD_GLOBALS` are defined on `window`. Names only. */
   globals: string[];
 };
@@ -100,7 +105,10 @@ const EMPTY: SurfaceReport = {
   url: "",
   scroller: { tag: null, id: null, hasComponentKey: false, scrollHeight: 0, clientHeight: 0, isDocument: true },
   tabs: [],
-  embedded: { ldJson: 0, ldJsonChars: 0, applicationJson: 0, applicationJsonChars: 0, globals: [] },
+  embedded: {
+    ldJson: 0, ldJsonChars: 0, applicationJson: 0, applicationJsonChars: 0,
+    bprIslands: 0, bprIslandChars: 0, globals: [],
+  },
   namespaces: [],
   componentKeys: 0,
   render: { sections: 0, articles: 0, listItems: 0, anchors: 0 },
@@ -157,6 +165,15 @@ export function surfaceExpression(companySegment: string): string {
 
     var ldJson = document.querySelectorAll('script[type="application/ld+json"]');
     var appJson = document.querySelectorAll('script[type="application/json"]');
+    // LinkedIn uses neither script type. Its server-rendered Voyager JSON
+    // arrives in Big Pipe data islands: <code id="bpr-guid-N">. The id is
+    // anchored so a <code> block inside a post or an article — rendered
+    // content, not data — is never counted as one.
+    var bprAll = document.querySelectorAll('code[id^="bpr-guid-"]');
+    var bpr = [];
+    for (var bi = 0; bi < bprAll.length; bi++) {
+      if (/^bpr-guid-\\d+$/.test(bprAll[bi].id)) bpr.push(bprAll[bi]);
+    }
     var chars = function (list) {
       var total = 0;
       for (var k = 0; k < list.length; k++) total += (list[k].textContent || '').length;
@@ -183,6 +200,8 @@ export function surfaceExpression(companySegment: string): string {
         ldJsonChars: chars(ldJson),
         applicationJson: appJson.length,
         applicationJsonChars: chars(appJson),
+        bprIslands: bpr.length,
+        bprIslandChars: chars(bpr),
         globals: globals,
       },
       namespaces: namespaces,
@@ -288,6 +307,8 @@ export function interpretSurface(raw: unknown): SurfaceReport | null {
       ldJson: num(embedded["ldJson"]),
       ldJsonChars: num(embedded["ldJsonChars"]),
       applicationJson: num(embedded["applicationJson"]),
+      bprIslands: num(embedded["bprIslands"]),
+      bprIslandChars: num(embedded["bprIslandChars"]),
       applicationJsonChars: num(embedded["applicationJsonChars"]),
       globals,
     },

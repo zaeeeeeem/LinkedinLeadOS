@@ -68,9 +68,9 @@ Task 21 → D170–D179 … Task 33 → D290–D299. Plan-level decisions taken 
 D152 (probe-first mandatory) and D153 (per-capability daily sub-caps).
 
 **A task whose ten are used takes the next free numbers and says so**, in `DECISIONS.md`
-and in `STATE.md`, the way D130 did for Task 17. Already happened twice here: Task 21's
-review round took D180–D182 and its live run took D183, so **Task 22's range is
-D184–D189**. Check `DECISIONS.md` before assuming your range is free.
+and in `STATE.md`, the way D130 did for Task 17. Already happened repeatedly here: Task
+21's review round took D180–D182 and its live run took D183–D184, so **Task 22's range is
+D185–D189**. Check `DECISIONS.md` before assuming your range is free.
 
 ## Model assignment
 

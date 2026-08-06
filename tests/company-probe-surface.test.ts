@@ -145,6 +145,31 @@ describe("surfaceExpression, executed as real javascript", () => {
     expect(measured.embedded["globals"]).toEqual(["__como_rehydration__"]);
   });
 
+  // The measurement that mattered and was missing: LinkedIn uses neither script
+  // type. It streams its server-rendered Voyager JSON into
+  // `<code id="bpr-guid-N">` islands, so the first company probe reported
+  // "embedded json: 0" on documents carrying eleven thousand labeled leaves,
+  // and the sweep then called nine fields DOM-only. See D184.
+  it("counts LinkedIn's bpr-guid code islands, which is where its embedded json actually is", () => {
+    const measured = evaluateAgainst({
+      html:
+        "<html><body>" +
+        '<code style="display: none" id="bpr-guid-586526">{"included":[1]}</code>' +
+        '<code id="bpr-guid-586527">{"a":1}</code>' +
+        "</body></html>",
+    }) as { embedded: Record<string, unknown> };
+
+    expect(measured.embedded["bprIslands"]).toBe(2);
+    expect(measured.embedded["bprIslandChars"]).toBe('{"included":[1]}'.length + '{"a":1}'.length);
+  });
+
+  it("does not count a rendered <code> block as a data island", () => {
+    const measured = evaluateAgainst({
+      html: '<html><body><code id="snippet-1">{"a":1}</code><code>{"b":2}</code></body></html>',
+    }) as { embedded: Record<string, unknown> };
+    expect(measured.embedded["bprIslands"]).toBe(0);
+  });
+
   it("reduces every componentkey to its dotted namespace, so no id reaches the receipt", () => {
     const measured = evaluateAgainst({
       html:
@@ -180,7 +205,10 @@ describe("interpretSurface", () => {
     url: "https://www.linkedin.com/company/acme/",
     scroller: { tag: "main", id: "workspace", hasComponentKey: false, scrollHeight: 7348, clientHeight: 746, isDocument: false },
     tabs: [{ sub: "about", linked: true, tag: "a", links: 1 }],
-    embedded: { ldJson: 1, ldJsonChars: 10, applicationJson: 0, applicationJsonChars: 0, globals: ["__NEXT_DATA__"] },
+    embedded: {
+      ldJson: 1, ldJsonChars: 10, applicationJson: 0, applicationJsonChars: 0,
+      bprIslands: 18, bprIslandChars: 402_113, globals: ["__NEXT_DATA__"],
+    },
     namespaces: [{ prefix: "com.linkedin.sdui.organization.card", n: 12 }],
     componentKeys: 12,
     render: { sections: 8, articles: 3, listItems: 40, anchors: 120 },

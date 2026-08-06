@@ -802,8 +802,8 @@ schema, before a tab or the lease); and page-controlled strings (`url`, scroller
 namespace prefixes, the `tabs` list) reaching the receipt unbounded despite the module's own
 contract.
 
-**Numbering: D180–D182 were taken by this review round and D183 by the first live run, so
-Task 22's reserved range is D184–D189.**
+**Numbering: D180–D182 were taken by the review round and D183–D184 by the live run, so
+Task 22's reserved range is D185–D189.**
 
 **First live run halted on a false positive, fixed (D183).** Run
 `01KZKFR7RNRVA3FXPEJAKDQ30K` against `company/wisprflow` exited 2 `CHALLENGE_CAPTCHA` on
@@ -815,7 +815,24 @@ probe now requires a matched widget to be shown (sized, on-screen, not
 text signals untouched. The three archived profile snapshots carry zero recaptcha
 references, which is why M1–M3 never met it.
 
-Now: **932/932 offline, typecheck clean.**
+**Live run done, and the surface is fully network-sourced (D184).** Run
+`01KZKGD683T76H70YA4DMRCRZH` — company/wisprflow, 5 sub-pages, exit 0, 5 page loads,
+0 profile opens, 5 DOM snapshots, 274 archived files, `PATTERN_MISMATCH` × 17 as expected
+on a first probe. Verified from `runs/<id>/raw` and `runs/budget.ndjson`, not the receipt.
+
+The first sweep called nine fields DOM-only and printed the `[DECISION NEEDED]`. **It was
+wrong.** LinkedIn's server-rendered JSON is in Big Pipe data islands — `<code
+id="bpr-guid-N">`, entity-escaped — and neither `embeddedJsonOf` nor the probe's `embedded`
+measurement knew that carrier existed, so both reported zero embedded JSON on documents
+holding ~11,300 labeled leaves. Both now read the islands, id-anchored so a rendered
+`<code>` block is never laundered into the labeled-field source. **Verdict: no DOM
+exception is needed for the company surface.** The four rows still flagged are rendered
+composites whose structured constituents are in the same embedded JSON (see D184's table).
+
+**Task 22 is unblocked.** Fixtures at `fixtures/company.get/`, map at
+`docs/capabilities/company-surface-field-map.md`.
+
+Now: **938/938 offline, typecheck clean.**
 
 **Not built, and blocked on the live run:** fixtures, `FIELD-MAP.md`, the pinning tests, the
 company identity verdict, and the source verdicts Tasks 22–25 are waiting on. Per D152 none

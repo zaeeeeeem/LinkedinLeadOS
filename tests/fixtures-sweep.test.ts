@@ -245,6 +245,42 @@ describe("embeddedJsonOf", () => {
     expect(embeddedJsonOf('<script type="application/json">{oops</script>')).toEqual([]);
   });
 
+  // LinkedIn does not use either script type. It streams its server-rendered
+  // Voyager JSON into `<code id="bpr-guid-N">` elements — the Big Pipe data
+  // islands — and the payload is HTML-entity-escaped, so cheerio's text()
+  // returns the JSON only after unescaping. Measured on the company surface,
+  // run 01KZKGD683T76H70YA4DMRCRZH: 18 islands in the About document carrying
+  // websiteUrl, description, employeeCountRange and headquarter.address. See
+  // D184.
+  it("takes LinkedIn's bpr-guid code islands, which carry the server-rendered JSON", () => {
+    const found = embeddedJsonOf(
+      '<html><body><code style="display: none" id="bpr-guid-586526">' +
+        "{&quot;included&quot;:[{&quot;websiteUrl&quot;:&quot;https://acme.example/&quot;}]}" +
+        "</code></body></html>",
+    );
+    expect(found).toHaveLength(1);
+    expect(found[0]!.value).toEqual({ included: [{ websiteUrl: "https://acme.example/" }] });
+    expect(found[0]!.prefix).toBe("code#bpr-guid-586526 → $");
+  });
+
+  it("takes an unescaped code island too — the escaping is incidental, the id is the marker", () => {
+    const found = embeddedJsonOf('<code id="bpr-guid-1">{"a":1}</code>');
+    expect(found.map((f) => f.value)).toEqual([{ a: 1 }]);
+  });
+
+  it("leaves a code element that is not a bpr island alone, even when it holds json", () => {
+    // A `<code>` in a post or an article is rendered content, not a data
+    // island. Reading it as embedded JSON would launder page text into the
+    // labeled-field source, which is the one confusion the sweep exists to
+    // prevent.
+    const found = embeddedJsonOf('<code id="example-1">{"a":1}</code><code>{"b":2}</code>');
+    expect(found).toEqual([]);
+  });
+
+  it("skips a bpr island that does not parse, like any other source", () => {
+    expect(embeddedJsonOf('<code id="bpr-guid-9">{oops</code>')).toEqual([]);
+  });
+
   it("prefers a script id to a positional selector when there is one", () => {
     const found = embeddedJsonOf('<script id="state" type="application/json">{"a":1}</script>');
     expect(found[0]!.prefix).toBe("script#state → $");

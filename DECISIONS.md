@@ -2265,3 +2265,53 @@ regardless of what the iframe looks like.
 
 Numbering note: as D180–D182, this belongs to Task 21's live-run round and lands
 out of range. **Task 22's reserved range becomes D184–D189.**
+
+## D184 (out-of-range) — the company surface needs no DOM exception; LinkedIn's embedded JSON lives in `<code id="bpr-guid-N">` (2026-08-09)
+
+The first company sweep reported nine fields as carried only by the rendered DOM —
+`website`, `size_range`, `hq`, `about`, `hq_full`, `founded`, `post_reactions`,
+`post_comments`, `job_posted` — and printed the `[DECISION NEEDED]` asking the
+operator to extend CLAUDE.md's network-tap exception to a second surface.
+
+That reading was wrong, and it was wrong in the expensive direction: it argued
+for widening the project's central safety rule on evidence that does not support
+it, and Tasks 22–25 would have been designed against DOM selectors when labeled
+API fields were available the whole time.
+
+The cause is that **LinkedIn puts its server-rendered JSON in neither script type
+the sweep knew about.** It streams Big Pipe data islands — `<code style="display:
+none" id="bpr-guid-586526">` — holding entity-escaped Voyager JSON, complete with
+`$type` and a `meta.microSchema`. The About document alone carries 18 islands and
+about 11,300 leaves. `embeddedJsonOf` looked only for
+`script[type="application/ld+json"]` and `script[type="application/json"]`, found
+zero, and every value in those islands fell through to the DOM snapshot, which of
+course also contains them. The probe's own `embedded` surface measurement had the
+same blind spot and reported `ldJson: 0, applicationJson: 0`, which is exactly
+what made the gap invisible: the receipt said the document carried no embedded
+JSON, and it carried nothing else.
+
+Both now read the islands, with the id anchored (`/^bpr-guid-\d+$/`) so a `<code>`
+block inside a post or an article — rendered content — is never laundered into the
+labeled-field source. Re-running the sweep offline against the same archived run
+moved `website`, `hq`, `about`, `founded` and `post_reactions` to `embedded-json`.
+
+**Verdict: no exception is needed for the company surface.** Every §7 column
+resolves to a labeled field in a captured body, which D117 already permits.
+
+The four rows the map still marks DOM-only are **rendered composites, not missing
+data**, and each has a structured constituent in the same embedded JSON:
+
+| rendered | structured field a parser actually reads |
+|---|---|
+| `11-50 employees` | `employeeCountRange.{start,end}` = 11 / 50 |
+| `Townsend St, San Francisco, California 94107, US` | `address.{line1,city,geographicArea,postalCode,country}` |
+| `29 comments` | `numComments` = 29 (beside `numLikes` = 80) |
+| `5 days ago` | `listedAt` = 1785517295000 (epoch ms) — the better field anyway |
+
+The sweep is right to keep flagging them: it matches values, and those exact
+strings genuinely exist only in the rendered DOM. The finding is that a composite
+is not evidence of a missing source. Task 22 reads the structured field and
+formats it, and never reads these strings.
+
+Numbering note: as D180–D183, this belongs to Task 21 and lands out of range.
+**Task 22's reserved range becomes D185–D189.**

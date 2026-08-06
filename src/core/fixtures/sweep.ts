@@ -219,18 +219,38 @@ export function walkJson(
 }
 
 /**
+ * `<code id="bpr-guid-N">` — LinkedIn's Big Pipe data islands, the elements it
+ * actually streams its server-rendered Voyager JSON into. Anchored, so a
+ * `<code>` inside a post or an article is never mistaken for one: those hold
+ * rendered content, and reading them as embedded JSON would launder page text
+ * into the labeled-field source.
+ */
+const BPR_ISLAND_ID = /^bpr-guid-\d+$/;
+
+/**
  * The JSON a page server-renders into its own document, with the path prefix
- * that says which script element it came out of.
+ * that says which element it came out of.
  *
- * `application/ld+json` and `application/json` only. A `<script>` with no type
- * is JavaScript, and evaluating or regex-mining it would be exactly the
- * "element text at a hardcoded position" D121 refused.
+ * Three carriers, and no more: `application/ld+json`, `application/json`, and
+ * LinkedIn's `<code id="bpr-guid-N">` islands. A `<script>` with no type is
+ * JavaScript, and evaluating or regex-mining it would be exactly the "element
+ * text at a hardcoded position" D121 refused.
+ *
+ * The third carrier was added after the first company sweep reported nine
+ * fields as DOM-only that the document was in fact serving as labeled JSON —
+ * `websiteUrl`, `description`, `employeeCountRange`, `headquarter.address` —
+ * because LinkedIn uses neither script type. Left unfixed, the field map argues
+ * for widening the network-tap exception on evidence that does not support it,
+ * which is the most expensive wrong answer this module can give (D184).
  */
 export function embeddedJsonOf(html: string): Array<{ prefix: string; value: unknown }> {
   const $ = cheerio.load(html);
   const out: Array<{ prefix: string; value: unknown }> = [];
-  $('script[type="application/ld+json"], script[type="application/json"]').each((_, node) => {
+  const selector =
+    'script[type="application/ld+json"], script[type="application/json"], code[id^="bpr-guid-"]';
+  $(selector).each((_, node) => {
     const el = node as Element;
+    if (el.tagName === "code" && !BPR_ISLAND_ID.test(el.attribs?.["id"] ?? "")) return;
     const raw = $(el).text();
     if (raw.trim() === "") return;
     let parsed: unknown;

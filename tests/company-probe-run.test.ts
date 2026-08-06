@@ -654,7 +654,11 @@ describe("pushSurfaceWarnings — one row per finding, naming which sub-pages", 
     snapshot: { archived: "f", bytes: 1, rendered: true, failure: null, container: null },
     surface: {
       url: "", scroller: { tag: "main", id: "workspace", hasComponentKey: false, scrollHeight: 1, clientHeight: 1, isDocument: false },
-      tabs: [], embedded: { ldJson: 0, ldJsonChars: 0, applicationJson: 0, applicationJsonChars: 0, globals: [] },
+      tabs: [],
+      embedded: {
+        ldJson: 0, ldJsonChars: 0, applicationJson: 0, applicationJsonChars: 0,
+        bprIslands: 0, bprIslandChars: 0, globals: [],
+      },
       namespaces: [], componentKeys: 0, render: { sections: 1, articles: 0, listItems: 0, anchors: 0 },
     },
     endpoints: [], ...o,
