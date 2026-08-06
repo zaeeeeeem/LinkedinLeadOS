@@ -802,10 +802,20 @@ schema, before a tab or the lease); and page-controlled strings (`url`, scroller
 namespace prefixes, the `tabs` list) reaching the receipt unbounded despite the module's own
 contract.
 
-**Numbering: D180–D182 were taken by this review round, so Task 22's reserved range is
-D183–D189.**
+**Numbering: D180–D182 were taken by this review round and D183 by the first live run, so
+Task 22's reserved range is D184–D189.**
 
-Now: **927/927 offline, typecheck clean.**
+**First live run halted on a false positive, fixed (D183).** Run
+`01KZKFR7RNRVA3FXPEJAKDQ30K` against `company/wisprflow` exited 2 `CHALLENGE_CAPTCHA` on
+sub-page 1 of 5, on a normal logged-in page. Cause, from the archived snapshot, not the
+receipt: LinkedIn's `pemberly.tracking.recaptcha.v3` experiment mounts Google's *invisible*
+reCAPTCHA on company pages, and its hidden badge matches two of `CAPTCHA_SELECTORS`. The
+probe now requires a matched widget to be shown (sized, on-screen, not
+`display:none`/`visibility:hidden`); an unjudgeable widget still counts as shown. URL and
+text signals untouched. The three archived profile snapshots carry zero recaptcha
+references, which is why M1–M3 never met it.
+
+Now: **932/932 offline, typecheck clean.**
 
 **Not built, and blocked on the live run:** fixtures, `FIELD-MAP.md`, the pinning tests, the
 company identity verdict, and the source verdicts Tasks 22–25 are waiting on. Per D152 none

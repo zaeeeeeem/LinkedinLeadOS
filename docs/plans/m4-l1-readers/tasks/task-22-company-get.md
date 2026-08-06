@@ -2,8 +2,9 @@
 
 **Model:** Opus · **Depends on:** Task 21 (fixtures + FIELD-MAP + source decision),
 Task 14 (store patterns), Task 19 (`profile.get` composition as the template)
-**Spec:** §7 companies, §9 · **Decisions owned:** ~~D180–D189~~ **D183–D189** — D180, D181
-and D182 were taken by Task 21's review round (see `DECISIONS.md` numbering notes)
+**Spec:** §7 companies, §9 · **Decisions owned:** ~~D180–D189~~ **D184–D189** — D180, D181
+and D182 were taken by Task 21's review round, D183 by its first live run (see
+`DECISIONS.md` numbering notes)
 
 > **Blocked until** Task 21's fixtures exist on disk and, if the surface is DOM-sourced,
 > the operator's exception decision is in `DECISIONS.md`. Verify both before writing any

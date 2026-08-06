@@ -2239,3 +2239,29 @@ a tab, so a typo now costs nothing and surfaces as `ARGS_INVALID` — the code t
 actually emits for a bad argument. `parseSubPages` keeps its own throw for a caller that
 invokes `run` directly, which Task 22's composition will, and the README documents both
 paths rather than one that cannot happen.
+
+## D183 (out-of-range) — a captcha selector match only halts when the widget is shown (2026-08-09)
+
+The first live company probe (run 01KZKFR7RNRVA3FXPEJAKDQ30K) halted with
+CHALLENGE_CAPTCHA on a perfectly normal, logged-in company page. The archived DOM
+snapshot holds the culprit: LinkedIn's `pemberly.tracking.recaptcha.v3` experiment
+mounts Google's invisible reCAPTCHA Enterprise on company pages — a
+`display:none` `.grecaptcha-badge` whose anchor iframe (`size=invisible`) matches
+both `iframe[src*="captcha" i]` and `iframe[title*="captcha" i]`, plus a sibling
+iframe parked at `left:-9999px`. The three archived profile-surface snapshots
+carry zero recaptcha references, which is why M1–M3 never tripped it: the widget
+is surface-specific, and the company probe was the first time the selectors met
+it.
+
+The probe now requires a matched widget to be *shown*: a rect at least 2×2, not
+entirely off-screen, and not hidden by computed `display`/`visibility`. The
+alternative — dropping the two broad `captcha` substring selectors — narrows
+detection, and narrowing is the unsafe direction. Visibility keeps every real
+challenge (an interstitial someone must solve is by definition on-screen) while
+excluding exactly the tracking badge. Every failure inside the visibility check
+counts the widget as shown, so an unjudgeable page still halts; the URL and text
+signals are untouched, so a checkpoint URL or challenge wording still halts
+regardless of what the iframe looks like.
+
+Numbering note: as D180–D182, this belongs to Task 21's live-run round and lands
+out of range. **Task 22's reserved range becomes D184–D189.**
