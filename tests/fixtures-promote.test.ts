@@ -276,3 +276,107 @@ describe("promoteFixtures", () => {
     }
   });
 });
+
+// ─────────────────────────────────────────────────────────────────────────────
+
+/** A minimal snapshot with the structure the live page actually has: SDUI card
+ *  refs namespaced by one profile id, and a sidebar of other people. */
+const SUBJECT_ID = "ACoAABJLCOABl3WHDMGiReUZpWQ432xXbddzpUA";
+const REF = `com.linkedin.sdui.profile.card.ref${SUBJECT_ID}`;
+const SNAPSHOT_HTML =
+  `<html><body><main id="workspace">` +
+  `<section componentkey="${REF}Topcard"><div><h2>Jane Doe</h2>` +
+  `<p>· 1st</p><p>Founder at Example</p><p>Example · MIT</p>` +
+  `<div><p>Boston, Massachusetts, United States</p></div></div></section>` +
+  `<div componentkey="${REF}ExperienceTopLevelSection"><p>Founder</p></div>` +
+  `<div componentkey="${REF}SuggestedForYou"><aside>strangers</aside></div>` +
+  `<div componentkey="com.linkedin.sdui.profile.card.refjane-doeActivity">a</div>` +
+  `</main></body></html>`;
+
+async function seedSnapshot(html = SNAPSHOT_HTML): Promise<void> {
+  await new RawArchive(archiveDir).archive({
+    body: html,
+    url: "dom-snapshot:https://www.linkedin.com/in/jane-doe/",
+    status: 0,
+    method: "DOM",
+    pattern: "dom-snapshot",
+    contentType: "text/html; charset=utf-8",
+  });
+}
+
+describe("promoteFixtures — the DOM snapshot (D123)", () => {
+  it("promotes the snapshot as html, byte for byte, and marks it", async () => {
+    await seedSnapshot();
+    const result = await run({ subject: { vanity: "jane-doe" } });
+
+    expect(result.promoted).toHaveLength(1);
+    const entry = result.promoted[0]!;
+    expect(entry.dom_snapshot).toBe(true);
+    expect(entry.file.endsWith("-dom-snapshot.html")).toBe(true);
+    expect(entry.subject_match).toBe(true);
+    expect(readFileSync(join(fixturesDir, entry.file), "utf8")).toBe(SNAPSHOT_HTML);
+    // It is html, so it must not have been rejected as "not JSON".
+    expect(result.skipped.not_json).toBe(0);
+  });
+
+  it("gives the snapshot the DOM field map, at the top of the document", async () => {
+    await seedSnapshot();
+    await run({ subject: { vanity: "jane-doe" } });
+    const md = readFileSync(join(fixturesDir, "FIELD-MAP.md"), "utf8");
+
+    expect(md).toContain("rendered DOM snapshot");
+    expect(md).toContain(`urn:li:fsd_profile:${SUBJECT_ID}`);
+    expect(md).toContain("Founder at Example");
+    expect(md).toContain("Boston, Massachusetts, United States");
+    expect(md).toContain("holds other people — never read as the subject");
+  });
+
+  it("does not let the snapshot and the document response suppress each other", async () => {
+    // Both are non-JSON, so both hash to the same NON_JSON_SHAPE. Sharing one
+    // dedupe set would let whichever landed first claim the slot — the D118
+    // mistake, one layer on.
+    await new RawArchive(archiveDir).archive({
+      body: "<html>the navigation response for jane-doe</html>",
+      url: "https://www.linkedin.com/in/jane-doe/",
+      status: 200,
+    });
+    await seedSnapshot();
+    const result = await run({ subject: { vanity: "jane-doe" }, all: true });
+
+    const snapshots = result.promoted.filter((f) => f.dom_snapshot === true);
+    expect(snapshots).toHaveLength(1);
+    expect(result.skipped.duplicate_shape).toBe(0);
+  });
+
+  it("refuses a snapshot that does not name the subject, and counts it apart", async () => {
+    // There is at most one snapshot per run, so losing it means the run produced
+    // no content fixture at all — that must not read as an ordinary skip.
+    await seedSnapshot(SNAPSHOT_HTML.replace(/jane-doe/g, "someone-else"));
+    const result = await run({ subject: { vanity: "jane-doe" } });
+    expect(result.promoted).toHaveLength(0);
+    expect(result.skipped.snapshot_not_subject).toBe(1);
+    expect(result.skipped.not_subject).toBe(0);
+  });
+
+  it("is idempotent — a second promotion adds nothing", async () => {
+    await seedSnapshot();
+    await run({ subject: { vanity: "jane-doe" } });
+    const second = await run({ subject: { vanity: "jane-doe" } });
+    expect(second.promoted).toHaveLength(0);
+    expect(second.skipped.duplicate_shape).toBe(1);
+    expect(second.total).toBe(1);
+  });
+
+  it("keeps the snapshot's field map when a later run promotes a json body", async () => {
+    // The map is regenerated over the whole index; the snapshot section must
+    // not drop out when something else is added.
+    await seedSnapshot();
+    await run({ subject: { vanity: "jane-doe" } });
+    await seed([{ body: PROFILE_BODY, url: GQL }]);
+    await run({ subject: { vanity: "jane-doe" } });
+
+    const md = readFileSync(join(fixturesDir, "FIELD-MAP.md"), "utf8");
+    expect(md).toContain("rendered DOM snapshot");
+    expect(md).toContain(`urn:li:fsd_profile:${SUBJECT_ID}`);
+  });
+});

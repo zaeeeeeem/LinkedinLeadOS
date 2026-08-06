@@ -1,7 +1,12 @@
 node_modules
 node_modules/
-runs/
-fixtures/
+# Anchored to the repo root on purpose. Unanchored, `fixtures/` also matched
+# `src/core/fixtures/` — the promoter and field-map modules — which were
+# therefore never committed at all, leaving `scripts/promote-fixtures.ts`
+# importing files a fresh clone does not have. The captured-data directories
+# these exist to keep out of git are both at the root.
+/runs/
+/fixtures/
 .env
 .env.local
 dist/

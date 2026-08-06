@@ -1367,3 +1367,211 @@ permanent until someone restarts Chrome. D13's question ("will a retry change th
 genuinely cannot tell. Not fixed in this commit: the fix belongs with whoever owns preflight, and
 the candidate is for `ensureChrome`'s reuse path to require a non-empty `/json/list` rather than a
 bare `/json/version` answer. Filed in `BACKLOG.md`.
+
+## D123 — identity from Voyager, content from the rendered DOM, on the cold load (operator decision, 2026-08-09)
+
+**Operator decision, resolving D116/D121's open question.** The reader keeps the cold load of
+`/in/<vanity>` that Task 15 already ships. It draws the profile from two sources, by role:
+
+- **Identity — Voyager JSON.** The subject's stable urn (§7) comes from
+  `voyagerIdentityDashProfiles` → `identityDashProfilesByMemberIdentity["*elements"][0]`, a
+  real Voyager body that *does* answer on a cold load (D121). Keying, freshness and dedupe run
+  on this. The document's embedded structured JSON (D117) is still read where a genuinely
+  addressable blob is present.
+- **Content — the rendered DOM.** Headline, location, positions and the rest are read from a
+  **DOM snapshot** (`document.documentElement.outerHTML`, captured after layout settles,
+  archived like any body, parsed offline), scoped to the subject's main container. Every row
+  is tagged DOM-sourced.
+
+This is the first time rendered DOM is allowed as a data source; the amendment is deliberate
+and bounded — see the CLAUDE.md rule change made with this entry.
+
+**Why not Voyager-first-then-DOM (the earlier draft of this entry).** Getting a content-bearing
+Voyager response requires making the SPA fetch the profile client-side (D116 branch 2), which
+means a hard-load of `/feed/`, then an injected-or-found anchor click into a specific profile,
+per hop. D121's own note is that for an arbitrary prospect that fetch usually does not fire, so
+"verify Voyager, else DOM" falls to DOM on most targets *after* paying for the extra navigation,
+the DOM write into LinkedIn's page, and the added account activity. Voyager-first was theatre
+over a DOM read. Dropped for the honest version: read the DOM directly.
+
+**Why the DOM is tractable here when the RSC tree was not.** D121 rejected the document's
+`__como_rehydration__` flight tree because the subject and a "people also viewed" stranger have
+identical shape at different, meaningless indices. The *rendered* DOM does not have that problem:
+the subject's content lives in the main profile container (`main#workspace` / the top card) and
+the suggestions live in a sidebar `aside`. Container scoping distinguishes them — position in a
+serialized JSX stream could not.
+
+**Why DOM despite the churn risk.** A DOM parser breaks silently when LinkedIn renames a class —
+exactly what D1 was written to prevent. Bounded by: (a) content only — identity, the thing
+keys and dedupe depend on, stays on a stable Voyager body; (b) every content row tagged
+DOM-sourced so it is never mistaken for a labeled one; (c) the same parse-drift exit code (5)
+and field-level warnings as any parser, so a class rename surfaces as loud drift, not a
+half-empty row. It is the pragmatic floor, chosen over abandoning the capability.
+
+**Rejected.** Voyager-first with DOM fallback (above — theatre over a DOM read for most targets,
+at real navigation and account cost). Parsing the RSC flight tree by position (D121: prospect
+and stranger are the same shape at different indices). DOM for identity too (throws away the one
+stable body we do get and would make dedupe drift-prone).
+
+## D124 — the DOM snapshot is archived like a body, and recorded as something no server sent (2026-08-09)
+
+**Decision.** `profile.capture` takes one `Runtime.evaluate` after layout settles and the
+human-paced scroll, returning `document.documentElement.outerHTML`, and archives it through
+the same `RawArchive` as every tapped body (D2). It is recorded distinctly: `status: 0`,
+`method: "DOM"`, `pattern: "dom-snapshot"`, and a synthetic url `dom-snapshot:<targetUrl>`
+whose scheme is deliberately not `http`.
+
+**Why archived the same way.** D123 makes the rendered DOM the content source. A parser has
+to be provable offline against a real page (D12/D119), which means the page has to be on disk
+before anything reads it — the identical argument raw-first was written for. Giving the
+snapshot its own storage would have meant a second archive with its own bugs.
+
+**Why recorded differently.** `counts.captured` is what an operator reads as "how much
+LinkedIn served". A DOM read counted among the tapped bodies inflates it, and a snapshot
+recorded as `status: 200` is indistinguishable from something LinkedIn actually answered with.
+Promotion, the receipt and the summary all branch on this, and the branch reads the sidecar's
+`pattern` first and the url prefix only as the fallback for a sidecar that failed to write
+(`ARCHIVE_SIDECAR_FAILED`, D31).
+
+**It never throws.** Both failure modes — the page would not answer, the archive would not
+take the answer — are warnings with their own codes (`DOM_SNAPSHOT_FAILED`,
+`DOM_SNAPSHOT_NOT_ARCHIVED`), because by the time the snapshot runs the page load is spent
+and 26 archived bodies with no snapshot are worth more than a halt. A lost snapshot logs
+`capture.miss`, never a `capture.hit` with a null filename.
+
+## D125 — cheerio for offline HTML parsing (2026-08-09)
+
+**Decision.** `cheerio` (1.2.0) is a runtime dependency, used by the fixture tooling now and
+by Task 17's parser next. Operator-approved before it was installed.
+
+**Why a dependency at all.** D123 puts the profile's content in the rendered DOM, and the
+field map has to name paths that are *checkable against the archived snapshot* — the property
+that makes a field map worth anything. Node has no HTML parser. The alternative considered
+and rejected was discovering selectors live in the page during capture: the browser has a
+real DOM, but nothing would then verify those selectors resolve in the fixture, and Task 17
+needs an offline parser regardless — it defers the same decision at the cost of an unverified
+map.
+
+**Why cheerio over the alternatives.** It is parse5 (the spec-compliant HTML5 parser jsdom is
+built on) plus css-select, which is what makes container scoping expressible as a selector.
+`node-html-parser` is lighter and single-package but is not spec-compliant on malformed
+markup — and LinkedIn's 875KB server-rendered page is exactly where that bites, producing a
+field map that looks right and is not. Bare `parse5` has no selector engine, so every scope
+rule would be hand-written tree-walking.
+
+## D126 — `voyagerIdentityDashProfiles` returns the *operator's own* urn, not the subject's (2026-08-09)
+
+**Finding, measured. It corrects D121 and reopens the identity half of D123.**
+
+D121 recorded `identityDashProfilesByMemberIdentity["*elements"][0]` as the subject's urn and
+concluded "identity is solved". That was never cross-checked against the session's own
+identity, and it is wrong.
+
+Run `01KZJ5N27BPGY3AWGQ8FTB0C3J`, a cold load of `/in/tankots/`, captured the body at
+`$.data.data.identityDashProfilesByMemberIdentity["*elements"][0]`:
+
+    urn:li:fsd_profile:ACoAAE1JGFIBwVzih4BX7SXeW9WLwcBP6lmQE3s
+
+and `/voyager/api/me`, in the same run, carries
+`urn:li:fs_miniProfile:ACoAAE1JGFIBwVzih4BX7SXeW9WLwcBP6lmQE3s` with
+`publicIdentifier: "zaeem-dev"` — **the operator's own account.** The same key, on a page
+about somebody else. The endpoint's name says so plainly once read carefully: profiles *by
+member identity*, and the member identity is the logged-in member's.
+
+D121 quoted the same urn prefix (`ACoAAE1JGFIB…`) as the subject's. It was the operator's
+then too; nothing compared them.
+
+**Consequence.** No captured body in the run carries the subject's urn. Sweeping all 27
+archived bodies for `urn:li:fsd_profile:` values that are not the operator's returns hits only
+in the notifications card and the messaging thread list — other people, both private endpoints
+(D118), neither the subject.
+
+So `profile.get` cannot key on a Voyager body. D123's content half stands; its identity half
+does not, and D127 is where the subject's identity actually turns out to be. Recorded rather
+than acted on: D123 is an operator decision and changing its source is the operator's call.
+
+**This is D119's trap for the third time** — first in a generated field map, then in the
+document's A/B tracking (D121), now inside the decision that was supposed to be the safe half.
+The rule that keeps catching it is the cheap one: never accept an identity without comparing
+it to `/voyager/api/me`. `checkIdentity` now does that on every run and reports
+`IDENTITY_URN_IS_SESSION` on the receipt.
+
+## D127 — the subject is identified by the SDUI card-ref namespace, not by container position (2026-08-09)
+
+**Finding, measured on the live snapshot, and the reason the DOM is tractable at all.**
+
+D123 justified reading the DOM on the grounds that the subject sits in `main#workspace` and
+the suggestions sit in a sidebar `aside`. That is **not** what the page does: the live
+snapshot's only `aside` is *inside* `main#workspace` (the capture warns
+`SUBJECT_CONTAINER_NOT_SCOPED` for exactly this). Container position does not separate them.
+
+What does separate them is better than position. Every profile card carries
+
+    componentkey="com.linkedin.sdui.profile.card.ref<PROFILE_ID><CardName>"
+
+— 23 of them on the live page (`Topcard`, `About`, `ExperienceTopLevelSection`,
+`EducationTopLevelSection`, `Skills`, `Projects`, `RecommendationsTopLevel`, …), all
+namespaced by **one** profile id, and that id is the subject's. The "people also viewed"
+strangers live in the `SuggestedForYou` card, which is namespaced by the subject's id too —
+so scoping by id alone does not exclude them, and the card *name* is what does.
+
+**Subject identity therefore comes from the DOM as well**, from that namespace:
+`urn:li:fsd_profile:<PROFILE_ID>` where `PROFILE_ID` is the prefix every card ref shares. The
+live run resolved `ACoAABJLCOABl3WHDMGiReUZpWQ432xXbddzpUA` — which is **not** the operator's,
+and is corroborated by `urn:li:member:306907360` on the top card's own Connect and Follow
+buttons. Cross-checked: the id appears nowhere in `/voyager/api/me`.
+
+**How the id is cut, and why that needed care.** It is the longest common prefix of every
+`AC…` card ref suffix; with twenty-odd cards whose names diverge at the first character, that
+prefix is the id exactly, and no id length is hardcoded. Two failure modes are handled rather
+than hoped away: a snapshot in which only *one* card rendered gives a prefix of `<id>Topcard`,
+which passes the id shape and yields a confidently wrong urn — a known card-name suffix is
+peeled off first. And a boundary cut in the wrong place shows up as card names that are not
+ones this build has seen (`ATopcard`, `ZAbout`), which the field map reports and, past half of
+them, tells the reader not to key anything on.
+
+**Rejected.** Scoping by `main#workspace` alone (measured: contains the sidebar). Scoping by
+class name (they are content-hashed — `_3bbeb416` — and churn every deploy; nothing here reads
+one). Position in the RSC flight tree (D121).
+
+## D128 — every DOM field-map hit carries the basis it was found by (2026-08-09)
+
+**Decision.** `buildDomFieldMap` labels each hit `componentkey` / `position` / `text-shape` /
+`attribute`, and the rendered map says what each one means for drift.
+
+**Why.** The live snapshot splits cleanly in two, and a map that hid the split would be
+misleading in the direction that costs most. The *cards* are semantic and subject-scoped, so
+`experience`, `education`, `skills` and `about` are one selector each and survive a restyle.
+*Within* the top card there is nothing named: headline and the company·school line are
+`p:nth-of-type(1)` and `p:nth-of-type(2)` under a chain of anonymous divs, and location is
+found by the shape of its own text. Those break the first time LinkedIn re-lays-out the card.
+
+D123 accepted DOM churn as the price of the capability, with drift surfacing loudly. This is
+what makes that promise concrete per field instead of per parser: Task 17 can see which four
+fields are cheap and which three need a drift check, before writing any of it.
+
+**One thing this caught immediately.** The first generated map reported the subject's location
+as `105,570 followers` — a comma-separated string with no `·`, which is exactly what the
+text-shape rule was looking for. A place name has no purely numeric component; the rule says
+so now. A `componentkey`-based field could not have failed that way, and that difference is
+the whole point of recording the basis.
+
+## D129 — the captured-data gitignores are anchored to the repo root (2026-08-09)
+
+**Bug, found while committing Task 16.** `.gitignore` carried `fixtures/` and `runs/`
+unanchored, and a git pattern with a trailing slash and no leading slash matches a directory
+of that name **at any depth**. So `src/core/fixtures/` — Task 15's `promote.ts` and
+`fieldmap.ts` — was ignored along with the captured bodies, and had never been committed at
+all. `scripts/promote-fixtures.ts` imports both, so a fresh clone did not build. `git log`
+over the path returns nothing; this was not a deletion, the files were never tracked.
+
+Both patterns are now `/runs/` and `/fixtures/`. The directories they exist to keep out of git
+— the raw archives and the promoted prospect bodies — are both at the repo root, so anchoring
+loses nothing, and it is verified in both directions: the root ones are still ignored, and
+`src/core/fixtures/` is not.
+
+**Worth remembering** because of how it hid. Everything worked: the tests import the module by
+relative path, the promoter runs, `tsc` is clean. Nothing in a working tree can tell you a file
+is untracked, and `git status` said "clean" precisely *because* the file was ignored. The
+general shape: an ignore rule silently widening beyond its intent produces no error anywhere,
+and the only symptom is on a machine that does not have the working tree.

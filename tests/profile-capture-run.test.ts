@@ -7,6 +7,10 @@ import { join } from "node:path";
 
 import { capability as profileCapture } from "../src/capabilities/profile.capture/index.js";
 import { VIEWPORT_EXPRESSION } from "../src/capabilities/profile.capture/read.js";
+import {
+  DOM_SNAPSHOT_PATTERN, SNAPSHOT_EXPRESSION, isDomSnapshotEntry,
+} from "../src/capabilities/profile.capture/snapshot.js";
+import { RawArchive } from "../src/core/archive/raw.js";
 import type { ReadCursor } from "../src/capabilities/profile.capture/read.js";
 import { PROBE_EXPRESSION } from "../src/core/challenge/detect.js";
 import type { ChallengeProbe } from "../src/core/challenge/detect.js";
@@ -38,6 +42,12 @@ const PREDICTED_GQL =
 const UNPREDICTED_GQL =
   "https://www.linkedin.com/voyager/api/graphql?queryId=voyagerIdentityDashSomethingNew.9f";
 const TELEMETRY = "https://www.linkedin.com/li/track";
+
+/** What the fake page's rendered DOM serializes to. Small, but shaped like the
+ *  real thing: a subject container and a sidebar the parser must not read. */
+const SNAPSHOT_HTML =
+  "<html><body><main id=\"workspace\"><section>Founder at Example</section></main>" +
+  "<aside>People also viewed</aside></body></html>";
 
 /**
  * A fake page that emits the real CDP event sequence — `requestWillBeSent`,
@@ -112,6 +122,18 @@ class FakeTab implements TabLike {
     width: 1440, height: 900, scrollHeight: 5000,
     innerScroller: true, scrollerHeight: 860, documentScrollHeight: 900,
   };
+  /** A rendered profile by default. Set to a shell, or to an Error, to stage
+   *  the not-rendered and unreadable branches of the DOM snapshot (D123). */
+  snapshot: unknown = {
+    html: SNAPSHOT_HTML,
+    url: PROFILE_URL,
+    htmlChars: SNAPSHOT_HTML.length,
+    textChars: 30_963,
+    container: {
+      selector: "main#workspace", chars: 800, textChars: 9_000,
+      sections: 14, sidebars: 3, sidebarsInside: 0,
+    },
+  };
 
   constructor(private readonly page: FakePage) {}
 
@@ -127,6 +149,10 @@ class FakeTab implements TabLike {
     }
     if (expression === VIEWPORT_EXPRESSION) {
       return this.viewport as T;
+    }
+    if (expression === SNAPSHOT_EXPRESSION) {
+      if (this.snapshot instanceof Error) throw this.snapshot;
+      return this.snapshot as T;
     }
     return "complete" as T;
   }
@@ -261,9 +287,25 @@ function ledgerLines(): SpendRecord[] {
     .map((l) => JSON.parse(l) as SpendRecord);
 }
 
-function archivedBodies(runId: string): string[] {
+function archivedFiles(runId: string): string[] {
   const raw = join(paths.runsDir, runId, "raw");
   return existsSync(raw) ? readdirSync(raw).filter((f) => f.endsWith(".json.gz")) : [];
+}
+
+/** Everything the archive holds, split by where it came from. The DOM snapshot
+ *  lands in the same directory as the tapped bodies and must never be counted
+ *  as one — it is a DOM read, not something LinkedIn served (D123). */
+async function archived(runId: string): Promise<{ network: string[]; snapshots: string[] }> {
+  const entries = await new RawArchive(join(paths.runsDir, runId, "raw")).list();
+  return {
+    network: entries.filter((e) => !isDomSnapshotEntry(e)).map((e) => e.file),
+    snapshots: entries.filter(isDomSnapshotEntry).map((e) => e.file),
+  };
+}
+
+/** The tapped bodies only — what every assertion written before Task 16 meant. */
+async function archivedBodies(runId: string): Promise<string[]> {
+  return (await archived(runId)).network;
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -286,7 +328,7 @@ describe("profile.capture — the happy path", () => {
     expect(spends.map((s) => s.kind).sort()).toEqual(["page_load", "profile_open"]);
     expect(spends.find((s) => s.kind === "profile_open")!.ref).toBe("in:jane-doe");
 
-    expect(archivedBodies(receipt.run_id)).toHaveLength(1);
+    expect(await archivedBodies(receipt.run_id)).toHaveLength(1);
     expect(cursor.wheels).toBe(2);
 
     // Everything released.
@@ -307,7 +349,7 @@ describe("profile.capture — the happy path", () => {
     // Telemetry is excluded by the broad net: it is api-shaped, high volume, and
     // never carries profile data.
     expect(receipt.counts.captured).toBe(1);
-    expect(archivedBodies(receipt.run_id)).toHaveLength(1);
+    expect(await archivedBodies(receipt.run_id)).toHaveLength(1);
   });
 
   it("reports the endpoint path and operation id without the query string", async () => {
@@ -345,7 +387,7 @@ describe("profile.capture — what the patterns actually matched", () => {
     expect(data.capture.unmatched_profile_ish).toBe(1);
     // Still captured and still archived — the finding is a report, not a failure.
     expect(receipt.counts.usable).toBe(1);
-    expect(archivedBodies(receipt.run_id)).toHaveLength(1);
+    expect(await archivedBodies(receipt.run_id)).toHaveLength(1);
   });
 
   it("warns loudly when nothing carrying person data arrived", async () => {
@@ -423,7 +465,7 @@ describe("profile.capture — the gates", () => {
     expect(exit).toBe(EXIT.CHALLENGE);
     if (receipt.ok) throw new Error("expected a halt");
     expect(receipt.error.code).toBe("CHALLENGE_RESTRICTED");
-    expect(archivedBodies(receipt.run_id)).toHaveLength(2);
+    expect(await archivedBodies(receipt.run_id)).toHaveLength(2);
   });
 
   it("halts on an http 429 in a captured response, exit 3 and retryable", async () => {
@@ -552,5 +594,216 @@ describe("profile.capture — refusing before it costs anything", () => {
     expect((receipt.data as { estimate: unknown }).estimate).toEqual({
       page_loads: 1, search_pages: 0, profile_opens: 1,
     });
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+
+/** The identity body, as D121 measured it on the wire: a `*elements` list of
+ *  urn references, not inlined records. */
+const IDENTITY_BODY = JSON.stringify({
+  data: {
+    identityDashProfilesByMemberIdentity: {
+      "*elements": ["urn:li:fsd_profile:ACoAAEsubject"],
+    },
+  },
+});
+const ME_URL = "https://www.linkedin.com/voyager/api/me";
+const ME_BODY = JSON.stringify({ miniProfile: { entityUrn: "urn:li:fsd_profile:ACoAAAoperator" } });
+
+type SnapshotReceipt = {
+  archived: string | null;
+  bytes: number;
+  rendered: boolean;
+  failure: string | null;
+  container: { selector: string | null; sections: number; sidebarsInside: number } | null;
+  html_chars: number;
+};
+type IdentityReceipt = {
+  bodies: number; found: boolean; path: string | null; urnKind: string | null;
+  isSession: boolean; sessionUrns: number;
+};
+
+function warningCodes(receipt: { ok: true; warnings: { code: string }[] } | { ok: false }): string[] {
+  return receipt.ok ? receipt.warnings.map((w) => w.code) : [];
+}
+
+describe("profile.capture — the rendered-DOM snapshot (D123)", () => {
+  it("archives the snapshot beside the tapped bodies, marked as a DOM read", async () => {
+    const { outcome } = invoke({ responses: [{ url: PREDICTED_GQL, body: IDENTITY_BODY }] });
+    const { receipt, exit } = await outcome;
+    expect(exit).toBe(EXIT.OK);
+    if (!receipt.ok) throw new Error("expected ok");
+
+    const files = await archived(receipt.run_id);
+    expect(files.network).toHaveLength(1);
+    expect(files.snapshots).toHaveLength(1);
+    // Both live in the same directory; only the sidecar tells them apart.
+    expect(archivedFiles(receipt.run_id)).toHaveLength(2);
+
+    const entries = await new RawArchive(join(paths.runsDir, receipt.run_id, "raw")).list();
+    const snap = entries.find(isDomSnapshotEntry)!;
+    expect(snap.pattern).toBe(DOM_SNAPSHOT_PATTERN);
+    expect(snap.status).toBe(0);
+    expect(snap.url).toBe(`dom-snapshot:${PROFILE_URL}`);
+
+    // Byte-identical: a reformatted snapshot would prove a parser against
+    // markup the browser never rendered (D2's reason, one step on).
+    const back = await new RawArchive(join(paths.runsDir, receipt.run_id, "raw")).readText(snap);
+    expect(back).toBe(SNAPSHOT_HTML);
+
+    const s = (receipt.data as { snapshot: SnapshotReceipt }).snapshot;
+    expect(s.rendered).toBe(true);
+    expect(s.failure).toBeNull();
+    expect(s.archived).toBe(snap.file);
+    expect(s.container?.selector).toBe("main#workspace");
+    expect(warningCodes(receipt)).not.toContain("SUBJECT_CONTAINER_NOT_RENDERED");
+  });
+
+  it("does not count the snapshot as a captured response", async () => {
+    // `counts.captured` is what an operator reads as "how much LinkedIn served".
+    // A DOM read inflating it would make the tap look healthier than it is.
+    const { outcome } = invoke({ responses: [{ url: PREDICTED_GQL, body: IDENTITY_BODY }] });
+    const { receipt } = await outcome;
+    if (!receipt.ok) throw new Error("expected ok");
+    expect(receipt.counts.captured).toBe(1);
+    expect((receipt.data as { capture: { captured: number } }).capture.captured).toBe(1);
+  });
+
+  it("warns, and does not claim a fixture, when the subject's container never rendered", async () => {
+    // The not-rendered branch, proven — not just the happy path. A short
+    // snapshot is still archived, because it is the evidence for the warning.
+    const { outcome } = invoke({
+      responses: [{ url: PREDICTED_GQL, body: IDENTITY_BODY }],
+      tune: (s) => {
+        s.tab.snapshot = {
+          html: "<html><body><main id=\"workspace\"></main></body></html>",
+          url: PROFILE_URL,
+          htmlChars: 52,
+          textChars: 0,
+          container: { selector: "main#workspace", chars: 30, textChars: 0, sections: 0, sidebars: 0, sidebarsInside: 0 },
+        };
+      },
+    });
+    const { receipt, exit } = await outcome;
+    expect(exit).toBe(EXIT.OK);
+    if (!receipt.ok) throw new Error("expected ok");
+    expect(warningCodes(receipt)).toContain("SUBJECT_CONTAINER_NOT_RENDERED");
+    expect((receipt.data as { snapshot: SnapshotReceipt }).snapshot.rendered).toBe(false);
+    expect((await archived(receipt.run_id)).snapshots).toHaveLength(1);
+  });
+
+  it("warns when the container does not exclude the sidebar", async () => {
+    // Container scoping is the only thing separating the subject from a "people
+    // also viewed" stranger (D121/D123). If it does not hold, say so.
+    const { outcome } = invoke({
+      responses: [{ url: PREDICTED_GQL, body: IDENTITY_BODY }],
+      tune: (s) => {
+        s.tab.snapshot = {
+          html: SNAPSHOT_HTML,
+          url: PROFILE_URL,
+          htmlChars: SNAPSHOT_HTML.length,
+          textChars: 9_000,
+          container: { selector: "main#workspace", chars: 800, textChars: 9_000, sections: 14, sidebars: 3, sidebarsInside: 2 },
+        };
+      },
+    });
+    const { receipt } = await outcome;
+    if (!receipt.ok) throw new Error("expected ok");
+    expect(warningCodes(receipt)).toContain("SUBJECT_CONTAINER_NOT_SCOPED");
+  });
+
+  it("warns and keeps going when the page will not answer the snapshot read", async () => {
+    const { outcome } = invoke({
+      responses: [{ url: PREDICTED_GQL, body: IDENTITY_BODY }],
+      tune: (s) => {
+        s.tab.snapshot = new Error("TAB_EVAL_FAILED: page JS threw during evaluate");
+      },
+    });
+    const { receipt, exit } = await outcome;
+    // The page load is already spent; 1 archived body is worth more than a halt.
+    expect(exit).toBe(EXIT.OK);
+    if (!receipt.ok) throw new Error("expected ok");
+    expect(warningCodes(receipt)).toContain("DOM_SNAPSHOT_FAILED");
+    expect((await archived(receipt.run_id)).snapshots).toHaveLength(0);
+    expect((await archived(receipt.run_id)).network).toHaveLength(1);
+  });
+
+  it("logs a lost snapshot as capture.miss, never as a hit with a null file", async () => {
+    const { outcome } = invoke({
+      responses: [{ url: PREDICTED_GQL, body: IDENTITY_BODY }],
+      tune: (s) => {
+        s.tab.snapshot = null;
+      },
+    });
+    const { receipt } = await outcome;
+    if (!receipt.ok) throw new Error("expected ok");
+    const events = readFileSync(join(paths.runsDir, receipt.run_id, "events.ndjson"), "utf8")
+      .split("\n").filter((l) => l.trim() !== "")
+      .map((l) => JSON.parse(l) as { event: string; detail?: { kind?: string } });
+    const snapEvents = events.filter((e) => e.detail?.kind === "dom-snapshot");
+    expect(snapEvents).toHaveLength(1);
+    expect(snapEvents[0]!.event).toBe("capture.miss");
+  });
+});
+
+describe("profile.capture — the identity half of D123", () => {
+  it("reports where the subject urn was found, and never the urn itself", async () => {
+    const { outcome } = invoke({
+      responses: [
+        { url: ME_URL, body: ME_BODY },
+        { url: PREDICTED_GQL, body: IDENTITY_BODY },
+      ],
+    });
+    const { receipt } = await outcome;
+    if (!receipt.ok) throw new Error("expected ok");
+    const id = (receipt.data as { identity: IdentityReceipt }).identity;
+    expect(id).toEqual({
+      bodies: 1,
+      found: true,
+      path: '$.data.identityDashProfilesByMemberIdentity["*elements"][0]',
+      urnKind: "urn:li:fsd_profile",
+      isSession: false,
+      sessionUrns: 1,
+    });
+    expect(JSON.stringify(receipt)).not.toContain("ACoAAEsubject");
+    expect(warningCodes(receipt)).not.toContain("IDENTITY_URN_ABSENT");
+  });
+
+  it("warns when no identity body was captured at all", async () => {
+    const { outcome } = invoke({ responses: [{ url: UNPREDICTED_GQL, body: PROFILE_BODY }] });
+    const { receipt } = await outcome;
+    if (!receipt.ok) throw new Error("expected ok");
+    expect(warningCodes(receipt)).toContain("IDENTITY_BODY_ABSENT");
+    expect((receipt.data as { identity: IdentityReceipt }).identity.bodies).toBe(0);
+  });
+
+  it("distinguishes a body that never came from one that came without a urn", async () => {
+    const { outcome } = invoke({
+      responses: [{ url: PREDICTED_GQL, body: JSON.stringify({ data: {} }) }],
+    });
+    const { receipt } = await outcome;
+    if (!receipt.ok) throw new Error("expected ok");
+    expect(warningCodes(receipt)).toContain("IDENTITY_URN_ABSENT");
+    expect(warningCodes(receipt)).not.toContain("IDENTITY_BODY_ABSENT");
+  });
+
+  it("warns when the urn found is the operator's own (D119)", async () => {
+    const operator = "urn:li:fsd_profile:ACoAAAoperator";
+    const { outcome } = invoke({
+      responses: [
+        { url: ME_URL, body: ME_BODY },
+        {
+          url: PREDICTED_GQL,
+          body: JSON.stringify({
+            data: { identityDashProfilesByMemberIdentity: { "*elements": [operator] } },
+          }),
+        },
+      ],
+    });
+    const { receipt } = await outcome;
+    if (!receipt.ok) throw new Error("expected ok");
+    expect(warningCodes(receipt)).toContain("IDENTITY_URN_IS_SESSION");
+    expect((receipt.data as { identity: IdentityReceipt }).identity.isSession).toBe(true);
   });
 });

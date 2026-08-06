@@ -39,12 +39,23 @@ files those tell it to read. It never needs the whole plan.
                            └─► 7 archive+hash
 12 registry+CLI+health.check = M1 gate (needs 2–11)
 13 supabase schema (independent) ─► 14 store client
-15 capture fixture (needs 12; spends real page loads) ─► 16 parser (needs 15's fixture)
-17 profile.get end to end = M3 gate (needs 14,15,16)
-18 log queries (needs 12,14) — anytime after 12
+15 capture (DONE; proved the cold-load Voyager dead end — D116/D121)
+16 DOM snapshot capture + fixture (needs 15; adds outerHTML snapshot to the cold load; live)
+   └─► 17 parser: DOM content + Voyager identity (needs 16's fixture, 14)
+        └─► 19 profile.get end to end = M3 gate (needs 14, 16, 17)
+18 log queries (needs 12,14) — independent, anytime after 12
 ```
 
 Tasks 5, 6, 7 have no dependency on each other and can run in any order after 1.
+
+**2026-08-09 source-of-truth change (D123).** Live probes proved a cold load of
+`/in/<vanity>` carries no content-bearing Voyager response — the content is in the rendered
+DOM (D121). The operator's decision (D123): **identity from the Voyager identity body,
+content from a rendered-DOM snapshot**, both on the existing cold load — no SPA navigation,
+no Voyager-content probe (that was theatre over a DOM read for most targets). The tail was
+re-cut: old Task 16 (parser) and Task 17 (wire e2e) are replaced by Task 16 (DOM snapshot
+capture + fixture), Task 17 (parser: DOM content + Voyager identity, content rows tagged),
+and Task 19 (wire e2e, renumbered). Task 18 is unchanged.
 
 ## Model assignment
 
@@ -54,14 +65,15 @@ back weak, re-run the task on Opus — do not hand-patch.
 | Model | Tasks |
 |---|---|
 | **Sonnet** | 1 (done) · 5 tab lease · 6 events+context · 7 archive+hash · 13 schema · 14 store client · 18 log queries |
-| **Opus** | 2 chrome launcher · 3 cdp client · 4 session+tab · 8 human input · 9 network tap · 10 challenge · 11 budget · 12 registry+CLI · 15 capture · 16 parser · 17 wire e2e |
+| **Opus** | 2 chrome launcher · 3 cdp client · 4 session+tab · 8 human input · 9 network tap · 10 challenge · 11 budget · 12 registry+CLI · 15 capture · 16 DOM snapshot capture · 17 parser (DOM content + Voyager identity) · 19 wire e2e |
 
 ## Review protocol
 
 - After every task: a fresh **Opus reviewer** subagent reads the task file, `CONTEXT.md`,
   and the diff. It checks: acceptance criteria met, hard rules respected (especially the
   CDP attach surface and safety rules), tests genuinely test behavior, no scope creep.
-- For the safety-critical tasks (4, 9, 10, 11, 12, 15, 17) the operator may additionally
+- For the safety-critical tasks (4, 9, 10, 11, 12, 15, 16, 19 — the ones that touch the real
+  account or the store) the operator may additionally
   run a **second-opinion review with a GPT model** — a different model family catches
   different blind spots. This is the operator's call per task, not automated.
 - Reviewer findings are fixed before the next task starts. A finding that reveals a plan

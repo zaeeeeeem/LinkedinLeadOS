@@ -567,3 +567,40 @@ None blocking. Two to settle during M2:
   Settled 2026-08-08 in Task 13: ports 5532x (D90), schema `public` (D92).
 - ~~Whether `person_experience` needs full history or only current role for L1's purposes.~~
   Settled 2026-08-08 in Task 13: full history (D93).
+
+---
+
+## Addendum — reader navigation and source preference (2026-08-09, D116/D121/D123)
+
+Supersedes the parts of §D1 and §9 that assumed a cold load of `/in/<vanity>` yields the
+profile's content on a watched Voyager endpoint. Three live loads proved it does not
+(D121): the page is server-rendered, the only Voyager profile call is a 1.3KB urn
+resolution, and the subject's content sits in the document as a position-indexed React
+Server Components tree — the prospect indistinguishable from a sidebar suggestion.
+
+### Navigation — unchanged
+
+Reader capabilities keep the **cold load** of the profile URL that Task 15 ships. The
+earlier draft of this addendum proposed client-side SPA navigation to force a
+content-bearing Voyager fetch; that was dropped (D123), because for an arbitrary prospect
+the fetch usually does not fire (D121) and the run falls to the DOM anyway — after paying
+for the extra navigation and a DOM write into LinkedIn's page. Cost and pacing (budget
+ledger, human input, dwell) are as in Task 15.
+
+### Source split (D123)
+
+Two sources, by role, not a fallback chain:
+
+- **Identity — Voyager JSON.** The subject's stable urn (§7) comes from
+  `voyagerIdentityDashProfiles` → `identityDashProfilesByMemberIdentity["*elements"][0]`, a
+  real Voyager body that answers on the cold load (D121). Keying, freshness and dedupe run
+  on this. Document embedded structured JSON (D117) is read where genuinely addressable.
+- **Content — rendered DOM.** Headline, location, positions come from a DOM snapshot
+  (`outerHTML` after layout settles, archived, parsed offline), scoped to the subject's main
+  container so a sidebar suggestion is never read as the subject. Every content row is tagged
+  DOM-sourced and carries the same parse-drift exit code (5) and field warnings as any
+  parser. Never the RSC flight tree by position.
+
+The subject's main container is distinguishable from the "people also viewed" sidebar in the
+rendered DOM (`main#workspace` / top card vs. a sidebar `aside`) — the distinction the
+position-indexed flight tree could not provide (D121).

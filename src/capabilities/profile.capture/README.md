@@ -50,10 +50,31 @@ writes no Supabase rows.
 | `capture.unmatched_profile_ish` | profile-carrying responses that **no specific pattern matched**. `0` means the watched patterns describe reality; anything else is the finding |
 | `capture.endpoints` | one row per response worth looking at (profile-carrying, or unpredicted): endpoint **path** (never the query string), GraphQL `query_id`, status, bytes, shape hash, archived filename |
 | `capture.endpoints_omitted` | how many rows were left off stdout — the full set is in `raw/` |
+| `snapshot` | the rendered-DOM snapshot (D123/D124): its archived filename and byte count, whether the subject's container `rendered`, the container's measurements, and `failure` when it did not land |
+| `identity` | the D126 check: how many `voyagerIdentityDashProfiles` bodies arrived, whether one carried a subject urn, **where** (a path, never the urn — that is captured data), and whether the urn is the operator's own |
 | `tap` | the tap's own counters, for diagnosing a run that captured less than expected |
 
-`counts.captured` is every archived response; `counts.usable` is the subset carrying person
-data; `counts.skipped` is misses — watched responses seen but not delivered.
+`counts.captured` is every archived **response**; the DOM snapshot is not one of them and is
+never counted there (D124). `counts.usable` is the subset carrying person data;
+`counts.skipped` is misses — watched responses seen but not delivered.
+
+### The DOM snapshot
+
+After layout settles and the human-paced scroll, one `Runtime.evaluate` returns
+`document.documentElement.outerHTML` and it is archived like any body (D2), under
+`dom-snapshot:<url>` with `status: 0` and `pattern: "dom-snapshot"`. This is the profile's
+**content** source (D123): no Voyager endpoint carries it on a cold load (D121). Promote it
+with `npm run fixtures:promote` and it becomes the fixture Task 17's parser is written
+against, with a DOM field map naming real CSS paths — see D127 for how the subject is told
+apart from the "people also viewed" suggestions, and D128 for what the `basis` column means.
+
+### Identity
+
+`voyagerIdentityDashProfiles` **does not return the subject's urn** — it returns the
+operator's own, and D121 recorded otherwise only because nothing compared it to
+`/voyager/api/me`. See D126. The check runs on every capture and reports its answer; the
+subject's actual identity is in the snapshot (D127). Which source `profile.get` should key
+on is open and is the operator's decision.
 
 ### The two pattern tiers
 
@@ -73,6 +94,13 @@ which is a finding to report, not something to absorb quietly.
 | `CAPTURE_MISSES` | watched responses were seen but their bodies were lost (evicted buffer, aborted request). See the `capture.miss` events |
 | `RESPONSE_STATUS_UNRECOGNIZED` | a subresource answered 403 or redirected somewhere unknown, on a page the DOM gate certified clean. Reported rather than halted — see D111 |
 | `TAB_NOT_FOREGROUND` | the tab still reports itself hidden, so LinkedIn's lazy sections may never have fetched |
+| `DOM_SNAPSHOT_FAILED` | the page would not answer the snapshot read, so this run produced no content fixture (D123). The tapped bodies are still archived |
+| `DOM_SNAPSHOT_NOT_ARCHIVED` | the snapshot was read but could not be written to the raw archive, so nothing may parse it (D2) |
+| `SUBJECT_CONTAINER_NOT_RENDERED` | the snapshot is archived but the subject's main container had no content in it. **Do not write a parser against that fixture** |
+| `SUBJECT_CONTAINER_NOT_SCOPED` | the container holds sidebar elements, so scoping to it does not by itself exclude suggestions. Expected on the current layout — the card-ref namespace is what separates them (D127) |
+| `IDENTITY_BODY_ABSENT` | no `voyagerIdentityDashProfiles` response was captured at all |
+| `IDENTITY_URN_ABSENT` | the body arrived but carried no urn at the known path — the endpoint's shape moved |
+| `IDENTITY_URN_IS_SESSION` | the urn found is the logged-in operator's own (D119/D126). Currently expected on every run |
 | `PAGE_NOT_LAID_OUT` | the document never grew past the viewport inside the layout window, so nothing scrolled and the lazily-loaded sections never fetched. Treat the capture as incomplete — this is the failure the first live run hit (D114) |
 
 ## Failure modes

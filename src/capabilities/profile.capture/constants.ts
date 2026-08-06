@@ -62,6 +62,23 @@ export const FALLBACK_VIEWPORT = { width: 1280, height: 800 } as const;
 export const FIRST_CAPTURE_TIMEOUT_MS = 25_000;
 
 /**
+ * What the subject's main container has to carry before a snapshot of it counts
+ * as a fixture rather than as evidence of a page that never rendered.
+ *
+ * LinkedIn mounts `main#workspace` long before anything fills it — D115 measured
+ * the shell present with the page still empty — so "the container exists" alone
+ * would certify an empty page. Both of these are floors, not targets: a sparse
+ * profile with one job still clears them, and an unrendered shell does not.
+ * Calibrated against the live snapshot taken on 2026-08-09 (see D131).
+ */
+export const SUBJECT_CONTAINER_MIN_TEXT = 400;
+export const SUBJECT_CONTAINER_MIN_SECTIONS = 1;
+
+/** How long the snapshot's single `Runtime.evaluate` may take. Generous: it
+ *  serializes ~1MB of DOM, and by the time it runs the page load is spent. */
+export const SNAPSHOT_TIMEOUT_MS = 30_000;
+
+/**
  * How long to keep the tap open after the last scroll, letting late fetches land.
  *
  * The tap is passive, so this costs nothing but time — no request is made and no

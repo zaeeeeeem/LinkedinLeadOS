@@ -10,7 +10,12 @@ import { BROAD_PATTERN_NAME, PROFILE_PATTERNS, documentPattern, summarizeCapture
 import type { EndpointRow } from "./patterns.js";
 import { normalizeProfileUrl } from "./url.js";
 import { readLikeAHuman } from "./read.js";
-import { FIRST_CAPTURE_TIMEOUT_MS, SETTLE_MS_MAX, SETTLE_MS_MIN } from "./constants.js";
+import { captureDomSnapshot } from "./snapshot.js";
+import type { DomSnapshotResult } from "./snapshot.js";
+import { checkIdentity } from "./identity.js";
+import {
+  FIRST_CAPTURE_TIMEOUT_MS, SETTLE_MS_MAX, SETTLE_MS_MIN, SNAPSHOT_TIMEOUT_MS,
+} from "./constants.js";
 
 /**
  * How many endpoint rows reach the receipt. The full table is on disk in the raw
@@ -70,7 +75,7 @@ export const capability = defineCapability({
   needsBrowser: true,
   cost: () => ({ page_loads: 1, search_pages: 0, profile_opens: 1 }),
   run: async ({ run, args: a, browser, budget }) => {
-    const { tab, tap, cursor } = browser;
+    const { tab, tap, cursor, archive } = browser;
 
     // Before anything is opened or spent. A typo costs nothing.
     const target = normalizeProfileUrl(a.url);
@@ -122,6 +127,7 @@ export const capability = defineCapability({
     });
 
     let reading: Awaited<ReturnType<typeof readLikeAHuman>> | null = null;
+    let snapshot: DomSnapshotResult | null = null;
     try {
       // Gate one: what did we actually land on?
       checkpointState.phase = "post-navigation-gate";
@@ -159,6 +165,31 @@ export const capability = defineCapability({
       // Late fetches triggered by the last scroll. Passive: nothing is requested
       // and nothing is spent — only time.
       await cursor.pause(SETTLE_MS_MIN, SETTLE_MS_MAX);
+
+      // The rendered DOM, after everything that was going to render has. This
+      // is the profile's *content* (D123) — the one place a data field may be
+      // read off the DOM, because no Voyager endpoint carries it on a cold load
+      // (D121). Archived raw like any body, parsed offline, never here.
+      checkpointState.phase = "snapshot";
+      snapshot = await captureDomSnapshot({
+        tab, archive, targetUrl: target.url, timeoutMs: SNAPSHOT_TIMEOUT_MS,
+      });
+      // A snapshot that never reached disk is a `capture.miss`, not a hit with a
+      // null filename: `log:why` groups by event name, and a lost body counted
+      // as a hit is the silent loss the tap was fixed for (D52).
+      run.log(snapshot.archived === null ? "capture.miss" : "capture.hit", {
+        phase: "capture",
+        item_ref: target.ref,
+        ...(snapshot.archived === null ? { level: "warn" as const } : {}),
+        detail: {
+          kind: "dom-snapshot",
+          file: snapshot.archived?.file ?? null,
+          bytes: snapshot.archived?.bytes ?? 0,
+          rendered: snapshot.rendered,
+          container: snapshot.probe?.container ?? null,
+          failure: snapshot.failure,
+        },
+      });
 
       // Gate two: nothing may be declared successful without re-checking. A
       // challenge that appears *during* the read is the case this catches.
@@ -215,6 +246,78 @@ export const capability = defineCapability({
           `nothing on the page ever measured taller than the viewport within the layout ` +
           `window (${reading.layout.waitedMs}ms, ${reading.layout.polls} polls) — neither the ` +
           `document nor any inner scroller (D115); lazily-loaded sections will not have fetched`,
+      });
+    }
+
+    // The DOM snapshot's three distinct outcomes, each with its own code because
+    // each sends the operator somewhere different: the page would not answer,
+    // the archive would not take the answer, or the page answered with a shell.
+    if (snapshot === null || snapshot.failure === "probe-failed") {
+      warnings.push({
+        code: "DOM_SNAPSHOT_FAILED",
+        n: 1,
+        field:
+          `the rendered-DOM snapshot could not be read from the page, so this run has no ` +
+          `content fixture (D123): ${snapshot?.detail ?? "the read was never reached"}`,
+      });
+    } else if (snapshot.failure === "archive-failed") {
+      warnings.push({
+        code: "DOM_SNAPSHOT_NOT_ARCHIVED",
+        n: 1,
+        field:
+          `the snapshot was read from the page but could not be written to the raw archive, ` +
+          `so nothing may parse it (D2): ${snapshot.detail ?? "unknown"}`,
+      });
+    } else if (!snapshot.rendered) {
+      const c = snapshot.probe?.container;
+      warnings.push({
+        code: "SUBJECT_CONTAINER_NOT_RENDERED",
+        n: 1,
+        field:
+          `the snapshot is archived but the subject's main container did not render ` +
+          `(selector ${c?.selector === null || c === undefined ? "not found" : c.selector}, ` +
+          `${c?.textChars ?? 0} chars of text, ${c?.sections ?? 0} sections) — ` +
+          `do not write a parser against this fixture`,
+      });
+    } else if (snapshot.probe !== null && snapshot.probe.container.sidebarsInside > 0) {
+      // Container scoping is the whole reason the DOM is usable where the RSC
+      // flight tree was not (D123). A sidebar *inside* the container means a
+      // parser scoped to it can still read a "people also viewed" stranger.
+      warnings.push({
+        code: "SUBJECT_CONTAINER_NOT_SCOPED",
+        n: snapshot.probe.container.sidebarsInside,
+        field:
+          `the subject's container holds sidebar elements, so scoping to it does not ` +
+          `by itself exclude "people also viewed" suggestions (D121, D123)`,
+      });
+    }
+
+    // Identity: the other half of D123's split. Content without a subject urn is
+    // content that cannot be keyed, deduped, or aged — a first-class outcome.
+    const identity = checkIdentity(tap.captures());
+    if (identity.bodies === 0) {
+      warnings.push({
+        code: "IDENTITY_BODY_ABSENT",
+        n: 1,
+        field:
+          "no voyagerIdentityDashProfiles response was captured, so this run has no subject " +
+          "urn to key the profile on (D123)",
+      });
+    } else if (!identity.found) {
+      warnings.push({
+        code: "IDENTITY_URN_ABSENT",
+        n: identity.bodies,
+        field:
+          `${identity.bodies} voyagerIdentityDashProfiles body/bodies were captured but none ` +
+          `carried a subject urn at identityDashProfilesByMemberIdentity — the endpoint moved (D121)`,
+      });
+    } else if (identity.isSession) {
+      warnings.push({
+        code: "IDENTITY_URN_IS_SESSION",
+        n: 1,
+        field:
+          `the urn at ${identity.path} is the logged-in operator's own, not the subject's — ` +
+          `a parser keyed on it returns this account for every prospect (D119)`,
       });
     }
 
@@ -278,6 +381,16 @@ export const capability = defineCapability({
               layout: reading.layout,
             }
           : null,
+        snapshot: {
+          archived: snapshot?.archived?.file ?? null,
+          bytes: snapshot?.archived?.bytes ?? 0,
+          rendered: snapshot?.rendered ?? false,
+          failure: snapshot?.failure ?? null,
+          container: snapshot?.probe?.container ?? null,
+          html_chars: snapshot?.probe?.htmlChars ?? 0,
+          page_text_chars: snapshot?.probe?.textChars ?? 0,
+        },
+        identity,
         capture: {
           patterns: summary.patterns,
           captured: summary.captured,

@@ -464,6 +464,72 @@ concurrent `upsertPerson` calls for one person would delete each other's experie
 not reachable while runs are sequential under one tab lease, with the fix settled at
 capture time.
 
+Task 16 — DOM snapshot capture + profile fixture. **Built. One live run, exit 0, no
+challenge. It produced the content fixture — and it falsified D123's identity half (D126).**
+
+Code: `src/capabilities/profile.capture/{snapshot,identity}.ts` + wiring in `index.ts` and
+`constants.ts`, `src/core/fixtures/dommap.ts`, the snapshot branch in
+`src/core/fixtures/promote.ts`, `domSections` in `fieldmap.ts`. New dependency: `cheerio`
+1.2.0 (operator-approved, D125). Decisions D124–D128.
+
+**Live run `01KZJ5N27BPGY3AWGQ8FTB0C3J`, `/in/tankots/`.** Exit 0, 27.9s, no challenge, 1
+page load, 0 profile opens (ref inside its 24h dedupe window), 26 responses archived, 0
+misses, lease released. `main#workspace` measured `scrollHeight 2145 / scrollerHeight 746`,
+laid out in 1550ms over 3 polls, scrolled 1399px in 2 passes — the full scrollable extent.
+
+- **The snapshot works.** 875,285 bytes of `outerHTML` archived as
+  `0026-438312a3d613045a.json.gz`, `status: 0`, `pattern: "dom-snapshot"`. The subject's
+  container rendered: 833,736 chars, 30,562 chars of text, 23 sections. Promotion produced
+  `fixtures/profile.get/438312a3d613045a-dom-snapshot.html` + `FIELD-MAP.md`, and
+  `fixtures/profile.get/` is no longer empty for the first time.
+- **The field map names real paths, verified against the fixture.** `headline` →
+  `CEO at Wispr Flow | IOI Medalist | …`, `location` → `San Francisco, California, United
+  States`, `experience` → the `ExperienceTopLevelSection` card holding 1,379 chars (6
+  positions with titles, companies, dates and descriptions), plus `education`, `skills`,
+  `about`, `full_name`, `current_company`, `vanity`. Every path resolves in the snapshot it
+  was built from — pinned by a test that runs each one back through a selector.
+- **`voyagerIdentityDashProfiles` returns the operator's own urn, not the subject's (D126).**
+  The body's urn is byte-identical to the one in `/voyager/api/me`
+  (`publicIdentifier: "zaeem-dev"`). D121 recorded that path as the subject's identity without
+  ever comparing the two. Sweeping all 27 archived bodies: no non-operator profile urn outside
+  the notifications card and the messaging thread list, both private endpoints, neither the
+  subject. `IDENTITY_URN_IS_SESSION` fired on the receipt, which is the "not a silent zero"
+  outcome the task file asked for.
+- **The subject's identity is in the DOM (D127).** Every one of the 23 profile cards carries
+  `componentkey="com.linkedin.sdui.profile.card.ref<PROFILE_ID><CardName>"` namespaced by one
+  id — `ACoAABJLCOAB…`, which is not the operator's — corroborated by
+  `urn:li:member:306907360` on the top card's own Connect and Follow buttons. **Choosing the
+  replacement identity source is the operator's call and is open**; `CLAUDE.md`'s D123 rule is
+  annotated, not rewritten.
+- Also measured, and it contradicts D123's stated reasoning: the page's only `aside` is
+  *inside* `main#workspace`, so container position does not separate the subject from the
+  "people also viewed" suggestions. The card name does (`SuggestedForYou`). The capture warns
+  `SUBJECT_CONTAINER_NOT_SCOPED` for this, and it fired.
+
+Two bugs in this task's own code were found by running it against the real page rather than
+against a synthetic one, both now regression-tested: `member_urn` was collected unscoped and
+returned 17 urns of which 16 were sidebar strangers (D119's trap inside the function meant to
+expose it), and `location` matched `105,570 followers`, which satisfies the comma-shape rule
+cleanly. A third was found by a test: a snapshot in which only one card rendered resolved a
+profile id of `<id>Topcard`, which passes the id shape and would have produced a confidently
+wrong urn for a real person.
+
+Proven: 702/702 offline, typecheck clean (76 new tests). Among them — `SNAPSHOT_EXPRESSION`
+executed as real JavaScript against a stub document carrying the live probe's own numbers,
+including the null-on-a-dead-context path; `captureDomSnapshot` against the real `RawArchive`
+in temp dirs, with byte-identical read-back and the probe-failed / archive-failed split;
+`findSubjectUrn` refusing a company urn, an A/B tracking urn and a sidebar suggestion at the
+same path; the capability's not-rendered, not-scoped, snapshot-failed, identity-absent,
+identity-urn-absent and identity-is-session branches each proven to warn rather than pass
+quietly, and a lost snapshot proven to log `capture.miss` rather than a `capture.hit` with a
+null filename; the promoter proven not to let the document response and the snapshot suppress
+each other through their shared `NON_JSON_SHAPE` hash; and compile-time assertions that
+`WorkerTab` and `RawArchive` satisfy the snapshot step's structural types and that the tap's
+`Capture` satisfies the identity check's. Bounds (`MAX_HITS_PER_PROBE`, `MAX_LEAVES_PER_CARD`,
+`MAX_SAMPLE_CHARS`, `IDENTITY_MAX_NODES`) are exceeded by tests rather than assumed roomy.
+
+Budget spent 2026-08-09: 2 page loads, 0 profile opens beyond the earlier dedupe window.
+
 ## In progress
 Task 15 — capture fixture. **Offline complete. Two live runs done. Both found bugs in this
 task's own code. Not Built: the captures do not contain the profile, and D116 is open.**
@@ -519,9 +585,12 @@ That gives the D116 probe below a defined success condition.
 
 Budget spent so far today: 2 page loads, 1 profile open (deduped by ref).
 
-Task 16 — profile parser. **Blocked, and the blocker is now measured rather than suspected.**
-D116 is resolved and it resolved to its *second* branch, which is the one that needs an
-operator decision. Decisions D120–D122. No parser is written yet, deliberately.
+Task 16 (old numbering) — profile parser. **Blocker lifted 2026-08-09 by D123.** The parser
+premise below was correct — no addressable *Voyager* content on a cold load — and the operator
+resolved it: identity from the Voyager identity body, content from the rendered DOM, both on
+the cold load already shipped. No SPA navigation. The tail is re-cut (new Task 16 = DOM
+snapshot capture, Task 17 = parser, Task 19 = wire e2e). History below stands as the measured
+record that forced the decision. Decisions D120–D123.
 
 **D116 probe — run `01KZJ09FEEYGY8WYDD3RQA0BH2`, `/in/tankots/`.** Exit 0, no challenge,
 29.9s, 1 page load, **0 profile opens** (the ref was inside its 24h dedupe window), 26
@@ -560,13 +629,32 @@ throwing inside the tap's listener, and that a run-time `specific` pattern is no
 unpredicted — that last one fails against the pre-fix `summarizeCaptures`.
 
 ## Next
-**Operator decision required before Task 16 can start.** Per D121, reaching profile content
-means making the SPA fetch it client-side (feed → profile in-app), which changes how every
-reader capability navigates and is a spec change, not a task-16 implementation detail. The
-cheap next probe, if approved: load `/feed/`, then navigate to the profile *inside* the app and
-watch whether `voyagerIdentityDashProfileCards` / `ProfileComponents` answer with content.
-Estimated cost 2 page loads, 1 profile open (a different profile, or `in:tankots` once its
-window rolls).
+**Task 16 is done and the fixture exists.** `fixtures/profile.get/` now holds
+`438312a3d613045a-dom-snapshot.html` (875,285 bytes) and a `FIELD-MAP.md` naming real,
+verified CSS paths to headline, location, experience, education, skills, about, name and
+company. That is what Task 17 is written against.
 
-**Leftover:** none. The automation Chrome was restarted during this task (D122 / B5) and its
-worker tab was released cleanly; `runs/tab.lock` is gone and the lease is free.
+**Needs an operator decision before Task 17 keys anything (D126).** D123 put identity on
+`voyagerIdentityDashProfiles`. That body returns the **operator's own** urn — measured, and
+identical to `/voyager/api/me` — and no captured body in the run carried the subject's. The
+subject's urn is available in the DOM instead, from the SDUI card-ref namespace every profile
+card shares (D127), corroborated by the member urn on the top card's own action buttons. The
+options are: key on the DOM-derived urn (available now, and the card-ref namespace is the most
+stable thing on the page), key on the vanity slug (stable-ish but reassignable, and §7 keys on
+urn), or find a Voyager call that actually resolves a *stranger's* identity (none observed
+across four live loads). `CLAUDE.md` and the spec addendum are annotated with the finding, not
+rewritten — changing D123's source is the operator's call.
+
+- **Task 17 — parser: DOM content** (`tasks/task-17-profile-parser.md`, Opus). Has its
+  fixture. Content from the snapshot scoped by card-ref namespace, not by container position
+  (D127 — the page's only `aside` is *inside* `main#workspace`, so D123's stated container
+  rationale does not hold). Every content row tagged DOM-sourced. **Its identity half is
+  blocked on the decision above.** Its task file still says "identity from the Voyager body"
+  and needs re-cutting once that is settled.
+- **Task 19 — wire `profile.get` end to end** (`tasks/task-19-profile-get-e2e.md`, Opus) = M3 gate.
+- **Task 18 — log queries** (`tasks/task-18-log-queries.md`, Sonnet) — independent, unaffected,
+  in progress in a worktree.
+
+**Leftover:** none. Run `01KZJ5N27BPGY3AWGQ8FTB0C3J` exited 0 with the lease released;
+`runs/tab.lock` is gone and the automation Chrome is healthy (5 targets, not the D122 empty
+state).

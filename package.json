@@ -23,6 +23,7 @@
   "type": "module",
   "dependencies": {
     "@supabase/supabase-js": "^2.112.2",
+    "cheerio": "^1.2.0",
     "ulid": "^3.0.2",
     "zod": "^4.4.3"
   },
