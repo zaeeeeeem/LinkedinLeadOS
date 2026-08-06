@@ -1027,3 +1027,33 @@ The codes split on operator action (D13), not on cause. Class 22 and class 23 me
 thing to whoever reads the receipt: the row we sent is wrong, fix the caller, do not retry.
 Proven live rather than only in a table — an experience row with `started_on: "not-a-date"` is
 rejected by the real database as 22007 and classified `STORE_WRITE_REJECTED`, non-retryable.
+
+## D140 — the log-query capabilities are named `log.<verb>`, not `log:<verb>`
+2026-08-08, Task 18. Spec §5's table writes `log:why`, `log:errors`, `log:drift`, `log:runs`
+with colons, and the task file quotes those names verbatim. Implemented as `log.why`,
+`log.errors`, `log.drift`, `log.runs` instead.
+
+D81's registry requires the directory name to equal the capability name, and Task 12 already
+pinned a general invariant on every capability name — `tests/cli-registry.test.ts`, "scans a
+real directory tree and every entry it finds is a well-formed capability" — asserting
+`/^[a-z0-9]+(\.[a-z0-9]+)+$/` against `loadCapabilities()`'s real scan of `src/capabilities/`.
+A colon fails that regex outright; landing `log:why` would either break an already-green
+Task 12 test or require weakening an invariant written for every capability, present and
+future, to fit four names whose punctuation was illustrative table formatting, not a
+consumed contract — nothing parses `log:why` as a wire format anywhere in the codebase.
+Dot notation keeps the CLI surface `cap log.why --run=<id> --item=<ref>` and costs nothing
+else: no runtime dependency, no interface another task consumes, no change to the attach
+surface or safety model.
+
+## D141 — log queries read the run archive directly; they never call `RunContext.open({ runId })`
+2026-08-08, Task 18. `src/core/log/queries.ts` reads `run.json` / `summary.json` /
+`events.ndjson` with plain `fs` calls, reusing only `readEvents` from `core/run/events.ts`.
+
+`RunContext.open({ runId })` is a resume, not a read: it appends a `resumed_at` timestamp to
+`run.json` and logs a `checkpoint.resume` event into the run it opens (Task 6, D22). Every
+log-query capability is a read of a run some other invocation owns — often one that failed
+and is being inspected for exactly that reason — and mutating it to look at it would corrupt
+the forensic record `log:why` exists to read faithfully, and would make `log:runs`'s own
+scan of `runs/` change the very data it is scanning mid-query. A corrupt `run.json` for one
+run degrades to a visible `status: "corrupt"` entry rather than throwing, so one damaged run
+directory cannot take down a query spanning every run (`log:runs`, `log:drift`).
