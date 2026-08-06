@@ -20,12 +20,12 @@ export const capability = defineCapability({
   run: async ({ run, args }) => {
     const sinceMs = parseDuration(args.since);
     const runsDir = dirname(run.dir);
-    const { groups, truncated } = queryDrift(runsDir, { sinceMs });
+    const { groups, truncated, dropped } = queryDrift(runsDir, { sinceMs });
 
     return {
       counts: { requested: groups.length, captured: groups.length, usable: groups.length, skipped: 0 },
-      data: { since: args.since, groups, truncated },
-      ...(truncated ? { warnings: [{ code: "LOG_RESULT_TRUNCATED", n: groups.length }] } : {}),
+      data: { since: args.since, groups, truncated, dropped },
+      ...(truncated ? { warnings: [{ code: "LOG_RESULT_TRUNCATED", n: dropped }] } : {}),
     };
   },
 });

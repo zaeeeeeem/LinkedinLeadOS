@@ -108,8 +108,26 @@ describe("log.runs end to end", () => {
     const data = receipt.data as { runs: Array<{ run_id: string; status: string }> };
     const ids = data.runs.map((r) => r.run_id);
     expect(ids).toContain("seeded-run");
-    // this invocation's own run is also visible, mid-run — it has not
-    // written its own summary.json yet at the moment log.runs scans.
+    // This invocation's own run is *not* in the answer. Every debugging session
+    // writes more log.* runs; newest-first, they crowd out the runs being
+    // debugged until log.runs mostly reports log.runs (D142).
+    expect(ids).not.toContain(receipt.run_id);
+  });
+
+  it("--include-queries brings this query's own run back", async () => {
+    const def = await loadOne("log.runs");
+    const { receipt } = await execute({
+      def,
+      rawArgs: { since: "24h", "include-queries": "true" },
+      flags: DEFAULT_FLAGS,
+      runsDir,
+      budgetPath,
+    });
+
+    expect(receipt.ok).toBe(true);
+    if (!receipt.ok) return;
+    const data = receipt.data as { runs: Array<{ run_id: string; status: string }> };
+    // Mid-run, so it has not written its own summary.json at the moment it scans.
     expect(data.runs.find((r) => r.run_id === receipt.run_id)?.status).toBe("incomplete");
   });
 

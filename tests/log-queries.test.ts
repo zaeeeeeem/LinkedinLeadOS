@@ -3,6 +3,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import {
+  MAX_RESULT_BYTES,
   listRuns,
   queryDrift,
   queryErrors,
@@ -190,9 +191,42 @@ describe("queryWhy", () => {
 
     const result = queryWhy(runsDir, "run-big", "x");
     expect(result.truncated).toBe(true);
-    expect(result.events).toHaveLength(500);
-    expect(result.events[0]?.detail?.n).toBe(1); // n=0 (the oldest) was dropped
+    expect(result.events.length).toBeLessThanOrEqual(500);
+    // The tail survives whichever bound bit: the newest event is always present,
+    // and the oldest is always the one given up.
     expect(result.events[result.events.length - 1]?.detail?.n).toBe(500);
+    expect(result.events[0]?.detail?.n).toBeGreaterThan(0);
+    expect(result.dropped).toBe(501 - result.events.length);
+  });
+
+  // The bound the count could not express. A live capture's events run ~340
+  // bytes; 500 of them serialize to 170KB, which is ~42k tokens on stdout for a
+  // capability whose whole purpose is costing hundreds.
+  it("stays under the byte budget even when the count bound is never reached", () => {
+    seq = 0;
+    const wide = { url: "https://www.linkedin.com/in/a-fairly-long-vanity-slug-goes-here/", note: "x".repeat(240) };
+    const lines: string[] = [];
+    for (let i = 0; i < 400; i++) lines.push(ev({ event: "capture.hit", item_ref: "x", detail: { i, ...wide } }));
+    writeRunDir("run-wide", { events: lines.join("\n") + "\n" });
+
+    const result = queryWhy(runsDir, "run-wide", "x");
+    expect(result.events.length).toBeLessThan(400); // the count bound never fired
+    expect(JSON.stringify(result.events).length).toBeLessThanOrEqual(MAX_RESULT_BYTES);
+    expect(result.truncated).toBe(true);
+    expect(result.dropped).toBeGreaterThan(0);
+    // Still the tail: the newest event survives, which is what debugging reads first.
+    expect(result.events[result.events.length - 1]?.detail?.i).toBe(399);
+  });
+
+  it("returns one oversized event rather than nothing at all", () => {
+    seq = 0;
+    writeRunDir("run-huge", {
+      events: ev({ event: "error", item_ref: "x", detail: { blob: "y".repeat(MAX_RESULT_BYTES * 2) } }) + "\n",
+    });
+
+    const result = queryWhy(runsDir, "run-huge", "x");
+    expect(result.events).toHaveLength(1);
+    expect(result.truncated).toBe(false);
   });
 });
 
@@ -356,12 +390,13 @@ describe("listRuns", () => {
         summary: okReceipt(),
       });
     }
-    const { runs, truncated } = listRuns(runsDir, { now });
+    const { runs, truncated, dropped } = listRuns(runsDir, { now });
     expect(truncated).toBe(true);
-    expect(runs).toHaveLength(200);
+    expect(runs.length).toBeLessThanOrEqual(200);
     // the most recent (i=0) survives; the oldest (i=200) was dropped
     expect(runs[0]?.run_id).toBe("run-000");
     expect(runs.some((r) => r.run_id === "run-200")).toBe(false);
+    expect(dropped).toBe(201 - runs.length);
   });
 });
 

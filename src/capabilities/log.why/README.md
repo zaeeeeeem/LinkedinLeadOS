@@ -22,7 +22,8 @@ string, only matches it exactly.
 |---|---|
 | `run_id` / `item_ref` | echoed back |
 | `events[]` | every matching event, oldest first, each the full `LoggedEvent` shape (`ts`, `seq`, `level`, `event`, `phase?`, `duration_ms?`, `detail?`) |
-| `truncated` | `true` if more than 500 events matched — the oldest were dropped, keeping the tail closest to whatever just happened |
+| `truncated` | `true` if the result was cut — by count (500 events) or by size (32KB), whichever bit first; the oldest were dropped, keeping the tail closest to whatever just happened |
+| `dropped` | how many events were cut. The `LOG_RESULT_TRUNCATED` warning's `n` is this number, not the number returned |
 
 An item ref that matches nothing returns `events: []`, not an error — that is a legitimate
 answer (the item was never touched, or the ref was mistyped) and is different from the run

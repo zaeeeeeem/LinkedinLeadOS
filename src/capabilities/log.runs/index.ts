@@ -13,18 +13,26 @@ export const capability = defineCapability({
   name: "log.runs",
   risk: "local",
   summary: "Run summaries within a time window, one line each — bounded, never a raw file dump.",
-  args: z.object({ since: z.string().default("24h") }).strict(),
+  args: z.object({
+    since: z.string().default("24h"),
+    /** Include this query's own runs, and every earlier one. Off by default:
+     *  they are newest-first and would crowd out the runs being debugged. */
+    "include-queries": z.coerce.boolean().default(false),
+  }).strict(),
   needsBrowser: false,
   cost: () => ZERO_COST,
   run: async ({ run, args }) => {
     const sinceMs = parseDuration(args.since);
     const runsDir = dirname(run.dir);
-    const { runs, truncated } = listRuns(runsDir, { sinceMs });
+    const { runs, truncated, dropped } = listRuns(runsDir, {
+      sinceMs,
+      includeQueries: args["include-queries"],
+    });
 
     return {
       counts: { requested: runs.length, captured: runs.length, usable: runs.length, skipped: 0 },
-      data: { since: args.since, runs, truncated },
-      ...(truncated ? { warnings: [{ code: "LOG_RESULT_TRUNCATED", n: runs.length }] } : {}),
+      data: { since: args.since, runs, truncated, dropped },
+      ...(truncated ? { warnings: [{ code: "LOG_RESULT_TRUNCATED", n: dropped }] } : {}),
       next: "cap log.why --run=<id> --item=<ref>",
     };
   },

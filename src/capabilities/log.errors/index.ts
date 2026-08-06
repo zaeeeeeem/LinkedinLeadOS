@@ -28,7 +28,7 @@ export const capability = defineCapability({
         skipped: 0,
       },
       data: result,
-      ...(result.truncated ? { warnings: [{ code: "LOG_RESULT_TRUNCATED", n: result.events.length }] } : {}),
+      ...(result.truncated ? { warnings: [{ code: "LOG_RESULT_TRUNCATED", n: result.dropped }] } : {}),
       next: `cap log.why --run=${args.run} --item=<ref>`,
     };
   },

@@ -24,6 +24,21 @@ const RUN_LIST_LIMIT = 200;
 const EVENTS_LIMIT = 500;
 const DRIFT_GROUP_LIMIT = 200;
 
+/**
+ * The bound that actually matters, and the one a count cannot express. 500 events
+ * of ordinary width serialize to 170KB — ~42k tokens on stdout, a hundred times
+ * the "hundreds of tokens, not hundreds of thousands" this capability exists for,
+ * and against `CLAUDE.md`'s "never print large results". Measured, not guessed:
+ * a real capture's events run ~340 bytes each. Whichever bound bites first wins.
+ */
+export const MAX_RESULT_BYTES = 32_768;
+
+/** Capabilities whose runs are queries *about* the archive rather than work
+ *  recorded in it. Excluded from `log:runs` by default: each debugging session
+ *  writes more of them, they sort newest-first, and left in they push the real
+ *  runs past the cap — a query that answers with its own history (D142). */
+const QUERY_CAPABILITY = /^log\./;
+
 const UNKNOWN = "(unknown)";
 
 function runPaths(runsDir: string, runId: string) {
@@ -71,9 +86,43 @@ function listRunIds(runsDir: string): string[] {
 /** Keeps the most recent `limit` items of an already-chronological array —
  *  truncation drops the oldest, keeping what is closest to "now" or to
  *  whatever just happened, which is the end most debugging starts from. */
-function capTail<T>(items: T[], limit: number): { items: T[]; truncated: boolean } {
-  if (items.length <= limit) return { items, truncated: false };
-  return { items: items.slice(items.length - limit), truncated: true };
+function capTail<T>(
+  items: T[],
+  limit: number,
+  maxBytes: number = MAX_RESULT_BYTES,
+): { items: T[]; truncated: boolean; dropped: number } {
+  const total = items.length;
+  let kept = items.length <= limit ? items : items.slice(items.length - limit);
+
+  // Then by size, dropping from the same end the count bound drops from, so the
+  // two bounds never disagree about which events survive.
+  // Never below one: a single event wider than the budget is still the answer to
+  // "why did this fail", and returning nothing would be the silent-empty result
+  // this capability exists to prevent.
+  while (kept.length > 1 && JSON.stringify(kept).length > maxBytes) {
+    // Proportional, so a 170KB result is not walked one event at a time.
+    const over = JSON.stringify(kept).length / maxBytes;
+    const drop = Math.min(kept.length - 1, Math.max(1, Math.floor(kept.length * (1 - 1 / over))));
+    kept = kept.slice(drop);
+  }
+
+  return { items: kept, truncated: kept.length < total, dropped: total - kept.length };
+}
+
+/** The same two bounds for an array already ordered most-relevant-first, where
+ *  truncation drops from the tail: run summaries, drift groups. */
+function capHead<T>(
+  items: T[],
+  limit: number,
+  maxBytes: number = MAX_RESULT_BYTES,
+): { items: T[]; truncated: boolean; dropped: number } {
+  const total = items.length;
+  let kept = items.slice(0, limit);
+  while (kept.length > 1 && JSON.stringify(kept).length > maxBytes) {
+    const over = JSON.stringify(kept).length / maxBytes;
+    kept = kept.slice(0, Math.min(kept.length - 1, Math.max(1, Math.floor(kept.length / over))));
+  }
+  return { items: kept, truncated: kept.length < total, dropped: total - kept.length };
 }
 
 // ---------------------------------------------------------------------------
@@ -124,7 +173,7 @@ function summaryToRunSummary(
   return { ...base, status: "error", exit: receipt.error.exit, error_code: receipt.error.code, cost: receipt.cost };
 }
 
-export type ListRunsResult = { runs: RunSummary[]; truncated: boolean };
+export type ListRunsResult = { runs: RunSummary[]; truncated: boolean; dropped: number };
 
 /**
  * One line per run, most-recently-active first, optionally filtered to runs
@@ -134,7 +183,10 @@ export type ListRunsResult = { runs: RunSummary[]; truncated: boolean };
  * damaged run record is exactly the kind of thing an operator wants visible,
  * not silently absent from the list.
  */
-export function listRuns(runsDir: string, o: { sinceMs?: number; now?: number } = {}): ListRunsResult {
+export function listRuns(
+  runsDir: string,
+  o: { sinceMs?: number; now?: number; includeQueries?: boolean } = {},
+): ListRunsResult {
   const now = o.now ?? Date.now();
   const out: RunSummary[] = [];
 
@@ -147,6 +199,10 @@ export function listRuns(runsDir: string, o: { sinceMs?: number; now?: number } 
     }
     if (!meta) continue; // listRunIds already confirmed run.json exists; a TOCTOU race, not a real case
 
+    // A run of this very query, and of every earlier one. Excluded by default so
+    // debugging does not crowd out the runs being debugged.
+    if (!o.includeQueries && meta.capability !== undefined && QUERY_CAPABILITY.test(meta.capability)) continue;
+
     const activityMs = lastActivityMs(meta);
     if (o.sinceMs !== undefined && Number.isFinite(activityMs) && now - activityMs > o.sinceMs) continue;
 
@@ -155,15 +211,17 @@ export function listRuns(runsDir: string, o: { sinceMs?: number; now?: number } 
   }
 
   out.sort((a, b) => (Date.parse(b.last_activity ?? "") || 0) - (Date.parse(a.last_activity ?? "") || 0));
-  const truncated = out.length > RUN_LIST_LIMIT;
-  return { runs: out.slice(0, RUN_LIST_LIMIT), truncated };
+  const { items, truncated, dropped } = capHead(out, RUN_LIST_LIMIT);
+  return { runs: items, truncated, dropped };
 }
 
 // ---------------------------------------------------------------------------
 // log:why — every event for one item in one run
 // ---------------------------------------------------------------------------
 
-export type ItemEvents = { run_id: string; item_ref: string; events: LoggedEvent[]; truncated: boolean };
+export type ItemEvents = {
+  run_id: string; item_ref: string; events: LoggedEvent[]; truncated: boolean; dropped: number;
+};
 
 /**
  * Every event carrying `item_ref === itemRef`, in the order they were
@@ -178,15 +236,15 @@ export function queryWhy(runsDir: string, runId: string, itemRef: string): ItemE
   if (!existsSync(paths.meta)) throw runNotFound(runId);
 
   const matched = readEvents(paths.events).filter((e) => e.item_ref === itemRef);
-  const { items, truncated } = capTail(matched, EVENTS_LIMIT);
-  return { run_id: runId, item_ref: itemRef, events: items, truncated };
+  const { items, truncated, dropped } = capTail(matched, EVENTS_LIMIT);
+  return { run_id: runId, item_ref: itemRef, events: items, truncated, dropped };
 }
 
 // ---------------------------------------------------------------------------
 // log:errors — failures and warnings for one run
 // ---------------------------------------------------------------------------
 
-export type ErrorEvents = { run_id: string; events: LoggedEvent[]; truncated: boolean };
+export type ErrorEvents = { run_id: string; events: LoggedEvent[]; truncated: boolean; dropped: number };
 
 const FAILURE_LEVELS: ReadonlySet<EventLevel> = new Set(["warn", "error"]);
 
@@ -200,8 +258,8 @@ export function queryErrors(runsDir: string, runId: string): ErrorEvents {
   if (!existsSync(paths.meta)) throw runNotFound(runId);
 
   const matched = readEvents(paths.events).filter((e) => FAILURE_LEVELS.has(e.level));
-  const { items, truncated } = capTail(matched, EVENTS_LIMIT);
-  return { run_id: runId, events: items, truncated };
+  const { items, truncated, dropped } = capTail(matched, EVENTS_LIMIT);
+  return { run_id: runId, events: items, truncated, dropped };
 }
 
 // ---------------------------------------------------------------------------
@@ -209,7 +267,7 @@ export function queryErrors(runsDir: string, runId: string): ErrorEvents {
 // ---------------------------------------------------------------------------
 
 export type DriftGroup = { capability: string; field: string; count: number };
-export type QueryDriftResult = { groups: DriftGroup[]; truncated: boolean };
+export type QueryDriftResult = { groups: DriftGroup[]; truncated: boolean; dropped: number };
 
 /**
  * `parse.miss` events across every run, grouped by the run's capability
@@ -253,6 +311,6 @@ export function queryDrift(runsDir: string, o: { sinceMs?: number; now?: number 
   const groups = [...counts.values()].sort(
     (a, b) => b.count - a.count || a.capability.localeCompare(b.capability) || a.field.localeCompare(b.field),
   );
-  const truncated = groups.length > DRIFT_GROUP_LIMIT;
-  return { groups: groups.slice(0, DRIFT_GROUP_LIMIT), truncated };
+  const capped = capHead(groups, DRIFT_GROUP_LIMIT);
+  return { groups: capped.items, truncated: capped.truncated, dropped: capped.dropped };
 }
