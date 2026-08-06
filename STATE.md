@@ -489,7 +489,10 @@ laid out in 1550ms over 3 polls, scrolled 1399px in 2 passes — the full scroll
   `about`, `full_name`, `current_company`, `vanity`. Every path resolves in the snapshot it
   was built from — pinned by a test that runs each one back through a selector.
 - **`voyagerIdentityDashProfiles` returns the operator's own urn, not the subject's (D126).**
-  The body's urn is byte-identical to the one in `/voyager/api/me`
+  The request settles it structurally, not just the response:
+  `variables=(memberIdentity:ACoAAE1JGFIB…)` — the operator's own urn is the **input**. That
+  call is the session resolving itself on every page; it could never have returned the
+  prospect. The body's urn is byte-identical to the one in `/voyager/api/me`
   (`publicIdentifier: "zaeem-dev"`). D121 recorded that path as the subject's identity without
   ever comparing the two. Sweeping all 27 archived bodies: no non-operator profile urn outside
   the notifications card and the messaging thread list, both private endpoints, neither the
@@ -512,9 +515,13 @@ returned 17 urns of which 16 were sidebar strangers (D119's trap inside the func
 expose it), and `location` matched `105,570 followers`, which satisfies the comma-shape rule
 cleanly. A third was found by a test: a snapshot in which only one card rendered resolved a
 profile id of `<id>Topcard`, which passes the id shape and would have produced a confidently
-wrong urn for a real person.
+wrong urn for a real person. A fourth was found during verification, in the fix for the third:
+a single card whose name `KNOWN_CARDS` does not list escaped the same way, resolving a urn
+wrong by seventeen characters with an empty card list and no warning. A candidate id that
+names no cards is now `null`; the regression test is verified to fail against the unguarded
+version.
 
-Proven: 702/702 offline, typecheck clean (76 new tests). Among them — `SNAPSHOT_EXPRESSION`
+Proven: 704/704 offline, typecheck clean (78 new tests). Among them — `SNAPSHOT_EXPRESSION`
 executed as real JavaScript against a stub document carrying the live probe's own numbers,
 including the null-on-a-dead-context path; `captureDomSnapshot` against the real `RawArchive`
 in temp dirs, with byte-identical read-back and the probe-failed / archive-failed split;
@@ -641,8 +648,9 @@ subject's urn is available in the DOM instead, from the SDUI card-ref namespace 
 card shares (D127), corroborated by the member urn on the top card's own action buttons. The
 options are: key on the DOM-derived urn (available now, and the card-ref namespace is the most
 stable thing on the page), key on the vanity slug (stable-ish but reassignable, and §7 keys on
-urn), or find a Voyager call that actually resolves a *stranger's* identity (none observed
-across four live loads). `CLAUDE.md` and the spec addendum are annotated with the finding, not
+urn), or find a Voyager call that actually resolves a *stranger's* identity — and note the one we
+had is structurally the wrong shape (it takes a member identity and returns that member),
+not merely unobserved. `CLAUDE.md` and the spec addendum are annotated with the finding, not
 rewritten — changing D123's source is the operator's call.
 
 - **Task 17 — parser: DOM content** (`tasks/task-17-profile-parser.md`, Opus). Has its

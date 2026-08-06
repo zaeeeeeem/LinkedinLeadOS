@@ -1472,6 +1472,23 @@ Run `01KZJ5N27BPGY3AWGQ8FTB0C3J`, a cold load of `/in/tankots/`, captured the bo
 
     urn:li:fsd_profile:ACoAAE1JGFIBwVzih4BX7SXeW9WLwcBP6lmQE3s
 
+**Sharpened 2026-08-09, same day, from the sidecar: the request proves it structurally.** The
+url that body answered is
+
+    /voyager/api/graphql?includeWebMetadata=true
+      &variables=(memberIdentity:ACoAAE1JGFIBwVzih4BX7SXeW9WLwcBP6lmQE3s)
+      &queryId=voyagerIdentityDashProfiles.b5c27c04968c409fc0ed3546575b9b7a
+
+The operator's own urn is the **input**. This call is the session resolving itself, which it
+does on every page; it takes a member identity and returns that member. It could not have
+returned the prospect under any circumstances, on any profile, ever. What follows is not "this
+endpoint happened to answer with the wrong person" but "this endpoint was never a subject
+lookup", and no amount of re-running it would have shown otherwise.
+
+That also downgrades the third option below. "Find a Voyager call that resolves a stranger's
+identity" is not "none seen across four live loads" — it is that the one call we had is
+structurally the wrong shape, and nothing observed points at another.
+
 and `/voyager/api/me`, in the same run, carries
 `urn:li:fs_miniProfile:ACoAAE1JGFIBwVzih4BX7SXeW9WLwcBP6lmQE3s` with
 `publicIdentifier: "zaeem-dev"` — **the operator's own account.** The same key, on a page
@@ -1529,6 +1546,16 @@ which passes the id shape and yields a confidently wrong urn — a known card-na
 peeled off first. And a boundary cut in the wrong place shows up as card names that are not
 ones this build has seen (`ATopcard`, `ZAbout`), which the field map reports and, past half of
 them, tells the reader not to key anything on.
+
+**Amended 2026-08-09, same day: a candidate id that names no cards is not an id.** The
+peel above handles a single card whose name `KNOWN_CARDS` lists. A single card whose name it
+does **not** list leaves that name stuck on the prefix, and `<id>BrandNewCardName` passes the
+id shape cleanly — so the resolver returned a real person keyed on a urn wrong by seventeen
+characters, with an empty card list and no warning anywhere, which is the worst of the three
+possible outcomes. The id is *defined* as the namespace the cards share, so the cards confirm
+it: zero cards now resolves `null`. It does not over-fire — two refs make the common prefix
+end at the id, so LinkedIn shipping a new card name costs nothing. Regression-tested, and the
+test verified to fail against the unguarded version.
 
 **Rejected.** Scoping by `main#workspace` alone (measured: contains the sidebar). Scoping by
 class name (they are content-hashed — `_3bbeb416` — and churn every deploy; nothing here reads

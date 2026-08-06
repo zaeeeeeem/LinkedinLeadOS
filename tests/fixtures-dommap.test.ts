@@ -129,6 +129,38 @@ describe("resolveSubjectScope", () => {
     expect(scope.cards.map((c) => c.name)).toEqual(["Topcard"]);
   });
 
+  it("resolves nothing when the only card's name is one this build does not know", () => {
+    // The last way this could be confidently wrong, and `peelCardName` did not
+    // close it: with one card ref the common prefix is `<id><CardName>`, and if
+    // that name is not in KNOWN_CARDS it stays stuck on the end and passes the
+    // id shape. It returned `urn:li:fsd_profile:<id>BrandNewCardName` for a real
+    // person, with an empty card list and no warning anywhere. The cards are
+    // what confirm the id, so no cards means no id.
+    const unknown = page(card("BrandNewCardName", "<h2>Someone Real</h2>"));
+    const scope = resolveSubjectScope(cheerio.load(unknown));
+    expect(scope.profileId).toBeNull();
+    expect(scope.profileUrn).toBeNull();
+    expect(scope.cards).toEqual([]);
+
+    // And the map says so out loud rather than offering a wrong urn.
+    const md = renderDomFieldMap({
+      file: "x.html", bytes: 1, sourceRun: "r", map: buildDomFieldMap(unknown),
+    });
+    expect(md).toContain("No subject scope could be resolved");
+    expect(md).not.toContain("BrandNewCardName");
+  });
+
+  it("still resolves when an unknown card sits alongside a known one", () => {
+    // The guard must not over-fire: two refs make the common prefix end at the
+    // id, so LinkedIn shipping a new card name costs nothing.
+    const scope = resolveSubjectScope(
+      cheerio.load(page(card("BrandNewCardName", "<p>x</p>"), card("Topcard", TOPCARD_INNER))),
+    );
+    expect(scope.profileId).toBe(SUBJECT_ID);
+    expect(scope.cards.map((c) => c.name).sort()).toEqual(["BrandNewCardName", "Topcard"]);
+    expect(scope.unrecognisedCards).toEqual(["BrandNewCardName"]);
+  });
+
   it("resolves nothing, rather than guessing, on a page with no card refs", () => {
     const scope = resolveSubjectScope(cheerio.load("<html><body><main><h2>Someone</h2></main></body></html>"));
     expect(scope.profileId).toBeNull();

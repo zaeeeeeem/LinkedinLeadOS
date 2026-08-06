@@ -239,8 +239,16 @@ function cssEscapeQuotes(value: string): string {
  * The id is taken as the longest common prefix of every `AC…` card ref suffix.
  * With twenty-odd cards whose names diverge at the first character, that prefix
  * is exactly the profile id and nothing else — no id length is hardcoded, and a
- * page carrying two subjects shows up as a shorter prefix and a
- * `distinctProfileIds` above one rather than as a confident wrong answer.
+ * page carrying two subjects shows up as a prefix too short to be an id, so this
+ * resolves nothing rather than resolving somebody who does not exist.
+ *
+ * **A candidate that names no cards is not an id.** The id is *defined* here as
+ * the namespace the profile cards share, so the cards are what confirm it. That
+ * guard is what closes the last way this could be confidently wrong: a snapshot
+ * with a single card whose name `KNOWN_CARDS` does not list leaves the card name
+ * stuck on the end of the prefix, and `<id>BrandNewCardName` passes the id shape
+ * cleanly. Before the guard that returned a real person keyed on a urn that was
+ * wrong by seventeen characters, with an empty card list and no warning at all.
  */
 export function resolveSubjectScope($: cheerio.CheerioAPI): SubjectScope {
   const refs: Array<{ key: string; suffix: string; el: Element }> = [];
@@ -256,13 +264,13 @@ export function resolveSubjectScope($: cheerio.CheerioAPI): SubjectScope {
 
   const suffixes = refs.map((r) => r.suffix);
   const prefix = peelCardName(longestCommonPrefix(suffixes));
-  const profileId = PROFILE_ID.test(prefix) ? prefix : null;
+  const candidateId = PROFILE_ID.test(prefix) ? prefix : null;
 
   const seen = new Set<string>();
   const cards: CardRef[] = [];
   for (const ref of refs) {
-    if (profileId === null || !ref.suffix.startsWith(profileId)) continue;
-    const name = ref.suffix.slice(profileId.length);
+    if (candidateId === null || !ref.suffix.startsWith(candidateId)) continue;
+    const name = ref.suffix.slice(candidateId.length);
     if (name === "" || seen.has(name)) continue;
     seen.add(name);
     cards.push({
@@ -274,6 +282,10 @@ export function resolveSubjectScope($: cheerio.CheerioAPI): SubjectScope {
       stranger: (STRANGER_CARDS as readonly string[]).includes(name),
     });
   }
+
+  // The cards confirm the id, so no cards means no id. See the note above: this
+  // is what stops a single unlisted card name from being carried into the urn.
+  const profileId = cards.length > 0 ? candidateId : null;
 
   // The subject's member urn, in LinkedIn's other identity spelling. It rides on
   // the top card's Connect/Follow buttons — `ConnectButtonstate:invitation:
