@@ -1602,3 +1602,73 @@ relative path, the promoter runs, `tsc` is clean. Nothing in a working tree can 
 is untracked, and `git status` said "clean" precisely *because* the file was ignored. The
 general shape: an ignore rule silently widening beyond its intent produces no error anywhere,
 and the only symptom is on a machine that does not have the working tree.
+
+## D130 — identity comes from the DOM too; the profile reader has one source, not two (operator decision, 2026-08-09)
+
+**Supersedes the identity half of D123.** The content half of D123 is unchanged and stands.
+
+**Numbering note.** Task 16 owns D120–D129 (D18) and all ten are used. This is an operator
+decision taken in the Task 16 session that governs Task 17, so it takes D130 and **Task 17's
+reserved range becomes D131–D139**. Recorded here and in `STATE.md` so the next session does
+not collide.
+
+**Decision.** `profile.get` reads the subject's urn from the rendered DOM snapshot, from the
+SDUI card-ref namespace every profile card shares (D127):
+
+    componentkey="com.linkedin.sdui.profile.card.ref<PROFILE_ID><CardName>"
+
+giving `urn:li:fsd_profile:<PROFILE_ID>`. §7's schema is untouched — that is a real profile
+urn of the form `persons.urn` already holds, so no migration is edited (D99). The vanity slug
+and the member urn on the top card's action buttons are stored alongside as corroboration,
+not as the key.
+
+**Why the previous answer stopped being available.** D123 put identity on
+`voyagerIdentityDashProfiles` on the reasoning that keying must not depend on a source that
+churns. D126 established that this endpoint takes `memberIdentity=<the operator's own urn>` as
+its **input** and returns that member: it is the session identifying itself on every page, and
+it cannot return a stranger on any profile. Across one live run, zero of 27 archived bodies
+carried the subject's urn; the only non-operator profile urns were in the notifications card
+and the messaging thread list, both private endpoints (D118), neither the subject. There is no
+Voyager source to prefer, so D123's split cannot be honoured as written.
+
+**Why the DOM is acceptable for a key here, given D123 refused exactly this.** D123's objection
+was that a DOM parser breaks silently, and a silently wrong *key* is the worst failure this
+project has — it writes a row under the wrong person and nothing ever notices. That objection
+is answered by the failure direction rather than by the drift rate:
+
+- The resolver returns `null` when it cannot resolve, never a guess. Three separate ways it
+  could have returned a confident wrong id were found and closed while building it — an
+  unscoped member urn collecting sidebar strangers, a single known card leaving its name on
+  the id, and a single *unknown* card doing the same (D127, amended). Each is regression-tested
+  and each test is verified to fail against the unguarded version.
+- A candidate id that names no cards is not an id. The id is *defined* as the namespace the
+  cards share, so the cards confirm it.
+- A capture with no resolvable identity reports that on the receipt and stores nothing, rather
+  than storing content under a key it invented.
+
+So the realistic failure is "LinkedIn changed the attribute scheme and the run stops", which
+costs a manual fix, not "the database quietly gains a wrong row", which costs the dataset.
+
+**Why not the vanity slug.** It is available before the page even loads, which is genuinely
+attractive. D104 already settled why it cannot be a key: vanity is reassignable and not unique,
+which is why `findPersonByVanity` returns the newest match plus a count instead of an answer. A
+person who changes their slug reads as a new person; a slug reclaimed by someone else merges
+two people. It would also mean changing the schema's primary key, and D99 forbids editing that
+migration.
+
+**Why not keep hunting for a Voyager source.** Each attempt is a real page load on the one
+account. Four live loads have produced no candidate, and the one that looked like a candidate
+is structurally incapable of it (D126). Spending account activity on a search with no lead is
+not a trade this project makes.
+
+**What this does not license.** The DOM is a sanctioned source for the profile reader
+specifically — content (D123) and now identity — and nowhere else. Every other capability, and
+every other kind of field, still reads data only from captured network bodies (D1). Reading a
+data field off the RSC flight tree by position stays forbidden (D121). Identity rows are tagged
+DOM-sourced like content rows, so nothing downstream can mistake either for a labeled API field.
+
+**Corroboration, not fallback.** The member urn (`urn:li:member:<id>`, from the top card's own
+Connect and Follow buttons) and the vanity slug are both captured and stored. They are a
+cross-check — a stored person whose vanity and urn disagree on a later capture is a finding
+worth surfacing — not a chain to fall back through. Falling back to a weaker key on a bad day
+is how a dataset ends up with two spellings of one person.

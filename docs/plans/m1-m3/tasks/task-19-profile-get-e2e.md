@@ -9,7 +9,7 @@
 ## Objective
 
 The first complete reader: `profile.get` composes freshness check → cold-load capture (with
-DOM snapshot) → parse (Voyager identity + DOM content) → store → receipt into one capability,
+DOM snapshot) → parse (identity + content, both from the snapshot — D130) → store → receipt into one capability,
 proving M1–M3 end to end on one capability.
 
 ## Constraints

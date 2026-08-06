@@ -599,6 +599,9 @@ the cold load already shipped. No SPA navigation. The tail is re-cut (new Task 1
 snapshot capture, Task 17 = parser, Task 19 = wire e2e). History below stands as the measured
 record that forced the decision. Decisions D120–D123.
 
+> The identity half of that decision was falsified by Task 16's own live run and replaced by
+> D130 — identity comes from the DOM too. See the Task 16 entry above and `## Next`.
+
 **D116 probe — run `01KZJ09FEEYGY8WYDD3RQA0BH2`, `/in/tankots/`.** Exit 0, no challenge,
 29.9s, 1 page load, **0 profile opens** (the ref was inside its 24h dedupe window), 26
 responses archived, 0 misses, lease released. `documentPattern` worked: the navigation
@@ -636,29 +639,30 @@ throwing inside the tap's listener, and that a run-time `specific` pattern is no
 unpredicted — that last one fails against the pre-fix `summarizeCaptures`.
 
 ## Next
-**Task 16 is done and the fixture exists.** `fixtures/profile.get/` now holds
-`438312a3d613045a-dom-snapshot.html` (875,285 bytes) and a `FIELD-MAP.md` naming real,
-verified CSS paths to headline, location, experience, education, skills, about, name and
-company. That is what Task 17 is written against.
+**The identity question is settled (D130, operator decision 2026-08-09): identity comes from
+the DOM too.** The profile reader now has one source, not two — the subject's urn is
+`urn:li:fsd_profile:<PROFILE_ID>` where `PROFILE_ID` is the namespace every profile card's
+`componentkey` agrees on (D127), resolved from agreement across cards so it resolves or returns
+nothing. §7's schema is untouched: that is a real profile urn of the form `persons.urn` already
+holds, so no migration is edited (D99). Vanity and the top card's member urn are stored as
+corroboration, never as a fallback key (D104).
 
-**Needs an operator decision before Task 17 keys anything (D126).** D123 put identity on
-`voyagerIdentityDashProfiles`. That body returns the **operator's own** urn — measured, and
-identical to `/voyager/api/me` — and no captured body in the run carried the subject's. The
-subject's urn is available in the DOM instead, from the SDUI card-ref namespace every profile
-card shares (D127), corroborated by the member urn on the top card's own action buttons. The
-options are: key on the DOM-derived urn (available now, and the card-ref namespace is the most
-stable thing on the page), key on the vanity slug (stable-ish but reassignable, and §7 keys on
-urn), or find a Voyager call that actually resolves a *stranger's* identity — and note the one we
-had is structurally the wrong shape (it takes a member identity and returns that member),
-not merely unobserved. `CLAUDE.md` and the spec addendum are annotated with the finding, not
-rewritten — changing D123's source is the operator's call.
+Rejected, with reasons on the record in D130: keying on vanity (reassignable, not unique, and
+would change the primary key), and hunting for another Voyager source (four live loads, no
+candidate, and the one that looked like a candidate takes the operator's own urn as input).
 
-- **Task 17 — parser: DOM content** (`tasks/task-17-profile-parser.md`, Opus). Has its
-  fixture. Content from the snapshot scoped by card-ref namespace, not by container position
-  (D127 — the page's only `aside` is *inside* `main#workspace`, so D123's stated container
-  rationale does not hold). Every content row tagged DOM-sourced. **Its identity half is
-  blocked on the decision above.** Its task file still says "identity from the Voyager body"
-  and needs re-cutting once that is settled.
+Updated with that decision: `CLAUDE.md`'s network-tap rule, the spec's 2026-08-09 addendum, and
+`tasks/task-17-profile-parser.md`. No code changed — `resolveSubjectScope` already produces the
+urn, and Task 16's live fixture resolves it.
+
+**Decision-number ranges.** D130 was taken by this operator decision, so **Task 17 owns
+D131–D139** rather than D130–D139 (D18).
+
+- **Task 17 — profile parser** (`tasks/task-17-profile-parser.md`, Opus). Re-cut for D130 and
+  unblocked. Has its fixture and its field map. Identity and content both from the snapshot,
+  scoped by card-ref namespace; no Voyager body is read for the subject. Its sharpest acceptance
+  criteria are the refusal cases: fed the `SuggestedForYou` card in isolation it must extract
+  nothing, and with the card refs deleted it must produce no row rather than a vanity-keyed one.
 - **Task 19 — wire `profile.get` end to end** (`tasks/task-19-profile-get-e2e.md`, Opus) = M3 gate.
 - **Task 18 — log queries** (`tasks/task-18-log-queries.md`, Sonnet) — independent, unaffected,
   in progress in a worktree.

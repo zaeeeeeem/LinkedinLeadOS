@@ -71,10 +71,17 @@ apart from the "people also viewed" suggestions, and D128 for what the `basis` c
 ### Identity
 
 `voyagerIdentityDashProfiles` **does not return the subject's urn** — it returns the
-operator's own, and D121 recorded otherwise only because nothing compared it to
-`/voyager/api/me`. See D126. The check runs on every capture and reports its answer; the
-subject's actual identity is in the snapshot (D127). Which source `profile.get` should key
-on is open and is the operator's decision.
+operator's own. The request settles it: `variables=(memberIdentity:<the operator's own urn>)`
+is the *input*, so the call is the session identifying itself and cannot return a stranger.
+D121 recorded otherwise only because nothing compared its answer to `/voyager/api/me`. See
+D126.
+
+The check still runs on every capture and reports its answer — `IDENTITY_URN_IS_SESSION` is
+currently expected on every run, and is kept because a change in that answer would be worth
+knowing about. **The subject's identity comes from the DOM snapshot instead (D130):** the SDUI
+card-ref namespace every profile card agrees on, yielding `urn:li:fsd_profile:<PROFILE_ID>`
+(D127). `resolveSubjectScope` in `src/core/fixtures/dommap.ts` derives it, and returns `null`
+rather than guessing.
 
 ### The two pattern tiers
 

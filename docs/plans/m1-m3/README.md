@@ -41,21 +41,31 @@ files those tell it to read. It never needs the whole plan.
 13 supabase schema (independent) ─► 14 store client
 15 capture (DONE; proved the cold-load Voyager dead end — D116/D121)
 16 DOM snapshot capture + fixture (needs 15; adds outerHTML snapshot to the cold load; live)
-   └─► 17 parser: DOM content + Voyager identity (needs 16's fixture, 14)
+   └─► 17 parser: identity + content, both from the DOM snapshot (needs 16's fixture, 14)
         └─► 19 profile.get end to end = M3 gate (needs 14, 16, 17)
 18 log queries (needs 12,14) — independent, anytime after 12
 ```
 
 Tasks 5, 6, 7 have no dependency on each other and can run in any order after 1.
 
-**2026-08-09 source-of-truth change (D123).** Live probes proved a cold load of
+**2026-08-09 source-of-truth change (D123, then D130).** Live probes proved a cold load of
 `/in/<vanity>` carries no content-bearing Voyager response — the content is in the rendered
-DOM (D121). The operator's decision (D123): **identity from the Voyager identity body,
-content from a rendered-DOM snapshot**, both on the existing cold load — no SPA navigation,
-no Voyager-content probe (that was theatre over a DOM read for most targets). The tail was
-re-cut: old Task 16 (parser) and Task 17 (wire e2e) are replaced by Task 16 (DOM snapshot
-capture + fixture), Task 17 (parser: DOM content + Voyager identity, content rows tagged),
-and Task 19 (wire e2e, renumbered). Task 18 is unchanged.
+DOM (D121). D123 decided content from a rendered-DOM snapshot, identity from the Voyager
+identity body, both on the existing cold load: no SPA navigation, no Voyager-content probe
+(that was theatre over a DOM read for most targets). The tail was re-cut: old Task 16 (parser)
+and Task 17 (wire e2e) became Task 16 (DOM snapshot capture + fixture), Task 17 (parser) and
+Task 19 (wire e2e, renumbered). Task 18 is unchanged.
+
+**Task 16's live run then falsified the identity half (D126).**
+`voyagerIdentityDashProfiles` takes the *operator's own* urn as its input and returns that
+member — it cannot return a stranger, and zero of 27 archived bodies carried the subject's
+urn. **D130 (operator decision): identity comes from the DOM snapshot too**, from the SDUI
+card-ref namespace every profile card agrees on (D127), resolved-or-nothing. The profile
+reader now has one source. Task 17 is re-cut accordingly; §7's schema is unchanged because
+that namespace yields a real `urn:li:fsd_profile:`.
+
+**Decision-number ranges:** D130 was taken by that operator decision, so Task 17 owns
+D131–D139 rather than D130–D139 (D18).
 
 ## Model assignment
 
@@ -65,7 +75,7 @@ back weak, re-run the task on Opus — do not hand-patch.
 | Model | Tasks |
 |---|---|
 | **Sonnet** | 1 (done) · 5 tab lease · 6 events+context · 7 archive+hash · 13 schema · 14 store client · 18 log queries |
-| **Opus** | 2 chrome launcher · 3 cdp client · 4 session+tab · 8 human input · 9 network tap · 10 challenge · 11 budget · 12 registry+CLI · 15 capture · 16 DOM snapshot capture · 17 parser (DOM content + Voyager identity) · 19 wire e2e |
+| **Opus** | 2 chrome launcher · 3 cdp client · 4 session+tab · 8 human input · 9 network tap · 10 challenge · 11 budget · 12 registry+CLI · 15 capture · 16 DOM snapshot capture · 17 parser (identity + content, both DOM) · 19 wire e2e |
 
 ## Review protocol
 

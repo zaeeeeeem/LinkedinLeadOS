@@ -587,20 +587,35 @@ the fetch usually does not fire (D121) and the run falls to the DOM anyway — a
 for the extra navigation and a DOM write into LinkedIn's page. Cost and pacing (budget
 ledger, human input, dwell) are as in Task 15.
 
-### Source split (D123)
+### Source (D123 content, D130 identity — revised 2026-08-09 after the live run)
 
-Two sources, by role, not a fallback chain:
+> The first version of this section split the reader in two: identity from
+> `voyagerIdentityDashProfiles`, content from the DOM. **The identity half was wrong.** That
+> endpoint takes `memberIdentity=<the operator's own urn>` as its *input* and returns that
+> member — it is the session identifying itself on every page and cannot return a stranger
+> (D126). Zero of 27 bodies archived on a live cold load carried the subject's urn. D121
+> recorded the endpoint as solving identity without ever comparing its answer to
+> `/voyager/api/me`. Kept visible rather than deleted, because the reasoning that led there
+> was sound and only the measurement was missing.
 
-- **Identity — Voyager JSON.** The subject's stable urn (§7) comes from
-  `voyagerIdentityDashProfiles` → `identityDashProfilesByMemberIdentity["*elements"][0]`, a
-  real Voyager body that answers on the cold load (D121). Keying, freshness and dedupe run
-  on this. Document embedded structured JSON (D117) is read where genuinely addressable.
-- **Content — rendered DOM.** Headline, location, positions come from a DOM snapshot
-  (`outerHTML` after layout settles, archived, parsed offline), scoped to the subject's main
-  container so a sidebar suggestion is never read as the subject. Every content row is tagged
-  DOM-sourced and carries the same parse-drift exit code (5) and field warnings as any
-  parser. Never the RSC flight tree by position.
+**One source: the DOM snapshot** — `outerHTML` after layout settles, archived raw, parsed
+offline. Both the subject's identity and their content come from it, addressed differently:
 
-The subject's main container is distinguishable from the "people also viewed" sidebar in the
-rendered DOM (`main#workspace` / top card vs. a sidebar `aside`) — the distinction the
-position-indexed flight tree could not provide (D121).
+- **Identity (D130).** The subject's urn (§7) is `urn:li:fsd_profile:<PROFILE_ID>`, where
+  `PROFILE_ID` is the namespace every profile card's `componentkey` agrees on:
+  `com.linkedin.sdui.profile.card.ref<PROFILE_ID><CardName>` (D127). Resolved from agreement
+  across cards, so it resolves or returns nothing; it never guesses. Keying, freshness and
+  dedupe run on it. The vanity slug and the top card's member urn are stored as corroboration,
+  never as a fallback key (D104: vanity is reassignable and not unique).
+- **Content (D123).** Name, headline, location and positions come from the subject's own cards
+  in that same namespace. Every row is tagged DOM-sourced and carries the same parse-drift exit
+  code (5) and field warnings as any parser. Never the RSC flight tree by position (D121).
+
+**Scoping is by card name, not by container position.** The earlier claim that the subject's
+container is distinguishable from the "people also viewed" sidebar as `main#workspace` vs. an
+`aside` is not what the page does — the live snapshot's only `aside` is *inside*
+`main#workspace`, and the suggestions live in a `SuggestedForYou` card namespaced by the
+subject's own id. The card name is what separates them (D127).
+
+Document embedded structured JSON (D117) remains readable where genuinely addressable; on this
+page it is not (D121).

@@ -56,25 +56,36 @@ drafting) · L5 orchestration (campaigns, sequences, schedulers) · MCP surface 
   data* may be read — the JSON LinkedIn server-renders into the document, addressed by
   a path into that parsed JSON. See D117.
 
-  **Source split for the profile reader (D123).** Identity — the subject's stable urn that
-  keying, freshness and dedupe run on — comes from the Voyager `voyagerIdentityDashProfiles`
-  body (and the document's embedded structured JSON per D117 where present).
+  **The profile reader is the one exception, and it reads the DOM (D123 content, D130
+  identity).** Both the subject's content — headline, location, positions — and the subject's
+  **identity**, the urn that keying, freshness and dedupe run on, come from a **DOM snapshot**:
+  `outerHTML` captured after layout settles, archived raw like any body, parsed offline. Never
+  a live `innerHTML` read, never the RSC flight tree by position (D121).
 
-  > **Falsified 2026-08-09, identity half only — see D126.** That body returns the
-  > **operator's own** urn, not the subject's; it is `profiles *by member identity*`, and the
-  > member is the logged-in one. Measured on a live cold load: the urn it returned was
-  > byte-identical to the one in `/voyager/api/me`. No captured body in that run carried the
-  > subject's urn. The subject's identity is in the DOM instead, in the SDUI card-ref
-  > namespace every profile card shares (D127). **Open — the replacement source is the
-  > operator's call, not a session's.** The content half of D123 is unaffected and stands.
+  Within that snapshot the two are addressed differently, and the difference is the safety
+  argument:
 
-  Content —
-  headline, location, positions — is read from a **DOM snapshot** (`outerHTML` captured after
-  layout settles, archived like any body, parsed offline), scoped to the subject's main
-  container, and every content row is tagged DOM-sourced. This is the one place a data field
-  may be read off the DOM. DOM reads for navigation, pagination state, challenge detection,
-  and render confirmation are unchanged and always allowed. Reading a data field off the DOM
-  anywhere else — or off the RSC flight tree by position (D121) — stays forbidden.
+  - **Identity** comes from the SDUI card-ref namespace every profile card shares —
+    `componentkey="com.linkedin.sdui.profile.card.ref<PROFILE_ID><CardName>"` — which yields
+    `urn:li:fsd_profile:<PROFILE_ID>` (D127). It is resolved from agreement across the cards,
+    so it either resolves or returns `null`; it never guesses. A capture with no resolvable
+    identity stores nothing rather than storing content under an invented key.
+  - **Content** is scoped to the subject's own cards by that same namespace, which is what
+    keeps a "people also viewed" stranger out. Container position does **not** do this — the
+    page's only `aside` sits inside `main#workspace`.
+
+  Every row from the snapshot, identity and content alike, is tagged DOM-sourced so nothing
+  downstream mistakes it for a labeled API field.
+
+  Why an exception exists at all: no Voyager endpoint carries a *stranger's* profile on a cold
+  load. `voyagerIdentityDashProfiles` looked like one and is not — it takes the operator's own
+  urn as input and returns the operator (D126). This is measured across four live loads, not
+  assumed.
+
+  **This exception is the profile reader and nothing else.** Every other capability, and every
+  other kind of field, still takes data only from captured network bodies. DOM reads for
+  navigation, pagination state, challenge detection and render confirmation are unchanged and
+  always allowed everywhere.
 - **Never forge a request LinkedIn's own UI did not already issue.** No direct Voyager calls
   with the session cookie, however tempting.
 - **Raw first.** Archive the untouched response body before parsing anything. Parsed rows are
