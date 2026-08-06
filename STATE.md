@@ -648,6 +648,43 @@ default of 3 scroll passes, archived truthfully, and surfaced `PARSE_FIELD_MISSI
 it did not satisfy the gate, so the verified gate used the existing full-read flag rather than
 changing Task 16's pacing/safety defaults.
 
+Task 20 — per-capability daily budget sub-caps, and the launcher's empty-context reuse bug
+(M4 unblocker). Decisions D160–D164; closes B5.
+
+**Sub-caps (D153).** `src/core/budget/constants.ts` gains `CapabilitySubCaps`,
+`DEFAULT_CAPABILITY_SUB_CAPS` (150 page loads / 25 search pages / 60 distinct profiles per
+day), a `CAPABILITY_SUB_CAPS` table (`profile.capture` and `profile.get` at 200/0/90) and
+`subCapsFor()`, which never returns uncapped — a capability absent from the table gets the
+fallback (D162). `evaluate` in `ledger.ts` now checks the global §8 limits first and the
+capability's own daily sub-cap second, counted over that capability's own ledger lines only;
+both refuse with `BUDGET_EXCEEDED` / exit 7, and the evidence carries
+`scope: "global" | "capability"` (D160). `capability` is required on `CheckInput`, so a
+preflight cannot silently skip half the caps (D161); `RunBudget.check` binds it from the run.
+`profile_open` dedupe is per scope (D163). No ledger format change — spend records already
+carried `capability`.
+
+**B5/D164.** `hasLiveTarget()` in `src/core/chrome/discovery.ts` (a plain `/json/list` GET,
+never throws); `ensureChrome`'s reuse path accepts an endpoint only if it returns at least one
+target, otherwise falls through to the unchanged launch path. Attach surface untouched.
+
+Proven: 818/818 offline (45 new — 31→45 in `budget-ledger.test.ts`, 17→23 in
+`chrome-discovery.test.ts`, 1 new compose test in `cli-registry.test.ts`), typecheck clean, no
+LinkedIn or browser contact anywhere in them. Tests pin: the sub-cap trips exactly at its
+boundary while the global limits stay open for other capabilities; the global limit still trips
+and still says "global" when sub-caps are roomy; 6 racing spends against a sub-cap of 2 land
+exactly 2, over 5 trials; an override above a sub-cap is ignored and one below is honoured; a
+capability's own lines are the only ones its sub-cap counts. The **pre-Task-20 ledger** case runs
+against `tests/fixtures-budget/pre-task-20-budget.ndjson` — the real M3 ledger copied verbatim
+except that `ref` values are redacted (captured LinkedIn data is never committed) — and asserts it
+parses, counts, evaluates per capability, and is appended to without its old records changing.
+The compose test walks every capability the CLI actually loads and asserts its declared cost fits
+inside its own sub-cap (`profile.get` spends under its own name despite delegating to
+`profile.capture`, which is the omission this catches). Both new guards were verified to bite by
+reverting them: the B5 revert fails 2 launcher tests, a too-small sub-cap fails the compose test.
+
+Not verified live, and it does not need a live run: both changes are pure L0. The launcher guard's
+real-Chrome behaviour is the operator's next cold start (see Next).
+
 ## In progress
 Task 15 — capture fixture. **Offline complete. Two live runs done. Both found bugs in this
 task's own code. Not Built: the captures do not contain the profile, and D116 is open.**
@@ -759,6 +796,14 @@ offline parser+store tasks and a live default-flags gate. Execution has not star
 the first to dispatch, on Opus, per the m1-m3 execution protocol (fresh subagent, TDD, Opus
 reviewer after each). Read `docs/plans/m4-l1-readers/README.md` then `CONTEXT.md` before
 dispatching.
+
+**Task 20 is done (see Built).** The next task to dispatch is **Task 21**, the first probe.
+
+**Operator check on the next real Chrome use:** the launcher's reuse decision changed. A normal
+run should behave exactly as before (`launched: false` against the Chrome already on 9223). The
+new path only shows up if that Chrome ever has all its windows closed — it will now relaunch
+instead of attaching to a browser that fails every command. Nothing else in this commit touches
+the browser.
 
 **Leftover:** none. The live M3 gate and cache check both exited 0, `runs/tab.lock` is absent,
 and the automation Chrome remains available on port 9223.

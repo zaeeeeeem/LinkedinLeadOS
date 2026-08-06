@@ -52,3 +52,61 @@ export const LEDGER_LOCK_STALE_MS = 5_000;
 export const LEDGER_LOCK_TIMEOUT_MS = 3_000;
 
 export const LEDGER_LOCK_POLL_MS = 20;
+
+/**
+ * A single capability's own daily ceiling, evaluated *in addition to* the
+ * global `BudgetLimits` above (D153). The global limits protect the account;
+ * these protect every other capability from one runaway reader — a pagination
+ * loop that does not terminate, or a `--limit` that bounds output but not
+ * work, trips its own cap at exit 7 long before it can drain the shared 400.
+ *
+ * Daily only, deliberately: the hourly window already exists globally and is
+ * the pacing guard; the sub-cap is a blast-radius guard, and a blast radius is
+ * a per-day quantity.
+ */
+export type CapabilitySubCaps = {
+  pageLoadsPerDay: number;
+  searchPagesPerDay: number;
+  distinctProfilesPerDay: number;
+};
+
+/**
+ * The cap a capability with no entry in `CAPABILITY_SUB_CAPS` gets. Every
+ * capability is capped: a new reader added without touching this file must
+ * land capped rather than uncapped, because "uncapped by omission" is exactly
+ * the failure D153 exists to prevent. Each number is a fraction of the §8
+ * global for the same kind (150/400, 25/50, 60/120), so one bad reader can
+ * spend at most roughly a third of the day before its own cap stops it.
+ */
+export const DEFAULT_CAPABILITY_SUB_CAPS: CapabilitySubCaps = {
+  pageLoadsPerDay: 150,
+  searchPagesPerDay: 25,
+  distinctProfilesPerDay: 60,
+};
+
+/**
+ * Per-capability tuning. Only capabilities whose caps should differ from
+ * `DEFAULT_CAPABILITY_SUB_CAPS` appear here; absence is not an exemption.
+ *
+ * A table entry is not an "override" in the §8 sense — it is the capability's
+ * default, and it may sit above the fallback. The lower-only rule (§8) governs
+ * per-invocation overrides passed to `check`/`spend`, which can never raise the
+ * number resolved here.
+ */
+export const CAPABILITY_SUB_CAPS: Readonly<Record<string, CapabilitySubCaps>> = {
+  // The primary L1 reader: allowed more page loads than the fallback because
+  // it is the capability the day's work actually runs through, and zero search
+  // pages because it never issues a search — a search spend recorded under this
+  // name would mean the capability is doing something it was not built to do.
+  "profile.capture": { pageLoadsPerDay: 200, searchPagesPerDay: 0, distinctProfilesPerDay: 90 },
+  // profile.get delegates to profile.capture's `run`, but the RunBudget it
+  // passes down is bound to *its own* name, so its loads land on ledger lines
+  // reading `capability: "profile.get"`. It therefore needs its own entry:
+  // inheriting profile.capture's would silently leave it on the fallback.
+  "profile.get": { pageLoadsPerDay: 200, searchPagesPerDay: 0, distinctProfilesPerDay: 90 },
+};
+
+/** The daily sub-caps in force for one capability. Never returns uncapped. */
+export function subCapsFor(capability: string): CapabilitySubCaps {
+  return CAPABILITY_SUB_CAPS[capability] ?? DEFAULT_CAPABILITY_SUB_CAPS;
+}

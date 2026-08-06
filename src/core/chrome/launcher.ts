@@ -9,7 +9,7 @@ import {
   LAUNCH_POLL_INTERVAL_MS,
   LAUNCH_TIMEOUT_MS,
 } from "./constants.js";
-import { assertNotPersonalChrome, discoverBrowserWsUrl } from "./discovery.js";
+import { assertNotPersonalChrome, discoverBrowserWsUrl, hasLiveTarget } from "./discovery.js";
 
 export type ChromeEndpoint = {
   /** The debug port the endpoint was found on. */
@@ -91,8 +91,16 @@ export async function ensureChrome(opts: EnsureChromeOptions = {}): Promise<Chro
   // convention this module enforces at launch, not something it can verify on
   // reuse. Accepted knowingly; the 9222 guard is what keeps the dangerous
   // mistake — the operator's personal Chrome — out of reach.
+  //
+  // `/json/version` answering is necessary but not sufficient (B5/D122): a
+  // Chrome whose windows have all been closed still answers it while every
+  // browser-level command on it fails. One extra loopback GET on the reuse
+  // path settles that; an empty target list falls through to the launch path
+  // below, which already reports a profile held by another process properly.
+  // Discovery on the launch path is deliberately unchanged.
   try {
-    return { port, wsUrl: await discoverBrowserWsUrl(port), launched: false };
+    const wsUrl = await discoverBrowserWsUrl(port);
+    if (await hasLiveTarget(port)) return { port, wsUrl, launched: false };
   } catch (e) {
     if (e instanceof CapabilityError && !e.retryable) throw e;
   }

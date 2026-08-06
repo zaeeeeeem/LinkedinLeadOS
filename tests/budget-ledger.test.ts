@@ -5,8 +5,11 @@ import { join } from "node:path";
 import { check, spend, usage, BudgetLedger, type SpendRecord } from "../src/core/budget/ledger.js";
 import { CapabilityError, EXIT } from "../src/core/run/receipt.js";
 import {
+  CAPABILITY_SUB_CAPS,
   COMPACTION_RETENTION_MS,
   DEFAULT_BUDGET_LIMITS,
+  DEFAULT_CAPABILITY_SUB_CAPS,
+  subCapsFor,
   LEDGER_LOCK_STALE_MS,
   LEDGER_LOCK_TIMEOUT_MS,
 } from "../src/core/budget/constants.js";
@@ -218,14 +221,14 @@ describe("limit overrides can only lower a limit", () => {
       Array.from({ length: DEFAULT_BUDGET_LIMITS.pageLoadsPerHour }, () => ({ kind: "page_load" as const })),
     );
     const err = await asErr(
-      check({ kind: "page_load", path, limits: { pageLoadsPerHour: 10_000 } }),
+      check({ capability: "c", kind: "page_load", path, limits: { pageLoadsPerHour: 10_000 } }),
     );
     expect(err.code).toBe("BUDGET_EXCEEDED");
   });
 
   it("applies an override that lowers the default", async () => {
     await plant([{ kind: "page_load" }, { kind: "page_load" }]);
-    const err = await asErr(check({ kind: "page_load", path, limits: { pageLoadsPerHour: 2 } }));
+    const err = await asErr(check({ capability: "c", kind: "page_load", path, limits: { pageLoadsPerHour: 2 } }));
     expect(err.code).toBe("BUDGET_EXCEEDED");
     expect(JSON.parse(err.evidence!).limit).toBe(2);
   });
@@ -233,7 +236,7 @@ describe("limit overrides can only lower a limit", () => {
 
 describe("check does not spend", () => {
   it("leaves the ledger untouched", async () => {
-    await check({ kind: "page_load", path });
+    await check({ capability: "c", kind: "page_load", path });
     const lines = await readLines().catch(() => []);
     expect(lines).toHaveLength(0);
   });
@@ -419,5 +422,249 @@ describe("corrupt-line evidence", () => {
     expect(err.code).toBe("BUDGET_LEDGER_CORRUPT");
     expect(err.evidence ?? "").not.toContain("SECRET123");
     expect(err.message).not.toContain("SECRET123");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Per-capability daily sub-caps (D153/D160-D163)
+// ---------------------------------------------------------------------------
+
+const scopeOf = (err: CapabilityError): unknown => JSON.parse(err.evidence!).scope;
+
+describe("per-capability daily sub-caps", () => {
+  it("trips exactly at the sub-cap boundary while the global limits stay untouched", async () => {
+    const now = Date.now();
+    const cap = DEFAULT_CAPABILITY_SUB_CAPS.pageLoadsPerDay;
+    // Spread across the day so the global hourly limit (60) is nowhere near,
+    // and `cap` < the global daily 400 — only the sub-cap can bite here.
+    await plant(
+      Array.from({ length: cap - 1 }, (_, i) => ({
+        kind: "page_load" as const,
+        capability: "runaway.reader",
+        ts: new Date(now - (i % 20) * 55 * 60 * 1000).toISOString(),
+      })),
+    );
+
+    const ok = await spend({
+      runId: "r", capability: "runaway.reader", kind: "page_load", path, now: new Date(now),
+    });
+    expect(ok.capability).toBe("runaway.reader");
+
+    const err = await asErr(
+      spend({ runId: "r", capability: "runaway.reader", kind: "page_load", path, now: new Date(now) }),
+    );
+    expect(err.code).toBe("BUDGET_EXCEEDED");
+    expect(err.exit).toBe(EXIT.BUDGET);
+    expect(err.action).toBe("HALT_AND_NOTIFY");
+    expect(err.retryable).toBe(false);
+    expect(scopeOf(err)).toBe("capability");
+    expect(JSON.parse(err.evidence!).capability).toBe("runaway.reader");
+    expect(JSON.parse(err.evidence!).limit).toBe(cap);
+    expect(err.message).toContain("runaway.reader");
+
+    // The point of the whole feature: the shared budget is still open for
+    // everyone else. `cap` page loads is well under the global daily 400.
+    await expect(
+      spend({ runId: "r", capability: "other.reader", kind: "page_load", path, now: new Date(now) }),
+    ).resolves.toBeDefined();
+    const snap = await usage({ path, now: new Date(now) });
+    expect(snap.pageLoadsToday).toBe(cap + 1);
+    expect(snap.pageLoadsToday).toBeLessThan(DEFAULT_BUDGET_LIMITS.pageLoadsPerDay);
+  });
+
+  it("still trips the global limit, named as global, when the sub-cap is roomy", async () => {
+    // The hourly 60 is below every sub-cap, so a single capability hits the
+    // global wall first and the receipt must say so.
+    await plant(
+      Array.from({ length: DEFAULT_BUDGET_LIMITS.pageLoadsPerHour }, () => ({
+        kind: "page_load" as const,
+        capability: "one.reader",
+      })),
+    );
+    const err = await asErr(spend({ runId: "r", capability: "one.reader", kind: "page_load", path }));
+    expect(err.code).toBe("BUDGET_EXCEEDED");
+    expect(scopeOf(err)).toBe("global");
+    expect(JSON.parse(err.evidence!).window).toBe("hour");
+    expect(err.message).toContain("global");
+  });
+
+  it("counts only the capability's own lines, so another capability's spend does not consume it", async () => {
+    const now = Date.now();
+    await plant(
+      Array.from({ length: 40 }, (_, i) => ({
+        kind: "page_load" as const,
+        capability: "noisy.neighbour",
+        ts: new Date(now - (i % 20) * 55 * 60 * 1000).toISOString(),
+      })),
+    );
+    await expect(
+      spend({
+        runId: "r", capability: "quiet.reader", kind: "page_load", path, now: new Date(now),
+        subCaps: { pageLoadsPerDay: 1 },
+      }),
+    ).resolves.toBeDefined();
+  });
+
+  it("applies the sub-cap to check() too, not only to spend()", async () => {
+    await plant([{ kind: "page_load", capability: "c1" }, { kind: "page_load", capability: "c1" }]);
+    const err = await asErr(
+      check({ capability: "c1", kind: "page_load", path, subCaps: { pageLoadsPerDay: 2 } }),
+    );
+    expect(err.code).toBe("BUDGET_EXCEEDED");
+    expect(scopeOf(err)).toBe("capability");
+    // check() is read-only even when it refuses.
+    expect(await readLines()).toHaveLength(2);
+  });
+
+  it("caps distinct profile opens per capability, and re-opening a ref it already opened stays free", async () => {
+    await plant([
+      { kind: "profile_open", capability: "reader.a", ref: "in:one" },
+      { kind: "profile_open", capability: "reader.a", ref: "in:two" },
+    ]);
+    // Already counted under this capability → free, however tight the sub-cap.
+    await expect(
+      spend({ runId: "r", capability: "reader.a", kind: "profile_open", ref: "in:one", path, subCaps: { distinctProfilesPerDay: 2 } }),
+    ).resolves.toBeDefined();
+    // A third distinct one is not.
+    const err = await asErr(
+      spend({ runId: "r", capability: "reader.a", kind: "profile_open", ref: "in:three", path, subCaps: { distinctProfilesPerDay: 2 } }),
+    );
+    expect(err.code).toBe("BUDGET_EXCEEDED");
+    expect(scopeOf(err)).toBe("capability");
+    // Another capability's ref is free globally but still costs a sub-cap unit,
+    // so a runaway reader cannot re-walk another run's day for nothing.
+    const err2 = await asErr(
+      spend({ runId: "r", capability: "reader.b", kind: "profile_open", ref: "in:one", path, subCaps: { distinctProfilesPerDay: 0 } }),
+    );
+    expect(scopeOf(err2)).toBe("capability");
+  });
+
+  it("caps search pages per capability", async () => {
+    await plant([{ kind: "search_page", capability: "search.reader", n: 5 }]);
+    const err = await asErr(
+      spend({ runId: "r", capability: "search.reader", kind: "search_page", path, subCaps: { searchPagesPerDay: 5 } }),
+    );
+    expect(err.code).toBe("BUDGET_EXCEEDED");
+    expect(scopeOf(err)).toBe("capability");
+    expect(JSON.parse(err.evidence!).limit).toBe(5);
+  });
+});
+
+describe("sub-cap overrides can only lower a sub-cap", () => {
+  it("ignores an override that raises the capability's cap", async () => {
+    const now = Date.now();
+    const cap = DEFAULT_CAPABILITY_SUB_CAPS.pageLoadsPerDay;
+    await plant(
+      Array.from({ length: cap }, (_, i) => ({
+        kind: "page_load" as const,
+        capability: "greedy.reader",
+        ts: new Date(now - (i % 20) * 55 * 60 * 1000).toISOString(),
+      })),
+    );
+    const err = await asErr(
+      spend({
+        runId: "r", capability: "greedy.reader", kind: "page_load", path,
+        now: new Date(now), subCaps: { pageLoadsPerDay: 10_000 },
+      }),
+    );
+    expect(err.code).toBe("BUDGET_EXCEEDED");
+    expect(scopeOf(err)).toBe("capability");
+    expect(JSON.parse(err.evidence!).limit).toBe(cap); // the default, not 10_000
+  });
+
+  it("honours an override that lowers the capability's cap", async () => {
+    await plant([{ kind: "page_load", capability: "polite.reader" }]);
+    const err = await asErr(
+      spend({ runId: "r", capability: "polite.reader", kind: "page_load", path, subCaps: { pageLoadsPerDay: 1 } }),
+    );
+    expect(JSON.parse(err.evidence!).limit).toBe(1);
+  });
+
+  it("takes a table entry over the fallback, and the table entry may sit above it", () => {
+    expect(subCapsFor("profile.capture").pageLoadsPerDay).toBe(200);
+    expect(subCapsFor("profile.capture").pageLoadsPerDay).toBeGreaterThan(
+      DEFAULT_CAPABILITY_SUB_CAPS.pageLoadsPerDay,
+    );
+    expect(subCapsFor("never.registered")).toEqual(DEFAULT_CAPABILITY_SUB_CAPS);
+  });
+
+  it("every sub-cap is strictly inside the global limit it sits under", () => {
+    for (const caps of [DEFAULT_CAPABILITY_SUB_CAPS, ...Object.values(CAPABILITY_SUB_CAPS)]) {
+      expect(caps.pageLoadsPerDay).toBeLessThan(DEFAULT_BUDGET_LIMITS.pageLoadsPerDay);
+      expect(caps.searchPagesPerDay).toBeLessThanOrEqual(DEFAULT_BUDGET_LIMITS.searchPagesPerDay);
+      expect(caps.distinctProfilesPerDay).toBeLessThan(DEFAULT_BUDGET_LIMITS.distinctProfilesPerDay);
+    }
+  });
+});
+
+describe("racing spends against one sub-cap", () => {
+  it("lands exactly the capped count, never more, when several run at once", async () => {
+    // Same harness shape as the global racing test: the sub-cap is the only
+    // limit in reach (2 « the global 60/hour), so anything over 2 fulfilled
+    // spends means the lock is not covering the sub-cap evaluation.
+    for (let trial = 0; trial < 5; trial++) {
+      const trialDir = await mkdtemp(join(tmpdir(), "budget-subcap-race-"));
+      const trialPath = join(trialDir, "budget.ndjson");
+      const results = await Promise.allSettled(
+        Array.from({ length: 6 }, (_, i) =>
+          spend({
+            runId: `racer-${i}`, capability: "raced.reader", kind: "page_load",
+            path: trialPath, subCaps: { pageLoadsPerDay: 2 },
+          }),
+        ),
+      );
+      const fulfilled = results.filter((r) => r.status === "fulfilled");
+      expect(fulfilled).toHaveLength(2);
+      for (const r of results.filter((x) => x.status === "rejected")) {
+        expect((r as PromiseRejectedResult).reason.code).toBe("BUDGET_EXCEEDED");
+      }
+      const lines = (await readFile(trialPath, "utf8")).trim().split("\n").filter((l) => l !== "");
+      expect(lines).toHaveLength(2);
+      await rm(trialDir, { recursive: true, force: true });
+    }
+  }, 20_000);
+});
+
+describe("a ledger file written before sub-caps existed", () => {
+  // The real ledger from the M3 live runs, copied verbatim except that the
+  // `ref` values (LinkedIn vanity handles) are replaced with opaque
+  // placeholders — captured LinkedIn data is never committed. Every other
+  // field, and the record shape, is exactly what the pre-Task-20 writer
+  // produced: no migration, no new field.
+  const fixture = new URL("./fixtures-budget/pre-task-20-budget.ndjson", import.meta.url);
+  // Just after the fixture's newest line, so all of it is inside the day window.
+  const asOf = new Date("2026-08-09T12:00:00.000Z");
+
+  beforeEach(async () => {
+    await writeFile(path, await readFile(fixture, "utf8"), "utf8");
+  });
+
+  it("parses with no format change and counts the same as before", async () => {
+    const snap = await usage({ path, now: asOf });
+    // 7 page loads across two capabilities (5 profile.capture + 2 profile.get),
+    // all inside the day window at `asOf`, and one distinct profile between them.
+    expect(snap.pageLoadsToday).toBe(7);
+    expect(snap.distinctProfilesToday).toBe(1);
+  });
+
+  it("evaluates old lines against the new sub-caps, attributed to the capability that wrote them", async () => {
+    // Two of the fixture's page loads are profile.get's; a sub-cap of 2 is
+    // therefore already met for profile.get and untouched for anyone else.
+    const err = await asErr(
+      check({ capability: "profile.get", kind: "page_load", path, now: asOf, subCaps: { pageLoadsPerDay: 2 } }),
+    );
+    expect(err.code).toBe("BUDGET_EXCEEDED");
+    expect(scopeOf(err)).toBe("capability");
+    await expect(
+      check({ capability: "profile.posts", kind: "page_load", path, now: asOf, subCaps: { pageLoadsPerDay: 2 } }),
+    ).resolves.toBeUndefined();
+  });
+
+  it("spends onto it without rewriting the old records' shape", async () => {
+    const before = await readLines();
+    await spend({ runId: "r", capability: "profile.get", kind: "page_load", path, now: asOf });
+    const after = await readLines();
+    expect(after).toHaveLength(before.length + 1);
+    expect(after.slice(0, before.length)).toEqual(before);
   });
 });

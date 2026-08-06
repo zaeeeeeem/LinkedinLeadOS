@@ -85,6 +85,38 @@ export async function discoverBrowserWsUrl(
   return wsUrl;
 }
 
+/**
+ * Does this Chrome still have at least one target (B5)? A running automation
+ * Chrome whose windows have all been closed answers `/json/version` normally
+ * and returns an empty `/json/list`; on that process every browser-level
+ * command fails ("Browser context management is not supported"), so preflight
+ * dies at `Storage.getCookies` with a retryable `CDP_PROTOCOL_ERROR` that no
+ * retry can ever fix — the condition holds until someone restarts Chrome.
+ *
+ * Never throws: anything short of a parsed, non-empty array is `false`. An
+ * unreachable or malformed `/json/list` did not answer "at least one target",
+ * and treating "cannot tell" as healthy is what produced B5's misleading
+ * receipt in the first place. `false` costs at most a launch attempt, which
+ * already reports the real environment problem; `true` costs an attach to a
+ * browser that cannot serve a single command.
+ */
+export async function hasLiveTarget(
+  port: number,
+  timeoutMs: number = PROBE_TIMEOUT_MS,
+): Promise<boolean> {
+  assertNotPersonalChrome(port);
+  try {
+    const res = await fetch(`http://127.0.0.1:${port}/json/list`, {
+      signal: AbortSignal.timeout(timeoutMs),
+    });
+    if (!res.ok) return false;
+    const parsed: unknown = JSON.parse(await res.text());
+    return Array.isArray(parsed) && parsed.length > 0;
+  } catch {
+    return false;
+  }
+}
+
 /** Cheap "is our Chrome serving CDP here" probe. Never throws for a down endpoint. */
 export async function isChromeUp(
   port: number,

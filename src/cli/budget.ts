@@ -56,7 +56,10 @@ export class RunBudget {
    */
   async check(o: SpendArgs): Promise<void> {
     this.assertUnderInvocationCap(o);
-    await this.ledger.check(o);
+    // The capability is bound here, not passed by the caller, for the same
+    // reason `spend` binds it: a capability cannot preflight against another
+    // capability's daily sub-cap (D153) even by mistake.
+    await this.ledger.check({ ...o, capability: this.capability });
   }
 
   async spend(o: SpendArgs): Promise<SpendRecord> {

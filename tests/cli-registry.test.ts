@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { z } from "zod";
-import { defineCapability } from "../src/cli/types.js";
+import { defineCapability, type CostEstimate } from "../src/cli/types.js";
+import { subCapsFor } from "../src/core/budget/constants.js";
 import { CAPABILITIES_DIR, Registry, loadCapabilities } from "../src/cli/registry.js";
 import { CapabilityError, EXIT } from "../src/core/run/receipt.js";
 
@@ -122,6 +123,32 @@ describe("loadCapabilities", () => {
       expect(typeof def.run).toBe("function");
       expect(typeof def.cost).toBe("function");
       expect(CAPABILITIES_DIR.pathname).toContain("capabilities");
+    }
+  });
+});
+
+describe("every real capability's cost fits inside its own daily sub-cap", () => {
+  // First place the registry and the budget constants meet. A capability whose
+  // declared per-invocation cost exceeds its own sub-cap (D153) could never
+  // complete a single invocation — it would refuse at exit 7 on its first
+  // spend, forever, and nothing else in the suite would notice. `profile.get`
+  // spends under its own name even though it delegates to `profile.capture`,
+  // which is exactly the case a per-capability table gets wrong by omission.
+  it("holds for every capability the CLI actually loads", async () => {
+    const r = await loadCapabilities();
+    for (const def of r.all()) {
+      let cost: CostEstimate;
+      try {
+        cost = def.cost({});
+      } catch {
+        continue; // cannot be costed without arguments; nothing to compare
+      }
+      const caps = subCapsFor(def.name);
+      expect.soft(caps.pageLoadsPerDay, `${def.name} page loads`).toBeGreaterThanOrEqual(cost.page_loads);
+      expect.soft(caps.searchPagesPerDay, `${def.name} search pages`).toBeGreaterThanOrEqual(cost.search_pages);
+      expect.soft(caps.distinctProfilesPerDay, `${def.name} profile opens`).toBeGreaterThanOrEqual(
+        cost.profile_opens ?? 0,
+      );
     }
   });
 });

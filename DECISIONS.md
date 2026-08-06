@@ -1891,3 +1891,79 @@ per-capability cap turns that blast radius from "the account for the day" into "
 reader for the day", which is a receipt the operator can act on. Rejected: relying on the
 global cap alone (blast radius too large) and rejected: tighter global caps (would throttle
 legitimate mixed workloads to protect against one bad actor).
+
+## D160 — the global limit is evaluated before the sub-cap, and one exit code covers both (2026-08-09)
+
+**Decision.** `evaluate` checks the §8 global limits first and the per-capability daily
+sub-cap (D153) second. Both refuse with the same `BUDGET_EXCEEDED` / exit 7 /
+`HALT_AND_NOTIFY` / non-retryable error; the *evidence* carries `scope: "global"` or
+`scope: "capability"` plus the capability name, and the message names it in words.
+
+**Why.** One code per distinct operator action: in both cases the operator stops and the
+run is over, so splitting the code would make callers branch on something they cannot act
+on differently. What *does* differ is the fix — wait out the day versus go look at one
+runaway reader — and that is evidence, not classification. Global first because if the
+account-wide budget is gone that is the larger fact, and because it keeps every message an
+existing global refusal already produced unchanged now that a second cap exists.
+Rejected: a separate `BUDGET_CAPABILITY_EXCEEDED` code (a new code for the same action) and
+sub-cap-first (would report "one reader is out" while the whole account was actually out).
+
+## D161 — `capability` is required on `check`, not optional (2026-08-09)
+
+**Decision.** `CheckInput` requires `capability`, so `check()` and `spend()` take it alike;
+`RunBudget` binds it from the run rather than accepting it from the caller.
+
+**Why.** The sub-cap is keyed on the capability. An optional field means a caller that omits
+it gets a preflight that silently evaluates only half the caps and returns "you have room" —
+a fail-open in the one module whose entire job is to fail closed. Making it required moves
+that from a runtime hazard to a compile error. The cost is a one-line change at the four
+existing call sites. Rejected: defaulting to a `"unknown"` bucket (all uncredited spend
+would then share one cap and the receipt would name a capability nobody ran).
+
+## D162 — every capability is sub-capped, including ones absent from the table (2026-08-09)
+
+**Decision.** `subCapsFor(name)` returns `CAPABILITY_SUB_CAPS[name] ?? DEFAULT_CAPABILITY_SUB_CAPS`
+— 150 page loads, 25 search pages, 60 distinct profiles per day. A table entry is the
+capability's own default and may sit *above* the fallback (`profile.capture` and
+`profile.get` are at 200/0/90); the §8 lower-only rule governs per-invocation `subCaps`
+overrides, which can never raise the resolved number.
+
+**Why.** M4 adds ten readers. If absence from a constants table meant "uncapped", the first
+new reader written by someone who did not read this file would land uncapped — and an
+uncapped reader is exactly the failure D153 exists to prevent. Absence is not an exemption.
+The fallback numbers are roughly a third of each §8 global, so one bad reader burns a third
+of the day at worst. Rejected: requiring an entry per capability and throwing without one
+(turns a missing constant into a runtime failure of an otherwise-correct capability).
+
+## D163 — a profile another capability opened still costs this capability a sub-cap unit (2026-08-09)
+
+**Decision.** `profile_open` dedupe is per scope. A ref already opened today is free against
+the global 120; against the sub-cap it is free only if *this capability* already opened it.
+
+**Why.** Global dedupe exists so the account is not charged twice for one view — that is a
+LinkedIn-facing fact and it is unchanged. The sub-cap is a blast-radius guard, and with
+shared dedupe a runaway reader could re-walk every profile another run opened today at zero
+sub-cap cost, which is the exact loop the sub-cap exists to stop. Rejected: sharing the
+dedupe set (leaves the runaway case uncapped).
+
+## D164 — the launcher's reuse path requires a live target; the launch path is unchanged (2026-08-09)
+
+**Decision.** B5 as settled: on the reuse path only, `ensureChrome` accepts an endpoint only
+if `GET /json/list` returns at least one target. `hasLiveTarget` never throws — an
+unreachable, non-200, non-array or empty list is all `false` — and any `false` falls through
+to the existing launch path. Discovery on the launch path, and the attach surface, are
+untouched.
+
+**Why (for the "cannot tell" case, which BACKLOG did not settle).** Treating an unreadable
+`/json/list` as healthy is the same reasoning that produced B5's misleading receipt: a
+`false` costs at most one launch attempt, which reports the real environment problem with a
+fatal code, while a wrong `true` hands preflight a browser on which every browser-level
+command fails behind a retryable code no retry can fix.
+
+**Residual, recorded rather than fixed.** In the B5 condition the fall-through spawns Chrome
+against the same `--user-data-dir`; the running instance takes the handoff and normally opens
+a window, which is what restores the target. If it does not, the launch path's discovery
+(unchanged, by B5's terms) still answers and returns `launched: true` on a browser that may
+still have no context — the next invocation then relaunches again rather than wedging. Making
+the launch path also require a target would change discovery on that path, which B5 explicitly
+put out of scope.
