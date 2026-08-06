@@ -1821,3 +1821,35 @@ the number dropped. It is now the number dropped, and `dropped` is on `data` as 
 **Never zero rows.** A single event wider than the whole budget is returned anyway. Returning
 nothing because one row is too big would be the silent-empty result this capability exists to
 prevent.
+
+## D150 — the primary person write precedes its parse-drift mirror (2026-08-09)
+
+**Decision.** `profile.get` writes the person and experience rows first, then inserts the
+parser's warnings into `parse_drift`. If the second write fails, the run fails with the store
+layer's unchanged classification and `partial.stored` names the exact person/experience rows
+that already landed.
+
+**Why this order.** `parse_drift` is the queryable mirror of `parse.miss` events; the event is
+already on disk before either database write. Writing drift first creates a worse retry shape:
+the primary write can then fail, and retrying appends the same drift observations again because
+the table intentionally has no uniqueness key. Writing the primary rows first makes the only
+partial state a complete, fresh person plus a missing auxiliary mirror; the receipt exposes it,
+and the durable run event still feeds `log.drift`.
+
+Rejected: swallowing the drift-store failure as an ok receipt. The task requires the mirror,
+and reporting success would make a database outage indistinguishable from zero parser warnings.
+Rejected: adding a transaction/RPC solely for these two writes — that would add schema and
+runtime surface for an observability mirror whose source event is already durable.
+
+## D151 — a vanity cache hit must be unambiguous (2026-08-09)
+
+**Decision.** Before loading a `/in/<vanity>` page, `profile.get` serves a fresh cached person
+only when `findPersonByVanity` reports exactly one match. More than one match falls through to
+the live capture, whose card-ref namespace resolves the current subject urn. A Sales Navigator
+lead id is looked up by its `urn:li:fsd_profile:<id>` spelling instead.
+
+**Why.** D104 records that vanity is reassignable and deliberately non-unique. Returning the
+newest row is useful for inspection, but it is not identity resolution; a cache shortcut that
+treated it as one could serve the prior owner of a reclaimed slug without any page evidence.
+The safe failure direction costs one page load and produces a real urn rather than returning a
+fresh wrong person.

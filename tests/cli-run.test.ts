@@ -11,6 +11,7 @@ import { HumanCursor, type InputTarget } from "../src/core/input/cursor.js";
 import { inspectLease } from "../src/core/lease/tab-lease.js";
 import { RunContext } from "../src/core/run/context.js";
 import { CapabilityError, EXIT, type ExitCode } from "../src/core/run/receipt.js";
+import { StoreWriteError } from "../src/core/store/persons.js";
 import { BrowserSession } from "../src/core/session/session.js";
 import { WorkerTab } from "../src/core/session/tab.js";
 import type { TapTransport } from "../src/core/tap/network-tap.js";
@@ -305,6 +306,22 @@ describe("failure classes reach the exit code their receipt names", () => {
     const events = readFileSync(join(paths.runsDir, receipt.run_id, "events.ndjson"), "utf8")
       .trim().split("\n").map((l) => JSON.parse(l));
     expect(events.some((e) => e.event === "error" && e.detail.code === "RATE_LIMITED")).toBe(true);
+  });
+
+  it("puts a store writer's exact partial row count on the failure receipt", async () => {
+    const def = okCapability({
+      run: async () => {
+        throw new StoreWriteError(new CapabilityError({
+          code: "STORE_UNAVAILABLE", exit: EXIT.TRANSIENT, action: "RETRY_BACKOFF",
+          retryable: true, message: "store stopped after the experience write",
+        }), 2);
+      },
+    });
+    const { receipt, exit } = await invoke({ def }).outcome;
+    expect(exit).toBe(EXIT.TRANSIENT);
+    expect(receipt.ok).toBe(false);
+    if (receipt.ok) return;
+    expect(receipt.partial).toEqual({ stored: 2 });
   });
 });
 

@@ -617,6 +617,37 @@ log.errors --run=<unknown>` returns `RUN_NOT_FOUND`/exit 1; `cap log.drift` retu
 0 with an empty group list against an archive with no `parse.miss` events yet (Task 16/17,
 which will produce them, are not built).
 
+Task 19 — `profile.get` end to end, the M3 gate. `src/capabilities/profile.get/` composes the
+Task 14 freshness/store path, Task 16's existing `profile.capture.run`, and Task 17's pure DOM
+snapshot parser. A fresh unambiguous vanity (or Sales Navigator urn) returns from Supabase with
+zero page loads; a miss cold-loads and archives, refuses untrusted identity at exit 5 with the
+snapshot path as evidence, stores person plus full experience, writes parser warnings as both
+`parse.miss` events and `parse_drift` rows, and reports identity/content as the single
+`dom-snapshot` source (D130). `--no-store` still archives, parses and logs. Store partial failures
+reach `partial.stored` through Task 14's `StoreWriteError` count; primary rows precede the drift
+mirror (D150), and vanity cache hits require exactly one match (D151). The README documents flags,
+cost, failure mapping and SQL recipes.
+
+Proven offline 2026-08-09: 797/797 tests pass, typecheck clean. Ten new `profile.get` tests cover
+the freshness short-circuit, capture→parse→store composition, DOM-source receipt, non-fatal
+warning persistence, unresolved/session identity and lost-snapshot exit-5 mappings, archive-only
+`--no-store`, and a post-person drift failure reporting 2 stored rows. Four drift-writer tests
+drive the real current `supabase-js` over stub PostgREST, including its 512-row bound; the runner
+regression proves `StoreWriteError.stored` reaches the receipt.
+
+Live M3 gate 2026-08-09, operator-supervised, `/in/tankots/`: run
+`01KZK3ZNTMAKNK80R2YY39KSBQ` with the supported `--scrolls=12` returned exit 0 in 34.4s,
+archived 26 network responses plus one DOM snapshot, missed 0, spent exactly 1 page load and 1
+deduped profile open, and stored 1 person + 6 experience rows (7 total), with identity and content
+both reported `dom-snapshot`. An independent Supabase query confirmed 1 person, 6 experience
+rows, headline and location present; the ledger held the two expected spend records; 27 gzip
+bodies and 27 sidecars were present; the lease was free. Immediate run
+`01KZK41VAHD3905545T3HABFDT` returned from cache in 136ms with captured 0, page loads 0,
+experience rows 6 and no budget record. The first live attempt used the capture's randomized
+default of 3 scroll passes, archived truthfully, and surfaced `PARSE_FIELD_MISSING(experience)`;
+it did not satisfy the gate, so the verified gate used the existing full-read flag rather than
+changing Task 16's pacing/safety defaults.
+
 ## In progress
 Task 15 — capture fixture. **Offline complete. Two live runs done. Both found bugs in this
 task's own code. Not Built: the captures do not contain the profile, and D116 is open.**
@@ -719,29 +750,10 @@ throwing inside the tap's listener, and that a run-time `specific` pattern is no
 unpredicted — that last one fails against the pre-fix `summarizeCaptures`.
 
 ## Next
-**The identity question is settled (D130, operator decision 2026-08-09): identity comes from
-the DOM too.** The profile reader now has one source, not two — the subject's urn is
-`urn:li:fsd_profile:<PROFILE_ID>` where `PROFILE_ID` is the namespace every profile card's
-`componentkey` agrees on (D127), resolved from agreement across cards so it resolves or returns
-nothing. §7's schema is untouched: that is a real profile urn of the form `persons.urn` already
-holds, so no migration is edited (D99). Vanity and the top card's member urn are stored as
-corroboration, never as a fallback key (D104).
 
-Rejected, with reasons on the record in D130: keying on vanity (reassignable, not unique, and
-would change the primary key), and hunting for another Voyager source (four live loads, no
-candidate, and the one that looked like a candidate takes the operator's own urn as input).
+M1–M3 are complete. Next is the M4 planning/design pass for the remaining L1 readers (company,
+posts, jobs, feed and inbox) against the proven `profile.get` composition. No M4 task file has
+been selected yet.
 
-Updated with that decision: `CLAUDE.md`'s network-tap rule, the spec's 2026-08-09 addendum, and
-`tasks/task-17-profile-parser.md`. Task 17 now implements it; `resolveSubjectScope` produces the
-urn and the parser refuses every untrusted identity outcome before exposing a store projection.
-
-**Decision-number ranges.** D130 was taken by this operator decision; Task 17 used D131–D133
-from its D131–D139 range (D18).
-
-- **Task 19 — wire `profile.get` end to end** (`tasks/task-19-profile-get-e2e.md`, Opus) = M3 gate.
-- **Task 18 — log queries** (`tasks/task-18-log-queries.md`, Sonnet) — independent, unaffected,
-  in progress in a worktree.
-
-**Leftover:** none. Run `01KZJ5N27BPGY3AWGQ8FTB0C3J` exited 0 with the lease released;
-`runs/tab.lock` is gone and the automation Chrome is healthy (5 targets, not the D122 empty
-state).
+**Leftover:** none. The live M3 gate and cache check both exited 0, `runs/tab.lock` is absent,
+and the automation Chrome remains available on port 9223.

@@ -4,6 +4,7 @@ import { HumanCursor } from "../core/input/cursor.js";
 import { acquireLease, forceReleaseLease, inspectLease, releaseLease } from "../core/lease/tab-lease.js";
 import { defaultLeasePath } from "../core/lease/constants.js";
 import { RunContext } from "../core/run/context.js";
+import { StoreWriteError } from "../core/store/persons.js";
 import {
   buildErr, buildOk, CapabilityError, EXIT,
 } from "../core/run/receipt.js";
@@ -249,6 +250,7 @@ export async function execute(o: ExecuteOptions): Promise<Outcome> {
     return finishWith(run, buildErr({
       run_id: run.runId, capability: def.name, err,
       cost: receiptCost(budget.spent, run.elapsedMs()),
+      ...(e instanceof StoreWriteError ? { partial: { stored: e.stored } } : {}),
     }));
   }
 }

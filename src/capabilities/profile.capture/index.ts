@@ -55,7 +55,7 @@ function worstOf(detections: ChallengeDetection[]): ChallengeDetection {
 /**
  * `profile.capture` — open one profile, archive everything the page fetches.
  *
- * This is the discovery capability behind `profile.get` (Task 17): it makes the
+ * This is the discovery capability behind `profile.get` (Task 19): it makes the
  * one real page load, keeps every response body raw (D2), and reports what the
  * page actually asked for so a parser can be written against reality rather than
  * against a remembered endpoint list. It parses nothing and stores nothing.

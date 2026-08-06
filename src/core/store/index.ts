@@ -13,6 +13,12 @@ export {
 } from "./config.js";
 export { isFresh, parseDuration } from "./freshness.js";
 export {
+  MAX_DRIFT_ROWS_PER_WRITE,
+  recordParseDrift,
+  type DriftStoreOpts,
+  type ParseDriftObservation,
+} from "./drift.js";
+export {
   findPersonByUrn,
   findPersonByVanity,
   StoreWriteError,

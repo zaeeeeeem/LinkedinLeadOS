@@ -5,6 +5,7 @@
 export const TABLES = {
   persons: "persons",
   personExperience: "person_experience",
+  parseDrift: "parse_drift",
 } as const;
 
 /** Env vars the store client reads. `.env.example` documents both. */
