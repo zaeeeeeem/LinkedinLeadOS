@@ -751,9 +751,14 @@ unpredicted — that last one fails against the pre-fix `summarizeCaptures`.
 
 ## Next
 
-M1–M3 are complete. Next is the M4 planning/design pass for the remaining L1 readers (company,
-posts, jobs, feed and inbox) against the proven `profile.get` composition. No M4 task file has
-been selected yet.
+M1–M3 are complete. **The M4 plan is written and approved** (`docs/plans/m4-l1-readers/`,
+2026-08-09): the remaining eleven L1 readers across five page surfaces, probe-first (D152) with
+per-capability daily sub-caps (D153). Fourteen task files (20–33): Task 20 (budget sub-caps +
+launcher B5 fix) is the unblocker and runs first; then per surface a live probe task feeds
+offline parser+store tasks and a live default-flags gate. Execution has not started — Task 20 is
+the first to dispatch, on Opus, per the m1-m3 execution protocol (fresh subagent, TDD, Opus
+reviewer after each). Read `docs/plans/m4-l1-readers/README.md` then `CONTEXT.md` before
+dispatching.
 
 **Leftover:** none. The live M3 gate and cache check both exited 0, `runs/tab.lock` is absent,
 and the automation Chrome remains available on port 9223.

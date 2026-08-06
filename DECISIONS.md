@@ -1853,3 +1853,41 @@ newest row is useful for inspection, but it is not identity resolution; a cache 
 treated it as one could serve the prior owner of a reclaimed slug without any page evidence.
 The safe failure direction costs one page load and produces a real urn rather than returning a
 fresh wrong person.
+
+## D152 — M4 makes probe-first mandatory: no parser before a real-load fixture exists (2026-08-09)
+
+**Decision.** Every M4 page surface gets a dedicated live probe task that runs *first* and
+whose only deliverable is measurement — every response body and a DOM snapshot archived, a
+`FIELD-MAP.md` whose every path is pinned by an offline test against the promoted fixture,
+and a per-field source verdict. No parser or store task for that surface may start until its
+fixture is on disk in the repo. A parser task file names its fixture; if the file is absent,
+the task is blocked, not begun.
+
+**Why.** Every expensive M1–M3 failure had one shape: a task built on an assumed LinkedIn
+data shape that a live probe later falsified. The profile parser was planned twice against
+Voyager JSON that does not exist on a cold load (D116, D121); the identity source was
+falsified by its own first live run (D126); the scroll model assumed the document scrolls
+(D115); the promoter shipped the operator's own inbox as the subject (D118/D119). Every task
+that began from a live measurement landed on the first try; every task that began from an
+assumption was re-cut and rebuilt. The sequence Task 15 → 16 → 17 → 19 is the one that
+worked, so M4 makes it structural rather than a thing a diligent agent might do. The
+alternative — embedding the probe inside each capability task — was rejected because it lets
+probe evidence and parse code share a commit, which is exactly how an assumption slips back
+in unreviewed.
+
+## D153 — per-capability daily budget sub-caps (2026-08-09)
+
+**Decision.** Each L1 reader gets its own daily spend cap in the budget ledger, evaluated in
+addition to the existing global limits (§8: 60/hr, 400/day, etc.). A runaway loop on one
+reader trips its own sub-cap at exit 7 long before it can exhaust the shared daily budget
+that every other capability draws from. The §8 override rule is unchanged: an override lowers
+a cap, never raises or bypasses it, and no flag bypasses the ledger.
+
+**Why.** M4 multiplies the number of distinct readers that spend against one shared ledger.
+With only global limits, a single mis-paced new reader — a pagination loop that does not
+terminate, a `--limit` that bounds output but not work — could burn the whole account's daily
+allowance before the global cap notices, taking every other capability down with it. A
+per-capability cap turns that blast radius from "the account for the day" into "this one
+reader for the day", which is a receipt the operator can act on. Rejected: relying on the
+global cap alone (blast radius too large) and rejected: tighter global caps (would throttle
+legitimate mixed workloads to protect against one bad actor).
