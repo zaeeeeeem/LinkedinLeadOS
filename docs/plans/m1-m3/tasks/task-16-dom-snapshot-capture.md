@@ -16,6 +16,12 @@
 > file asked for in the "not a silent zero" case. The subject's identity turned out to be in
 > the DOM, in the SDUI card-ref namespace (D127), and the field map names it. Replacing
 > D123's identity source is an operator decision and is left open.
+>
+> **Since resolved by D130**, and the receipt caught up in D130's amendment: identity comes
+> from the card-ref namespace, and `IDENTITY_URN_IS_SESSION` no longer exists — it would have
+> fired on every capture forever, so the Voyager check is a receipt *field* now, not a
+> warning. The identity warnings are `SUBJECT_IDENTITY_UNRESOLVED`,
+> `SUBJECT_IDENTITY_IS_SESSION` and `SUBJECT_CARD_NAMES_UNRECOGNISED`.
 
 ## Objective
 

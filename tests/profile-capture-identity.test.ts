@@ -1,10 +1,12 @@
 import { describe, expect, it } from "vitest";
 import {
   IDENTITY_MAX_NODES,
+  checkDomIdentity,
   checkIdentity,
   findSubjectUrn,
   isIdentityBody,
   isSessionBody,
+  sessionUrnsOf,
 } from "../src/capabilities/profile.capture/identity.js";
 import type { IdentityCapture } from "../src/capabilities/profile.capture/identity.js";
 import type { Capture } from "../src/core/tap/network-tap.js";
@@ -208,5 +210,117 @@ describe("checkIdentity", () => {
       sessionUrns: [SUBJECT_URN],
     });
     expect(f.isSession).toBe(true);
+  });
+});
+
+/**
+ * D130's half: the identity the capability actually keys on. Everything here is
+ * about one property — this either resolves or refuses, and never guesses. The
+ * confident-wrong-answer cases are the ones that matter, because a wrong urn is
+ * a real person stored under somebody else's key and nothing downstream can see
+ * it happen.
+ */
+describe("checkDomIdentity", () => {
+  const SUBJECT_ID = "ACoAAAsubject0000000000000000000000000";
+  const CARD_REF = "com.linkedin.sdui.profile.card.ref";
+
+  function page(...refs: string[]): string {
+    const cards = refs
+      .map((r) => `<section componentkey="${CARD_REF}${r}">x</section>`)
+      .join("");
+    return `<html><body><main id="workspace">${cards}</main></body></html>`;
+  }
+
+  const FULL = page(
+    `${SUBJECT_ID}Topcard`,
+    `${SUBJECT_ID}About`,
+    `${SUBJECT_ID}ExperienceTopLevelSection`,
+    `${SUBJECT_ID}SuggestedForYou`,
+    "tankotsActivity",
+  );
+
+  it("resolves the id every subject card agrees on", () => {
+    const f = checkDomIdentity(FULL);
+    expect(f.resolved).toBe(true);
+    expect(f.urnKind).toBe("urn:li:fsd_profile");
+    expect(f.cards).toBe(4);
+    expect(f.vanityKnown).toBe(true);
+    expect(f.unrecognisedCards).toEqual([]);
+    expect(f.isSession).toBe(false);
+  });
+
+  it("counts the cards that hold other people, which id-scoping does not exclude", () => {
+    // `SuggestedForYou` is namespaced by the *subject's* id (D127), so it is
+    // inside the scope the id defines and a parser has to drop it by name.
+    expect(checkDomIdentity(FULL).strangerCards).toBe(1);
+  });
+
+  it("never puts the id itself in the finding", () => {
+    expect(JSON.stringify(checkDomIdentity(FULL))).not.toContain(SUBJECT_ID);
+  });
+
+  it("refuses a page with no card refs at all", () => {
+    const f = checkDomIdentity("<html><body><main id=\"workspace\">nothing</main></body></html>");
+    expect(f.resolved).toBe(false);
+    expect(f.urnKind).toBeNull();
+    expect(f.cards).toBe(0);
+  });
+
+  it("refuses a single card whose name this build does not know", () => {
+    // The regression from D130's follow-up, at the layer the capability calls.
+    // One card cannot confirm an id boundary, so `<id>BrandNewCardName` must not
+    // become a urn — it is a real person keyed 17 characters wrong.
+    const f = checkDomIdentity(page(`${SUBJECT_ID}BrandNewCardName`));
+    expect(f.resolved).toBe(false);
+    expect(f.cards).toBe(0);
+  });
+
+  it("still resolves when a new card name arrives beside a known one, and reports it", () => {
+    const f = checkDomIdentity(page(`${SUBJECT_ID}Topcard`, `${SUBJECT_ID}BrandNewCardName`));
+    expect(f.resolved).toBe(true);
+    expect(f.unrecognisedCards).toEqual(["BrandNewCardName"]);
+  });
+
+  it("refuses a page carrying two different subjects", () => {
+    const other = "ACoAAAother00000000000000000000000000";
+    const f = checkDomIdentity(page(`${SUBJECT_ID}Topcard`, `${other}Topcard`));
+    expect(f.resolved).toBe(false);
+  });
+
+  it("reports an id that is the operator's own rather than accepting it", () => {
+    const f = checkDomIdentity(page(`${SUBJECT_ID}Topcard`, `${SUBJECT_ID}About`), {
+      sessionUrns: [`urn:li:fsd_profile:${SUBJECT_ID}`],
+    });
+    expect(f.resolved).toBe(true);
+    expect(f.isSession).toBe(true);
+  });
+
+  it("catches the operator in the member-urn spelling too", () => {
+    const html =
+      `<html><body><main id="workspace">` +
+      `<section componentkey="${CARD_REF}${SUBJECT_ID}Topcard">` +
+      `<button componentkey="ConnectButtonstate:invitation:urn:li:member:99_pending">c</button>` +
+      `</section>` +
+      `<section componentkey="${CARD_REF}${SUBJECT_ID}About">x</section>` +
+      `</main></body></html>`;
+    const f = checkDomIdentity(html, { sessionUrns: ["urn:li:member:99"] });
+    expect(f.memberUrns).toBe(1);
+    expect(f.isSession).toBe(true);
+  });
+
+  it("is total: null, empty and junk html all refuse instead of throwing", () => {
+    for (const html of [null, "", "<<<not html", "  "]) {
+      expect(checkDomIdentity(html).resolved).toBe(false);
+    }
+  });
+});
+
+describe("sessionUrnsOf", () => {
+  it("reads only the /voyager/api/me body, so a stranger cannot become the session", () => {
+    const urns = sessionUrnsOf([
+      { url: ME_URL, body: JSON.stringify({ miniProfile: { entityUrn: OPERATOR_URN } }) },
+      { url: IDENTITY_URL, body: identityBody(SUBJECT_URN) },
+    ]);
+    expect(urns).toEqual([OPERATOR_URN]);
   });
 });

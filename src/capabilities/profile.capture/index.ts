@@ -12,7 +12,7 @@ import { normalizeProfileUrl } from "./url.js";
 import { readLikeAHuman } from "./read.js";
 import { captureDomSnapshot } from "./snapshot.js";
 import type { DomSnapshotResult } from "./snapshot.js";
-import { checkIdentity } from "./identity.js";
+import { checkDomIdentity, checkIdentity, sessionUrnsOf } from "./identity.js";
 import {
   FIRST_CAPTURE_TIMEOUT_MS, SETTLE_MS_MAX, SETTLE_MS_MIN, SNAPSHOT_TIMEOUT_MS,
 } from "./constants.js";
@@ -292,32 +292,52 @@ export const capability = defineCapability({
       });
     }
 
-    // Identity: the other half of D123's split. Content without a subject urn is
-    // content that cannot be keyed, deduped, or aged — a first-class outcome.
-    const identity = checkIdentity(tap.captures());
-    if (identity.bodies === 0) {
+    // Identity (D130). The urn comes from the snapshot's card-ref namespace;
+    // content without a subject urn is content that cannot be keyed, deduped or
+    // aged, so failing to resolve one is a first-class outcome.
+    const sessionUrns = sessionUrnsOf(tap.captures());
+    const domIdentity = checkDomIdentity(snapshot?.probe?.html ?? null, { sessionUrns });
+
+    // The Voyager half runs as a measurement only. D126: that endpoint takes the
+    // operator's own urn as its input and returns that member, so it answers the
+    // same on every page. It is reported in `data.identity.voyager` and raises
+    // nothing — a warning that fires on every run is one nobody reads, and it
+    // would sit next to the identity warnings that do mean something.
+    const identity = checkIdentity(tap.captures(), { sessionUrns });
+
+    if (snapshot?.archived != null && !domIdentity.resolved) {
       warnings.push({
-        code: "IDENTITY_BODY_ABSENT",
+        code: "SUBJECT_IDENTITY_UNRESOLVED",
         n: 1,
         field:
-          "no voyagerIdentityDashProfiles response was captured, so this run has no subject " +
-          "urn to key the profile on (D123)",
+          `the snapshot is archived but no profile id resolved from the card-ref namespace ` +
+          `(${domIdentity.cards} subject cards agreed on one) — this capture cannot be keyed, ` +
+          `and nothing may be stored from it under a guessed urn (D130)`,
       });
-    } else if (!identity.found) {
+    }
+    if (domIdentity.isSession) {
+      // Must never happen: it would mean the page's own profile cards are
+      // namespaced by the operator. Reported rather than trusted, because this
+      // exact trap has now been found in three separate places (D119, D121, D126).
       warnings.push({
-        code: "IDENTITY_URN_ABSENT",
-        n: identity.bodies,
-        field:
-          `${identity.bodies} voyagerIdentityDashProfiles body/bodies were captured but none ` +
-          `carried a subject urn at identityDashProfilesByMemberIdentity — the endpoint moved (D121)`,
-      });
-    } else if (identity.isSession) {
-      warnings.push({
-        code: "IDENTITY_URN_IS_SESSION",
+        code: "SUBJECT_IDENTITY_IS_SESSION",
         n: 1,
         field:
-          `the urn at ${identity.path} is the logged-in operator's own, not the subject's — ` +
-          `a parser keyed on it returns this account for every prospect (D119)`,
+          `the identity resolved from the snapshot is the logged-in operator's own, not the ` +
+          `subject's — a parser keyed on it returns this account for every prospect (D119)`,
+      });
+    }
+    if (domIdentity.unrecognisedCards.length > 0) {
+      // The check on the id boundary. The id is cut where the card refs stop
+      // agreeing, so a cut in the wrong place shows up as shifted names
+      // (`ATopcard`, `ZAbout`) and an id wrong by exactly those characters.
+      warnings.push({
+        code: "SUBJECT_CARD_NAMES_UNRECOGNISED",
+        n: domIdentity.unrecognisedCards.length,
+        field:
+          `${domIdentity.unrecognisedCards.length} of ${domIdentity.cards} card names are not ones ` +
+          `this build has seen (${domIdentity.unrecognisedCards.slice(0, 5).join(", ")}) — either ` +
+          `LinkedIn shipped a new card, or the id boundary moved and the urn is wrong (D130)`,
       });
     }
 
@@ -390,7 +410,14 @@ export const capability = defineCapability({
           html_chars: snapshot?.probe?.htmlChars ?? 0,
           page_text_chars: snapshot?.probe?.textChars ?? 0,
         },
-        identity,
+        identity: {
+          // The source of record (D130).
+          ...domIdentity,
+          // Kept as a measurement, not a source. See D126 — it answers about the
+          // session on every page, so `is_session: true` here is the expected
+          // reading, not a finding.
+          voyager: identity,
+        },
         capture: {
           patterns: summary.patterns,
           captured: summary.captured,

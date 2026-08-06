@@ -1672,3 +1672,43 @@ Connect and Follow buttons) and the vanity slug are both captured and stored. Th
 cross-check — a stored person whose vanity and urn disagree on a later capture is a finding
 worth surfacing — not a chain to fall back through. Falling back to a weaker key on a bad day
 is how a dataset ends up with two spellings of one person.
+
+**Amended 2026-08-09, same day: the receipt now says this too.** D130 changed where identity
+comes from and left `profile.capture`'s receipt describing the old arrangement. Three warnings
+— `IDENTITY_BODY_ABSENT`, `IDENTITY_URN_ABSENT`, `IDENTITY_URN_IS_SESSION` — still asked
+whether the Voyager body had answered, and the first of them said in as many words that a run
+without it "has no subject urn to key the profile on", which after D130 is false.
+
+`IDENTITY_URN_IS_SESSION` was the worse half. Per D126 that endpoint takes the operator's own
+urn as its input and returns that member, so it answers the same on every page: that warning
+was going to fire on **every capture, forever**. A warning that always fires is one an operator
+learns to skip past, and it would have sat in the same block as the identity warnings that do
+mean something. The rule this is an instance of: a signal that cannot vary is a measurement,
+not a warning.
+
+So the Voyager check is demoted to `data.identity.voyager`, kept because a *change* in that
+answer would be worth knowing about, and raising nothing. In its place three warnings that can
+only fire when something is actually wrong:
+
+- `SUBJECT_IDENTITY_UNRESOLVED` — the snapshot archived but no id resolved from the card-ref
+  namespace. The capture cannot be keyed and nothing may be stored from it.
+- `SUBJECT_IDENTITY_IS_SESSION` — the id resolved to the operator's own account. Must never
+  fire; kept because this exact trap has now been found in three separate places (D119, D121,
+  D126) and each time it was found by comparing rather than by assuming.
+- `SUBJECT_CARD_NAMES_UNRECOGNISED` — card names this build has not seen. The check on the id
+  boundary from the other side: a boundary cut in the wrong place shows up as names shifted by
+  exactly the characters the id is wrong by.
+
+`data.identity` carries the outcome — resolved, the urn *family* only, how many cards agreed,
+stranger-card and member-urn counts. The id itself is never on the receipt: it is the
+prospect's identity and receipts go to stdout (§4.1, D3).
+
+Also amended here: `CLAUDE.md`'s network-tap bullet opened "never from the rendered DOM" and
+spelled the exception out ten lines below. A rule marked non-negotiable is exactly the line a
+session absorbs as a headline without reading on, and a session that did would refuse to write
+the parser Task 17 asks for. The bullet now names the exception in its first sentence.
+
+No live run. This changes what the receipt says about a capture, not what the capture does.
+Proven: 717/717 offline, typecheck clean, 15 new tests. Two mutations verified to bite —
+re-adding the always-firing warning fails the demotion test, and removing D130's
+cards-confirm-the-id guard fails the refusal tests at both layers.

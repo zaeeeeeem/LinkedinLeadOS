@@ -497,7 +497,8 @@ laid out in 1550ms over 3 polls, scrolled 1399px in 2 passes — the full scroll
   ever comparing the two. Sweeping all 27 archived bodies: no non-operator profile urn outside
   the notifications card and the messaging thread list, both private endpoints, neither the
   subject. `IDENTITY_URN_IS_SESSION` fired on the receipt, which is the "not a silent zero"
-  outcome the task file asked for.
+  outcome the task file asked for. (That warning is gone as of the D130 follow-up below — it
+  would have fired on every run forever. The check remains as a receipt field.)
 - **The subject's identity is in the DOM (D127).** Every one of the 23 profile cards carries
   `componentkey="com.linkedin.sdui.profile.card.ref<PROFILE_ID><CardName>"` namespaced by one
   id — `ACoAABJLCOAB…`, which is not the operator's — corroborated by
@@ -528,12 +529,34 @@ in temp dirs, with byte-identical read-back and the probe-failed / archive-faile
 `findSubjectUrn` refusing a company urn, an A/B tracking urn and a sidebar suggestion at the
 same path; the capability's not-rendered, not-scoped, snapshot-failed, identity-absent,
 identity-urn-absent and identity-is-session branches each proven to warn rather than pass
-quietly, and a lost snapshot proven to log `capture.miss` rather than a `capture.hit` with a
+quietly (the last three replaced by the D130 follow-up below), and a lost snapshot proven to
+log `capture.miss` rather than a `capture.hit` with a
 null filename; the promoter proven not to let the document response and the snapshot suppress
 each other through their shared `NON_JSON_SHAPE` hash; and compile-time assertions that
 `WorkerTab` and `RawArchive` satisfy the snapshot step's structural types and that the tap's
 `Capture` satisfies the identity check's. Bounds (`MAX_HITS_PER_PROBE`, `MAX_LEAVES_PER_CARD`,
 `MAX_SAMPLE_CHARS`, `IDENTITY_MAX_NODES`) are exceeded by tests rather than assumed roomy.
+
+**Follow-up 2026-08-09, after D130 — the receipt now says what D130 decided (D130 amendment).**
+D130 moved identity to the DOM and left the receipt describing the old arrangement. The three
+Voyager identity warnings are gone: `IDENTITY_BODY_ABSENT` said a run without that body "has no
+subject urn to key the profile on", which is now false, and `IDENTITY_URN_IS_SESSION` was going
+to fire on **every capture forever** — per D126 that endpoint answers about the session on every
+page, so it is a measurement, not a warning. The check is demoted to `data.identity.voyager`,
+raising nothing.
+
+In its place, three that can only fire when something is wrong: `SUBJECT_IDENTITY_UNRESOLVED`
+(snapshot archived, no id resolved — the capture cannot be keyed and nothing may be stored),
+`SUBJECT_IDENTITY_IS_SESSION` (the id is the operator's own; must never fire), and
+`SUBJECT_CARD_NAMES_UNRECOGNISED` (the id boundary seen from the other side). New:
+`checkDomIdentity` / `sessionUrnsOf` in `identity.ts`; `data.identity` now carries the DOM
+outcome, never the id itself. `CLAUDE.md`'s network-tap bullet names the profile-reader
+exception in its first sentence rather than ten lines below it.
+
+Proven: 717/717 offline, typecheck clean (15 new). No live run — this changes what the receipt
+says, not what the capture does. Two mutations verified to bite: re-adding the always-firing
+warning fails the demotion test, and removing the cards-confirm-the-id guard fails the refusal
+tests at both the `dommap` and the `checkDomIdentity` layer.
 
 Budget spent 2026-08-09: 2 page loads, 0 profile opens beyond the earlier dedupe window.
 

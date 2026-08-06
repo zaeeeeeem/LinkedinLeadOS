@@ -76,12 +76,18 @@ is the *input*, so the call is the session identifying itself and cannot return 
 D121 recorded otherwise only because nothing compared its answer to `/voyager/api/me`. See
 D126.
 
-The check still runs on every capture and reports its answer — `IDENTITY_URN_IS_SESSION` is
-currently expected on every run, and is kept because a change in that answer would be worth
-knowing about. **The subject's identity comes from the DOM snapshot instead (D130):** the SDUI
-card-ref namespace every profile card agrees on, yielding `urn:li:fsd_profile:<PROFILE_ID>`
-(D127). `resolveSubjectScope` in `src/core/fixtures/dommap.ts` derives it, and returns `null`
-rather than guessing.
+The check still runs on every capture, and its answer is reported at
+`data.identity.voyager` — a **field, not a warning**. It answers about the session on every
+page, so a warning here would fire on every run forever and would sit next to the identity
+warnings that do mean something. `is_session: true` there is the expected reading. It is kept
+at all because a change in that answer would be worth knowing about.
+
+**The subject's identity comes from the DOM snapshot (D130):** the SDUI card-ref namespace
+every profile card agrees on, yielding `urn:li:fsd_profile:<PROFILE_ID>` (D127).
+`resolveSubjectScope` in `src/core/fixtures/dommap.ts` derives it and returns `null` rather
+than guessing, and `data.identity` carries the outcome — `resolved`, the urn *family* only,
+how many cards agreed, and any card names this build has not seen. The id itself is never on
+the receipt: it is the prospect's identity, and receipts go to stdout (§4.1, D3).
 
 ### The two pattern tiers
 
@@ -105,9 +111,9 @@ which is a finding to report, not something to absorb quietly.
 | `DOM_SNAPSHOT_NOT_ARCHIVED` | the snapshot was read but could not be written to the raw archive, so nothing may parse it (D2) |
 | `SUBJECT_CONTAINER_NOT_RENDERED` | the snapshot is archived but the subject's main container had no content in it. **Do not write a parser against that fixture** |
 | `SUBJECT_CONTAINER_NOT_SCOPED` | the container holds sidebar elements, so scoping to it does not by itself exclude suggestions. Expected on the current layout — the card-ref namespace is what separates them (D127) |
-| `IDENTITY_BODY_ABSENT` | no `voyagerIdentityDashProfiles` response was captured at all |
-| `IDENTITY_URN_ABSENT` | the body arrived but carried no urn at the known path — the endpoint's shape moved |
-| `IDENTITY_URN_IS_SESSION` | the urn found is the logged-in operator's own (D119/D126). Currently expected on every run |
+| `SUBJECT_IDENTITY_UNRESOLVED` | the snapshot archived but no profile id resolved from the card-ref namespace. **This capture cannot be keyed** — nothing may be stored from it under a guessed urn (D130) |
+| `SUBJECT_IDENTITY_IS_SESSION` | the identity resolved from the snapshot is the operator's own. Must never fire; if it does, stop and read the snapshot by hand (D119) |
+| `SUBJECT_CARD_NAMES_UNRECOGNISED` | card names this build has not seen. A couple means LinkedIn shipped a new card; many means the id boundary moved and the urn is wrong (D130) |
 | `PAGE_NOT_LAID_OUT` | the document never grew past the viewport inside the layout window, so nothing scrolled and the lazily-loaded sections never fetched. Treat the capture as incomplete — this is the failure the first live run hit (D114) |
 
 ## Failure modes

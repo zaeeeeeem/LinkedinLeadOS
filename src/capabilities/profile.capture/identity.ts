@@ -1,17 +1,22 @@
+import * as cheerio from "cheerio";
 import { personUrnsIn } from "../../core/fixtures/promote.js";
+import { STRANGER_CARDS, resolveSubjectScope } from "../../core/fixtures/dommap.js";
 
 /**
- * The subject's identity, from the one Voyager body that answers on a cold load.
+ * The subject's identity for one capture.
  *
- * D123 splits the profile reader in two: content comes from the rendered DOM,
- * and **identity** — the stable urn that keying, freshness and dedupe run on —
- * comes from `voyagerIdentityDashProfiles`. D121 measured that body returning
- * `identityDashProfilesByMemberIdentity["*elements"][0]` for the subject.
+ * **`checkDomIdentity` is the one that matters (D130).** The urn that keying,
+ * freshness and dedupe run on comes from the SDUI card-ref namespace in the DOM
+ * snapshot — the id every one of the subject's own profile cards agrees on.
  *
- * This module checks that the run actually got it. Not a probe and not a fetch:
- * it reads bodies the page asked for on its own (D1), after the fact. Whether
- * the check succeeded is a first-class outcome on the receipt, because a run
- * that captured a snapshot and no identity has captured content it cannot key.
+ * `checkIdentity` is the Voyager half, kept as a *measurement* and no longer a
+ * source. D123 originally put identity on `voyagerIdentityDashProfiles`; D126
+ * measured that endpoint taking the operator's own urn as its request input and
+ * returning that member, so it is the session resolving itself on every page and
+ * could never have answered for a prospect. It still runs because a change in
+ * that answer would be worth knowing about — but it is reported as a field, not
+ * as a warning, precisely because its answer is the same on every single run and
+ * a warning that always fires is one nobody reads.
  */
 
 /** The GraphQL container D121 measured. Matched by key, anywhere in the body,
@@ -142,6 +147,89 @@ export type IdentityFinding = {
   sessionUrns: number;
 };
 
+/** What the DOM snapshot says about who this capture is of. */
+export type DomIdentityFinding = {
+  /** Whether a profile id resolved. `false` means the capture cannot be keyed
+   *  and nothing may be stored from it — never a guess (D130). */
+  resolved: boolean;
+  /** The urn family only, e.g. `urn:li:fsd_profile`. Never the id itself: that
+   *  is the prospect's identity and receipts go to stdout (§4.1, D3). */
+  urnKind: string | null;
+  /** Whether the page's own card refs also carried the vanity slug. */
+  vanityKnown: boolean;
+  /** How many of the subject's cards agreed on the id. One card cannot confirm
+   *  an id boundary; twenty-three can. */
+  cards: number;
+  /** Cards holding other people (`SuggestedForYou`), namespaced under the
+   *  subject's own id and therefore not excluded by id-scoping alone (D127). */
+  strangerCards: number;
+  /** Card names this build has not seen. A couple is LinkedIn shipping a new
+   *  card; many means the id boundary moved and the urn must not be trusted. */
+  unrecognisedCards: string[];
+  /** Member urns on the top card's own action buttons — the subject again, in
+   *  LinkedIn's other spelling. A cross-check, not a second source. */
+  memberUrns: number;
+  /** True when the id resolved to the *operator's* own account. Must never
+   *  happen; reported rather than trusted, because D119, D121 and D126 were all
+   *  this same trap in three different places. */
+  isSession: boolean;
+};
+
+const NO_DOM_IDENTITY: DomIdentityFinding = {
+  resolved: false, urnKind: null, vanityKnown: false, cards: 0, strangerCards: 0,
+  unrecognisedCards: [], memberUrns: 0, isSession: false,
+};
+
+/**
+ * Resolves the subject's identity from the snapshot, the way D130 specifies.
+ *
+ * Total by construction: unparseable html, an empty snapshot, or a page whose
+ * card refs do not agree all return `resolved: false`. The caller warns. The one
+ * outcome ruled out is a confident wrong answer — `resolveSubjectScope` takes the
+ * id as the namespace the cards *share* and requires cards to confirm it, so a
+ * page carrying no cards, two subjects, or a single card with a name this build
+ * does not know resolves nothing rather than somebody who does not exist.
+ */
+export function checkDomIdentity(
+  html: string | null,
+  o: { sessionUrns?: readonly string[] } = {},
+): DomIdentityFinding {
+  if (html === null || html === "") return NO_DOM_IDENTITY;
+
+  let scope: ReturnType<typeof resolveSubjectScope>;
+  try {
+    scope = resolveSubjectScope(cheerio.load(html));
+  } catch {
+    // The page load is already spent and the snapshot is already on disk; a
+    // parse failure here must degrade the receipt, never discard the capture.
+    return NO_DOM_IDENTITY;
+  }
+
+  const session = new Set(o.sessionUrns ?? []);
+  const strangers = new Set<string>(STRANGER_CARDS);
+
+  return {
+    resolved: scope.profileUrn !== null,
+    urnKind: scope.profileUrn === null
+      ? null
+      : scope.profileUrn.slice(0, scope.profileUrn.lastIndexOf(":")),
+    vanityKnown: scope.vanity !== null,
+    cards: scope.cards.length,
+    strangerCards: scope.cards.filter((c) => strangers.has(c.name)).length,
+    unrecognisedCards: scope.unrecognisedCards,
+    memberUrns: scope.memberUrns.length,
+    isSession:
+      (scope.profileUrn !== null && session.has(scope.profileUrn)) ||
+      scope.memberUrns.some((u) => session.has(u)),
+  };
+}
+
+/** The session's own person urns, from the `/voyager/api/me` body the page
+ *  fetched on its own. The comparison set for every `isSession` check. */
+export function sessionUrnsOf(captures: readonly IdentityCapture[]): string[] {
+  return [...new Set(captures.filter(isSessionBody).flatMap((c) => personUrnsIn(c.body)))];
+}
+
 /**
  * The identity outcome for one run: did the Voyager body arrive, did it carry a
  * subject urn, and is that urn actually the subject's rather than the
@@ -158,9 +246,7 @@ export function checkIdentity(
   captures: readonly IdentityCapture[],
   o: { sessionUrns?: readonly string[] } = {},
 ): IdentityFinding {
-  const sessionUrns = new Set(
-    o.sessionUrns ?? captures.filter(isSessionBody).flatMap((c) => personUrnsIn(c.body)),
-  );
+  const sessionUrns = new Set(o.sessionUrns ?? sessionUrnsOf(captures));
 
   const bodies = captures.filter(isIdentityBody);
   let hit: SubjectUrnHit | null = null;

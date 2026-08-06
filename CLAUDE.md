@@ -47,9 +47,11 @@ drafting) · L5 orchestration (campaigns, sequences, schedulers) · MCP surface 
 
 ## Non-negotiable rules
 
-- **Network tap is the source of truth.** Data fields come from captured response
-  bodies, never from the rendered DOM. DOM reads are for navigation, pagination state,
-  challenge detection, and render confirmation only.
+- **Network tap is the source of truth — with exactly one exception, spelled out below.**
+  Data fields come from captured response bodies, never from the rendered DOM. DOM reads are
+  for navigation, pagination state, challenge detection, and render confirmation only.
+  **The profile reader is the exception and it does read the DOM; do not act on this bullet
+  without reading the three paragraphs that follow it.**
 
   A captured body counts whether it is a Voyager / `salesApi*` JSON response **or** the
   initial document response for the page itself, from which only *embedded structured

@@ -43,9 +43,28 @@ const UNPREDICTED_GQL =
   "https://www.linkedin.com/voyager/api/graphql?queryId=voyagerIdentityDashSomethingNew.9f";
 const TELEMETRY = "https://www.linkedin.com/li/track";
 
+/** The subject id the fake page's card refs are namespaced by. Shaped like a
+ *  real one — `AC` then a long opaque tail — because `resolveSubjectScope`
+ *  tests the shape before it will call a prefix an id. */
+const SUBJECT_ID = "ACoAAAjaneDoe0000000000000000000000000";
+const CARD_REF = "com.linkedin.sdui.profile.card.ref";
+
 /** What the fake page's rendered DOM serializes to. Small, but shaped like the
- *  real thing: a subject container and a sidebar the parser must not read. */
+ *  real thing on the two points that matter: a subject container with a sidebar
+ *  the parser must not read, and profile cards carrying the SDUI card-ref
+ *  namespace that identity is resolved from (D127, D130). Three cards, because
+ *  one cannot confirm an id boundary and the resolver refuses on one. */
 const SNAPSHOT_HTML =
+  "<html><body><main id=\"workspace\">" +
+  `<section componentkey="${CARD_REF}${SUBJECT_ID}Topcard">Founder at Example</section>` +
+  `<section componentkey="${CARD_REF}${SUBJECT_ID}About">About</section>` +
+  `<section componentkey="${CARD_REF}${SUBJECT_ID}ExperienceTopLevelSection">Jobs</section>` +
+  `<section componentkey="${CARD_REF}jane-doeActivity">Activity</section>` +
+  "</main><aside>People also viewed</aside></body></html>";
+
+/** The same page with the card refs stripped: rendered, archivable, and
+ *  impossible to key. The `SUBJECT_IDENTITY_UNRESOLVED` case. */
+const SNAPSHOT_HTML_NO_CARDS =
   "<html><body><main id=\"workspace\"><section>Founder at Example</section></main>" +
   "<aside>People also viewed</aside></body></html>";
 
@@ -619,9 +638,15 @@ type SnapshotReceipt = {
   container: { selector: string | null; sections: number; sidebarsInside: number } | null;
   html_chars: number;
 };
-type IdentityReceipt = {
+type VoyagerIdentityReceipt = {
   bodies: number; found: boolean; path: string | null; urnKind: string | null;
   isSession: boolean; sessionUrns: number;
+};
+
+type IdentityReceipt = {
+  resolved: boolean; urnKind: string | null; vanityKnown: boolean; cards: number;
+  strangerCards: number; unrecognisedCards: string[]; memberUrns: number; isSession: boolean;
+  voyager: VoyagerIdentityReceipt;
 };
 
 function warningCodes(receipt: { ok: true; warnings: { code: string }[] } | { ok: false }): string[] {
@@ -747,8 +772,13 @@ describe("profile.capture — the rendered-DOM snapshot (D123)", () => {
   });
 });
 
-describe("profile.capture — the identity half of D123", () => {
-  it("reports where the subject urn was found, and never the urn itself", async () => {
+describe("profile.capture — identity from the snapshot (D130)", () => {
+  function identityOf(receipt: { ok: true; data?: unknown } | { ok: false }): IdentityReceipt {
+    if (!receipt.ok) throw new Error("expected ok");
+    return (receipt.data as { identity: IdentityReceipt }).identity;
+  }
+
+  it("resolves the subject from the card-ref namespace, and never prints the id", async () => {
     const { outcome } = invoke({
       responses: [
         { url: ME_URL, body: ME_BODY },
@@ -756,39 +786,73 @@ describe("profile.capture — the identity half of D123", () => {
       ],
     });
     const { receipt } = await outcome;
-    if (!receipt.ok) throw new Error("expected ok");
-    const id = (receipt.data as { identity: IdentityReceipt }).identity;
-    expect(id).toEqual({
-      bodies: 1,
-      found: true,
-      path: '$.data.identityDashProfilesByMemberIdentity["*elements"][0]',
-      urnKind: "urn:li:fsd_profile",
-      isSession: false,
-      sessionUrns: 1,
-    });
-    expect(JSON.stringify(receipt)).not.toContain("ACoAAEsubject");
-    expect(warningCodes(receipt)).not.toContain("IDENTITY_URN_ABSENT");
+    const id = identityOf(receipt);
+    expect(id.resolved).toBe(true);
+    expect(id.urnKind).toBe("urn:li:fsd_profile");
+    expect(id.cards).toBe(3);
+    expect(id.vanityKnown).toBe(true);
+    expect(id.unrecognisedCards).toEqual([]);
+    expect(id.isSession).toBe(false);
+    // The prospect's id is captured data and receipts go to stdout (§4.1, D3).
+    expect(JSON.stringify(receipt)).not.toContain(SUBJECT_ID);
+    expect(warningCodes(receipt)).not.toContain("SUBJECT_IDENTITY_UNRESOLVED");
   });
 
-  it("warns when no identity body was captured at all", async () => {
-    const { outcome } = invoke({ responses: [{ url: UNPREDICTED_GQL, body: PROFILE_BODY }] });
-    const { receipt } = await outcome;
-    if (!receipt.ok) throw new Error("expected ok");
-    expect(warningCodes(receipt)).toContain("IDENTITY_BODY_ABSENT");
-    expect((receipt.data as { identity: IdentityReceipt }).identity.bodies).toBe(0);
-  });
-
-  it("distinguishes a body that never came from one that came without a urn", async () => {
+  it("warns, and does not guess, when the snapshot carries no card refs", async () => {
     const { outcome } = invoke({
-      responses: [{ url: PREDICTED_GQL, body: JSON.stringify({ data: {} }) }],
+      responses: [{ url: PREDICTED_GQL, body: IDENTITY_BODY }],
+      tune: (s) => {
+        s.tab.snapshot = {
+          html: SNAPSHOT_HTML_NO_CARDS,
+          url: PROFILE_URL,
+          htmlChars: SNAPSHOT_HTML_NO_CARDS.length,
+          textChars: 9_000,
+          container: {
+            selector: "main#workspace", chars: 800, textChars: 9_000,
+            sections: 14, sidebars: 1, sidebarsInside: 0,
+          },
+        };
+      },
     });
     const { receipt } = await outcome;
-    if (!receipt.ok) throw new Error("expected ok");
-    expect(warningCodes(receipt)).toContain("IDENTITY_URN_ABSENT");
-    expect(warningCodes(receipt)).not.toContain("IDENTITY_BODY_ABSENT");
+    expect(warningCodes(receipt)).toContain("SUBJECT_IDENTITY_UNRESOLVED");
+    const id = identityOf(receipt);
+    expect(id.resolved).toBe(false);
+    expect(id.urnKind).toBeNull();
   });
 
-  it("warns when the urn found is the operator's own (D119)", async () => {
+  it("reports card names it does not know, because a shifted boundary is a wrong urn", async () => {
+    // `ATopcard` / `ZAbout` is what a mis-cut id boundary looks like from the
+    // other side: the names come out shifted by exactly the characters the id
+    // is wrong by. One unknown name is a new card; this is the signal either way.
+    const shifted =
+      "<html><body><main id=\"workspace\">" +
+      `<section componentkey="${CARD_REF}${SUBJECT_ID}Topcard">a</section>` +
+      `<section componentkey="${CARD_REF}${SUBJECT_ID}BrandNewCard">b</section>` +
+      `<section componentkey="${CARD_REF}${SUBJECT_ID}About">c</section>` +
+      "</main></body></html>";
+    const { outcome } = invoke({
+      responses: [{ url: PREDICTED_GQL, body: IDENTITY_BODY }],
+      tune: (s) => {
+        s.tab.snapshot = {
+          html: shifted, url: PROFILE_URL, htmlChars: shifted.length, textChars: 9_000,
+          container: {
+            selector: "main#workspace", chars: 800, textChars: 9_000,
+            sections: 14, sidebars: 0, sidebarsInside: 0,
+          },
+        };
+      },
+    });
+    const { receipt } = await outcome;
+    expect(warningCodes(receipt)).toContain("SUBJECT_CARD_NAMES_UNRECOGNISED");
+    expect(identityOf(receipt).unrecognisedCards).toEqual(["BrandNewCard"]);
+  });
+
+  it("keeps the Voyager check as a field and raises no warning for it (D126)", async () => {
+    // That endpoint takes the operator's own urn as its input and returns that
+    // member, so `is_session` is true on every run for every profile. As a
+    // warning it would fire forever and teach an operator to skip the block the
+    // real identity warnings live in.
     const operator = "urn:li:fsd_profile:ACoAAAoperator";
     const { outcome } = invoke({
       responses: [
@@ -802,8 +866,52 @@ describe("profile.capture — the identity half of D123", () => {
       ],
     });
     const { receipt } = await outcome;
-    if (!receipt.ok) throw new Error("expected ok");
-    expect(warningCodes(receipt)).toContain("IDENTITY_URN_IS_SESSION");
-    expect((receipt.data as { identity: IdentityReceipt }).identity.isSession).toBe(true);
+    const id = identityOf(receipt);
+    expect(id.voyager.isSession).toBe(true);
+    expect(id.voyager.bodies).toBe(1);
+    // The subject still resolves from the snapshot, and it is not the operator.
+    expect(id.resolved).toBe(true);
+    expect(id.isSession).toBe(false);
+    for (const code of warningCodes(receipt)) expect(code.startsWith("IDENTITY_")).toBe(false);
+  });
+
+  it("records a missing Voyager body without warning about it", async () => {
+    const { outcome } = invoke({ responses: [{ url: UNPREDICTED_GQL, body: PROFILE_BODY }] });
+    const { receipt } = await outcome;
+    expect(identityOf(receipt).voyager.bodies).toBe(0);
+    expect(warningCodes(receipt)).not.toContain("IDENTITY_BODY_ABSENT");
+    // The identity that matters came from the snapshot, so the run is keyable.
+    expect(identityOf(receipt).resolved).toBe(true);
+  });
+
+  it("warns when the snapshot's own identity is the operator's (D119)", async () => {
+    // Must never happen against LinkedIn — it would mean the subject's profile
+    // cards are namespaced by the operator. Pinned because this same trap has
+    // now been found in three separate places.
+    const operatorId = "ACoAAAoperator00000000000000000000000";
+    const html =
+      "<html><body><main id=\"workspace\">" +
+      `<section componentkey="${CARD_REF}${operatorId}Topcard">a</section>` +
+      `<section componentkey="${CARD_REF}${operatorId}About">b</section>` +
+      `<section componentkey="${CARD_REF}${operatorId}Skills">c</section>` +
+      "</main></body></html>";
+    const { outcome } = invoke({
+      responses: [
+        { url: ME_URL, body: JSON.stringify({ miniProfile: { entityUrn: `urn:li:fsd_profile:${operatorId}` } }) },
+        { url: PREDICTED_GQL, body: IDENTITY_BODY },
+      ],
+      tune: (s) => {
+        s.tab.snapshot = {
+          html, url: PROFILE_URL, htmlChars: html.length, textChars: 9_000,
+          container: {
+            selector: "main#workspace", chars: 800, textChars: 9_000,
+            sections: 14, sidebars: 0, sidebarsInside: 0,
+          },
+        };
+      },
+    });
+    const { receipt } = await outcome;
+    expect(warningCodes(receipt)).toContain("SUBJECT_IDENTITY_IS_SESSION");
+    expect(identityOf(receipt).isSession).toBe(true);
   });
 });
