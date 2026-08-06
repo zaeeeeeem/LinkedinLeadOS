@@ -20,13 +20,15 @@ proving M1–M3 end to end on one capability.
 - **Live fetch reuses Task 16's capture path** — do not fork a second capture. Then run
   Task 17's parser, upsert (Task 14), and record parser warnings as drift rows so
   `log:drift` has data (D5); skip-store runs still archive and log (D2).
-- **Report the source split (D123).** The receipt makes clear identity came from Voyager and
-  content from the DOM snapshot, so an operator knows the content rows are the churn-prone
-  ones. A DOM-content success is still exit 0, but the source is on the receipt, not implied.
+- **Report the single source (D130, superseding D123's identity half).** The receipt makes clear
+  identity and content both came from the archived DOM snapshot, so an operator knows every row
+  is churn-prone. A DOM-snapshot success is still exit 0, but the source is on the receipt, not
+  implied.
 - **Failure mapping is exhaustive:** challenge → screenshot, checkpoint, exit 2; dead
-  session → exit 4; nothing captured → transient with evidence; identity body absent, or the
-  parser yielding no usable person → parse-drift class, exit 5, raw archive / snapshot path
-  as evidence. Warnings that did not prevent parsing are warnings on an ok receipt.
+  session → exit 4; nothing captured → transient with evidence; the snapshot identity being
+  unresolved, matching the session, or the parser yielding no usable person → parse-drift
+  class, exit 5, with the snapshot path as evidence. Warnings that did not prevent parsing are
+  warnings on an ok receipt.
 - The capability README documents flags, cost, failure modes, the source-preference
   behavior, and example queries (RECORDING.md). Integration-style tests stay offline by
   faking the browser seam; live behavior is the gate.

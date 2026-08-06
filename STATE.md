@@ -558,6 +558,20 @@ says, not what the capture does. Two mutations verified to bite: re-adding the a
 warning fails the demotion test, and removing the cards-confirm-the-id guard fails the refusal
 tests at both the `dommap` and the `checkDomIdentity` layer.
 
+Task 17 — pure profile parser. `src/capabilities/profile.capture/{parse,fixture.test-helper}.ts`
+turns an archived DOM snapshot into DOM-sourced wrappers around Task 14's `PersonInput` and
+`ExperienceInput`, preserving descriptions and corroboration outside the explicit
+`toPersonStoreInput` projection (D132). Identity comes only from the card-ref namespace and is
+refused when the cards disagree, only `SuggestedForYou` is present, the id is the session's, or
+the caller cannot supply the `/voyager/api/me` comparison set (D131). Missing fields carry typed
+exit-5 drift warnings; absent experience stays distinct from observed-empty; output is bounded
+at 100 positions with every dropped candidate reported. Proven: 740/740 offline (23 new),
+typecheck clean. The promoted fixture yields the required urn, name, headline, location and six
+newest-first positions with company, dates and descriptions; its 16 non-subject member urns are
+absent from parser output. Four guards were mutation-verified: suggestion-only refusal, required
+session comparison, missing-headline drift, and truncation visibility. No live run — this parser
+is pure and Task 17 specifies fixture verification, so it spent zero page loads.
+
 Budget spent 2026-08-09: 2 page loads, 0 profile opens beyond the earlier dedupe window.
 
 ## In progress
@@ -675,17 +689,12 @@ would change the primary key), and hunting for another Voyager source (four live
 candidate, and the one that looked like a candidate takes the operator's own urn as input).
 
 Updated with that decision: `CLAUDE.md`'s network-tap rule, the spec's 2026-08-09 addendum, and
-`tasks/task-17-profile-parser.md`. No code changed — `resolveSubjectScope` already produces the
-urn, and Task 16's live fixture resolves it.
+`tasks/task-17-profile-parser.md`. Task 17 now implements it; `resolveSubjectScope` produces the
+urn and the parser refuses every untrusted identity outcome before exposing a store projection.
 
-**Decision-number ranges.** D130 was taken by this operator decision, so **Task 17 owns
-D131–D139** rather than D130–D139 (D18).
+**Decision-number ranges.** D130 was taken by this operator decision; Task 17 used D131–D132
+from its D131–D139 range (D18).
 
-- **Task 17 — profile parser** (`tasks/task-17-profile-parser.md`, Opus). Re-cut for D130 and
-  unblocked. Has its fixture and its field map. Identity and content both from the snapshot,
-  scoped by card-ref namespace; no Voyager body is read for the subject. Its sharpest acceptance
-  criteria are the refusal cases: fed the `SuggestedForYou` card in isolation it must extract
-  nothing, and with the card refs deleted it must produce no row rather than a vanity-keyed one.
 - **Task 19 — wire `profile.get` end to end** (`tasks/task-19-profile-get-e2e.md`, Opus) = M3 gate.
 - **Task 18 — log queries** (`tasks/task-18-log-queries.md`, Sonnet) — independent, unaffected,
   in progress in a worktree.

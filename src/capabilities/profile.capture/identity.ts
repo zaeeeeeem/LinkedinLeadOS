@@ -207,19 +207,30 @@ export function checkDomIdentity(
 
   const session = new Set(o.sessionUrns ?? []);
   const strangers = new Set<string>(STRANGER_CARDS);
+  const profileUrn = scope.profileUrn;
+  const subjectCards = scope.cards.filter((c) => !strangers.has(c.name));
+  // An id is only usable when at least one card can describe the subject, and
+  // when the inferred card-name boundary leaves a majority of recognizable
+  // names. SuggestedForYou alone carries the subject namespace but only other
+  // people's content; a majority of shifted/unknown names is D127's signal that
+  // the common-prefix cut may be wrong.
+  const trustworthy =
+    profileUrn !== null &&
+    subjectCards.length > 0 &&
+    scope.unrecognisedCards.length <= scope.cards.length / 2;
 
   return {
-    resolved: scope.profileUrn !== null,
-    urnKind: scope.profileUrn === null
+    resolved: trustworthy,
+    urnKind: !trustworthy || profileUrn === null
       ? null
-      : scope.profileUrn.slice(0, scope.profileUrn.lastIndexOf(":")),
+      : profileUrn.slice(0, profileUrn.lastIndexOf(":")),
     vanityKnown: scope.vanity !== null,
     cards: scope.cards.length,
     strangerCards: scope.cards.filter((c) => strangers.has(c.name)).length,
     unrecognisedCards: scope.unrecognisedCards,
     memberUrns: scope.memberUrns.length,
     isSession:
-      (scope.profileUrn !== null && session.has(scope.profileUrn)) ||
+      (profileUrn !== null && session.has(profileUrn)) ||
       scope.memberUrns.some((u) => session.has(u)),
   };
 }

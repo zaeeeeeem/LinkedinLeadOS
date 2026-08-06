@@ -4,7 +4,7 @@ Opens one LinkedIn profile in the worker tab and archives every profile-related 
 the page fetches. It parses nothing, stores nothing, and decides nothing — its product is
 the raw archive plus a report of **which endpoints the page actually hit**.
 
-This is the discovery step behind `profile.get` (Task 17). It exists because the endpoint
+This is the discovery step behind `profile.get` (Task 19). It exists because the endpoint
 list cannot be assumed from memory: LinkedIn serves profiles from GraphQL operations whose
 ids change, so the patterns this build watches for are a guess, and the receipt is where
 that guess is checked against reality.
@@ -89,6 +89,21 @@ than guessing, and `data.identity` carries the outcome — `resolved`, the urn *
 how many cards agreed, and any card names this build has not seen. The id itself is never on
 the receipt: it is the prospect's identity, and receipts go to stdout (§4.1, D3).
 
+### Offline profile parser
+
+`parseProfileSnapshot` in `parse.ts` is a pure projection of the already-archived HTML. It
+returns sourced wrappers around Task 14's `PersonInput` and `ExperienceInput` types, preserving
+experience descriptions beside the store rows. `toPersonStoreInput` is the explicit bridge to
+the store; parser-only source tags, descriptions and corroboration cannot become PostgREST
+columns (D132).
+
+The parser requires the session's person urns from `/voyager/api/me`. If that comparison set is
+empty, card refs do not agree, only `SuggestedForYou` is present, or the resolved urn is the
+operator's own, it returns no person. Missing content fields degrade individually and carry
+`PARSE_DRIFT` (exit 5) semantics; an absent experience card remains distinguishable from a
+present, genuinely empty card. Contract tests always run. Fixture tests use the gitignored
+snapshot under `fixtures/profile.get/` and skip with a visible reason on a fresh clone.
+
 ### The two pattern tiers
 
 `specific` patterns are this build's prediction of which endpoints a profile page fetches.
@@ -153,7 +168,7 @@ npm run fixtures:promote -- --latest --all      # every JSON body, not just prof
 This copies bodies into `fixtures/profile.get/`, deduplicated by shape hash, and writes
 `FIELD-MAP.md` beside them — a document naming the real JSON paths of the person's URN,
 name, headline, location and experience entries in each fixture. That document is what
-Task 16's parser is written against.
+Task 17's parser is written against.
 
 Both `fixtures/` and `runs/` are gitignored in full: captured bodies hold real prospect
 data and the operator's own identifiers (§6).

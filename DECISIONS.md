@@ -1712,3 +1712,32 @@ No live run. This changes what the receipt says about a capture, not what the ca
 Proven: 717/717 offline, typecheck clean, 15 new tests. Two mutations verified to bite —
 re-adding the always-firing warning fails the demotion test, and removing D130's
 cards-confirm-the-id guard fails the refusal tests at both layers.
+
+## D131 — the profile parser requires the session identity comparison set (2026-08-09)
+
+**Decision.** `parseProfileSnapshot` requires a non-empty `sessionUrns` input, derived from the
+`/voyager/api/me` body the page fetched. With no comparison set it returns no person and reports
+`PARSE_SESSION_IDENTITY_UNAVAILABLE` with parse-drift exit semantics. It never treats “nothing to
+compare against” as “not the operator.”
+
+**Why.** D119, D121 and D126 each found the operator's identity in a place that looked like the
+subject. Making the comparison optional at the parser boundary would leave Task 19 one omitted
+argument away from repeating the same failure under a real primary key. The promoted DOM fixture
+has no `/me` body beside it, so fixture tests pass an explicit non-matching test urn; production
+must pass `sessionUrnsOf(captures)`. A missing `/me` response is therefore visible drift rather
+than an unchecked parse.
+
+## D132 — parser metadata wraps store inputs; it never extends them (2026-08-09)
+
+**Decision.** Parsed person and experience rows are `{ source: "dom-snapshot", value: ... }`
+wrappers around Task 14's exact `PersonInput` / `ExperienceInput` shapes. Descriptions and
+corroboration stay beside those values. `toPersonStoreInput` is the only projection into the
+store interface and drops parser-only metadata explicitly.
+
+**Why.** Every parsed row must remain visibly DOM-sourced (D130), and the live experience card
+carries descriptions, but the applied schema has columns for neither source nor description.
+Intersecting those fields onto `ExperienceInput` looks convenient and is unsafe: `upsertPerson`
+spreads its input into the PostgREST payload, so an extra property becomes an unknown database
+column and the whole write fails. Rejected: silently discarding descriptions during parsing —
+raw-first means the projection may be narrower than the capture, but the parser should preserve
+what it understood for a later migration or re-projection.
