@@ -16,8 +16,8 @@
  * carries it — so no parser is ever designed against a guessed key name (D152).
  *
  * Only counts, paths and field names reach stdout, and the rendered map carries
- * no captured value unless `--samples` is passed. `--samples` output belongs in
- * `fixtures/`, which is gitignored, never in a commit.
+ * no captured value at all — the values are the ones the operator stated, and
+ * the pinning tests beside the gitignored fixture assert the meaning.
  */
 import { existsSync, readdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
 import { join, resolve } from "node:path";
@@ -36,7 +36,6 @@ type Options = {
   wantFile: string | null;
   runsDir: string;
   out: string | null;
-  samples: boolean;
   notes: string[];
 };
 
@@ -45,7 +44,7 @@ function usage(message: string): never {
   process.stderr.write(
     "usage: npm run sweep -- (--run=<runId> | --latest) [--surface=<name>] " +
       "(--want=<field>=<value> ... | --want-file=<path>) [--note=<line>] " +
-      "[--out=<path>] [--samples] [--runs-dir=<dir>]\n",
+      "[--out=<path>] [--runs-dir=<dir>]\n",
   );
   process.exit(1);
 }
@@ -53,7 +52,7 @@ function usage(message: string): never {
 function parse(argv: string[]): Options {
   const o: Options = {
     run: null, latest: false, surface: "company page family", wanted: [],
-    wantFile: null, runsDir: defaultRunsDir(), out: null, samples: false, notes: [],
+    wantFile: null, runsDir: defaultRunsDir(), out: null, notes: [],
   };
   for (const token of argv) {
     if (!token.startsWith("--")) usage(`unknown argument ${token}`);
@@ -73,7 +72,6 @@ function parse(argv: string[]): Options {
       case "want-file": o.wantFile = resolve(value ?? usage("--want-file needs a path")); break;
       case "note": o.notes.push(value ?? usage("--note needs a line")); break;
       case "out": o.out = resolve(value ?? usage("--out needs a path")); break;
-      case "samples": o.samples = true; break;
       case "runs-dir": o.runsDir = resolve(value ?? usage("--runs-dir needs a path")); break;
       default: usage(`unknown argument ${token}`);
     }
@@ -173,7 +171,6 @@ async function main(): Promise<void> {
         generatedAt: new Date().toISOString(),
         sourceRun: runId,
         result,
-        samples: o.samples,
         notes: o.notes,
       }),
       "utf8",

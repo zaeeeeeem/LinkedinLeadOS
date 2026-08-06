@@ -231,7 +231,6 @@ export function embeddedJsonOf(html: string): Array<{ prefix: string; value: unk
   const out: Array<{ prefix: string; value: unknown }> = [];
   $('script[type="application/ld+json"], script[type="application/json"]').each((_, node) => {
     const el = node as Element;
-    const type = el.attribs?.["type"] ?? "";
     const raw = $(el).text();
     if (raw.trim() === "") return;
     let parsed: unknown;
@@ -243,12 +242,14 @@ export function embeddedJsonOf(html: string): Array<{ prefix: string; value: unk
       // resolve, which is the one thing a field map may not do.
       return;
     }
-    const id = el.attribs?.["id"];
-    const selector =
-      id !== undefined && id !== "" && /^[A-Za-z][\w-]*$/.test(id)
-        ? `script#${id}`
-        : `script[type="${type}"]:nth-of-type(${out.length + 1})`;
-    out.push({ prefix: `${selector} → $`, value: parsed });
+    // The path comes from `cssPath`, the same function the DOM walk uses, and
+    // for one reason: `:nth-of-type` counts *siblings of the same tag within one
+    // parent*, and the `[type=…]` predicate does not narrow that count. A
+    // selector numbered by the order these were accumulated — across both
+    // types, across parents, skipping the ones that did not parse — resolves to
+    // a different script or to nothing at all. A field map may only carry paths
+    // that resolve, which is the whole reason it is worth more than prose.
+    out.push({ prefix: `${cssPath($, el)} → $`, value: parsed });
   });
   return out;
 }
@@ -417,18 +418,21 @@ export function sweepSources(o: {
 /**
  * The sweep as the committed FIELD-MAP document.
  *
- * **No captured value is printed unless `samples` is set.** The map lands in
- * git while `fixtures/` does not, so it says *where* each field is and lets the
- * pinning test — which lives beside the gitignored fixture — say *what* is
- * there. `samples: true` renders a local copy for reading, and that copy
- * belongs in `fixtures/`, not in a commit.
+ * **No captured value is ever printed**, and there is deliberately no flag to
+ * print one. The map lands in git while `fixtures/` does not, so it says
+ * *where* each field is and the pinning tests beside the gitignored fixture say
+ * *what* is there.
+ *
+ * A samples column would also add nothing: every value here is one the operator
+ * stated in `wanted.json`, so the map would be echoing its own input back while
+ * turning a committable file into one that leaks whoever the `people` sub-page
+ * listed.
  */
 export function renderSweep(o: {
   surface: string;
   generatedAt: string;
   sourceRun: string;
   result: SweepResult;
-  samples?: boolean;
   /** Rendered verbatim under the heading — the sub-page url forms, scroller and
    *  navigation model the probe measured. */
   notes?: readonly string[];
@@ -443,10 +447,8 @@ export function renderSweep(o: {
   lines.push(
     "Each row was found by searching for a value the operator read off the rendered page, " +
       "so a hit is the value rather than something the right shape (D128). " +
-      (o.samples === true
-        ? "**This copy carries captured samples and must not be committed.**"
-        : "Values are deliberately absent: this file is committed and `fixtures/` is not — " +
-          "the pinning tests beside the fixture assert the meaning."),
+      "The values themselves are deliberately absent: this file is committed and `fixtures/` " +
+      "is not — the pinning tests beside the fixture assert the meaning.",
   );
   lines.push("");
 

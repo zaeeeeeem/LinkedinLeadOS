@@ -20,14 +20,28 @@ import {
   PROBE_MAX_PAGE_LOADS, RECEIPT_ENDPOINTS_PER_SUBPAGE, SUBPAGE_API_TIMEOUT_MS, SURFACE_TIMEOUT_MS,
 } from "./constants.js";
 import { companySubPageUrl, normalizeCompanyUrl, parseSubPages, type CompanySubPage } from "./url.js";
-import { emptySurface, interpretSurface, surfaceExpression, type SurfaceReport } from "./surface.js";
+import { interpretSurface, surfaceExpression, type SurfaceReport } from "./surface.js";
 
 const args = z
   .object({
     /** A company url, a bare `/company/<slug>` path, or a bare slug. */
     url: z.string().min(1),
-    /** Which sub-pages to load, comma-separated. Omitted: all five. */
-    subpages: z.string().optional(),
+    /**
+     * Which sub-pages to load, comma-separated. Omitted: all five.
+     *
+     * Validated here, in the schema, rather than only inside `run`: the runner
+     * checks args before it estimates cost, opens a tab or takes the lease, so
+     * a typo costs nothing. Validating it in `cost()` instead would surface as
+     * `COST_ESTIMATE_FAILED`, and validating it only in `run()` would open a
+     * browser tab to reject a misspelling.
+     */
+    subpages: z.string().optional().superRefine((raw, ctx) => {
+      try {
+        parseSubPages(raw);
+      } catch (cause) {
+        ctx.addIssue({ code: "custom", message: cause instanceof Error ? cause.message : String(cause) });
+      }
+    }),
     /** Scroll passes per sub-page. Omitted: `profile.capture`'s randomized 3–6. */
     scrolls: z.coerce.number().int().min(0).max(12).optional(),
     /** How long to wait for a sub-page's first LinkedIn api response. */
@@ -357,8 +371,19 @@ export const capability = defineCapability({
         checkpointState.phase = "pre-success-gate";
         await assertNoChallenge({ tab, run, state: checkpointState });
 
-        // Attribution. `seq` is the tap's own monotonic index, so the slice from
-        // this sub-page's cursor to the tap's current one is exactly what landed
+        // Drained *before* the slice, not only at the end of the run. A capture
+        // enters the tap's list only once its body fetch and archive write have
+        // finished, so a body still in flight here would be missing from this
+        // sub-page's rows and — because the next sub-page's cursor is taken
+        // after it lands — counted into the *next* sub-page's window instead.
+        // Tasks 22–25 read `subpages[].endpoints` as "which endpoints does this
+        // tab fetch"; attribution that can silently move a row to the wrong tab
+        // is worse than no attribution. On the last sub-page there is no next
+        // window at all and the row would simply be absent.
+        await tap.drain();
+
+        // `seq` is the tap's own monotonic index, so the slice from this
+        // sub-page's cursor to the tap's current one is exactly what landed
         // while this sub-page was open.
         const mine = tap.captures().filter((c) => c.seq >= since);
         const myMisses = tap.misses().slice(missesBefore);
@@ -374,6 +399,30 @@ export const capability = defineCapability({
 
         outcome.stage = "done";
       }
+    } catch (cause) {
+      // The one place a mid-probe halt can leave a record. An error receipt is
+      // built by the runner from the error alone — a capability's warnings are
+      // not on it — so "which sub-pages finished and which one died where"
+      // exists nowhere unless it is logged here, and a probe that halts on
+      // sub-page three is exactly when an operator needs it. `log:why` reads
+      // this file.
+      const failed = outcomes.at(-1);
+      if (failed !== undefined && failed.stage !== "done") {
+        run.log("error", {
+          level: "error",
+          phase: "probe",
+          item_ref: `${target.ref}#${failed.sub}`,
+          detail: {
+            code: cause instanceof CapabilityError ? cause.code : "UNCLASSIFIED",
+            sub: failed.sub,
+            stopped_at: failed.stage,
+            page_load_spent: failed.page_load_spent,
+            completed: outcomes.filter((o) => o.stage === "done").map((o) => o.sub),
+            not_attempted: subs.slice(outcomes.length),
+          },
+        });
+      }
+      throw cause;
     } finally {
       // Raw-first is not conditional (D2). Every body already on the wire is
       // archived before this function returns, on the throwing paths too.
@@ -489,20 +538,12 @@ export const capability = defineCapability({
 export function pushSurfaceWarnings(warnings: Warning[], outcomes: readonly SubPageOutcome[]): void {
   const named = (list: readonly SubPageOutcome[]): string => list.map((o) => o.sub).join(", ");
 
-  const incomplete = outcomes.filter((o) => o.stage !== "done");
-  if (incomplete.length > 0) {
-    // The partial-failure receipt. A probe that died on sub-page three has
-    // spent three page loads and archived two sub-pages, and saying so is the
-    // difference between a re-run and a diagnosis.
-    warnings.push({
-      code: "SUBPAGE_INCOMPLETE",
-      n: incomplete.length,
-      field:
-        `sub-page(s) that did not finish: ` +
-        incomplete.map((o) => `${o.sub} (stopped at ${o.stage})`).join(", "),
-    });
-  }
-
+  // Only completed sub-pages are described here, and the `stage === "done"`
+  // filters below are what enforce it. There is deliberately no
+  // "this one did not finish" warning: a sub-page can only fail by throwing out
+  // of the loop, and the runner builds an error receipt from the error alone —
+  // a warning added on that path would never reach a receipt at all. The
+  // durable record of a halt is the `error` event logged where it happens.
   const noApi = outcomes.filter((o) => o.stage === "done" && !o.api_response);
   if (noApi.length > 0) {
     warnings.push({

@@ -127,7 +127,7 @@ describe("parseSubPages", () => {
     expect(parseSubPages("jobs,main,jobs,about")).toEqual(["main", "about", "jobs"]);
   });
 
-  it("refuses an unknown sub-page instead of silently dropping it", () => {
+  it("refuses an unknown sub-page instead of silently dropping it (a direct caller's path)", () => {
     let thrown: unknown;
     try {
       parseSubPages("main,insights");

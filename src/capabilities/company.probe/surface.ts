@@ -23,6 +23,16 @@ import { COMPANY_SUBPAGES, type CompanySubPage } from "./url.js";
  *  must never be the thing that runs a machine out of memory. */
 export const MAX_NAMESPACES = 24;
 export const MAX_SCRIPT_GLOBALS = 12;
+/** A `componentkey` namespace is a dotted java-ish package name. Anything
+ *  longer than this is not one, and is a page putting a string on a receipt. */
+export const MAX_PREFIX_CHARS = 200;
+/** `location.href` after a redirect. LinkedIn's own urls are far shorter; a
+ *  data: or blob: url is not something to print in full. */
+export const MAX_URL_CHARS = 500;
+/** An html tag name; the longest in the spec is `blockquote`. */
+export const MAX_TAG_CHARS = 32;
+/** An element id. */
+export const MAX_ID_CHARS = 120;
 
 /** Globals a server-rendered LinkedIn page has been seen to park its payload
  *  on. `__como_rehydration__` is the RSC flight stream D121 measured on the
@@ -196,6 +206,14 @@ function str(v: unknown): string | null {
   return typeof v === "string" && v !== "" ? v : null;
 }
 
+/** Every page-controlled string is clamped on the way in. The page decides what
+ *  this returns and the receipt goes to stdout; "the browser would not do that"
+ *  is not a bound (§4.1, D3). */
+function clamp(value: string | null, max: number): string | null {
+  if (value === null) return null;
+  return value.length <= max ? value : `${value.slice(0, max)}…`;
+}
+
 /**
  * Validates and normalizes whatever came back from the page.
  *
@@ -213,21 +231,28 @@ export function interpretSurface(raw: unknown): SurfaceReport | null {
   const namespaces = Array.isArray(o["namespaces"])
     ? (o["namespaces"] as unknown[])
         .filter((n): n is Record<string, unknown> => n !== null && typeof n === "object")
-        .map((n) => ({ prefix: String(n["prefix"] ?? ""), n: num(n["n"]) }))
+        .map((n) => ({ prefix: clamp(String(n["prefix"] ?? ""), MAX_PREFIX_CHARS) ?? "", n: num(n["n"]) }))
         .filter((n) => n.prefix !== "")
         .slice(0, MAX_NAMESPACES)
     : [];
 
+  // One row per sub-page at most, and the *first* row for each wins. The page
+  // is asked for exactly five and could answer with fifty thousand all named
+  // `about`; filtering to known names bounds the vocabulary but not the length,
+  // and length is what reaches stdout.
+  const seenSubs = new Set<string>();
   const tabs = Array.isArray(o["tabs"])
     ? (o["tabs"] as unknown[])
         .filter((t): t is Record<string, unknown> => t !== null && typeof t === "object")
         .flatMap((t): TabReport[] => {
           const sub = String(t["sub"] ?? "");
           if (!(COMPANY_SUBPAGES as readonly string[]).includes(sub)) return [];
+          if (seenSubs.has(sub)) return [];
+          seenSubs.add(sub);
           return [{
             sub: sub as CompanySubPage,
             linked: t["linked"] === true,
-            tag: str(t["tag"]),
+            tag: clamp(str(t["tag"]), MAX_TAG_CHARS),
             links: num(t["links"]),
           }];
         })
@@ -244,10 +269,10 @@ export function interpretSurface(raw: unknown): SurfaceReport | null {
     : [];
 
   return {
-    url: typeof o["url"] === "string" ? o["url"] : "",
+    url: clamp(typeof o["url"] === "string" ? o["url"] : "", MAX_URL_CHARS) ?? "",
     scroller: {
-      tag: str(scroller["tag"]),
-      id: str(scroller["id"]),
+      tag: clamp(str(scroller["tag"]), MAX_TAG_CHARS),
+      id: clamp(str(scroller["id"]), MAX_ID_CHARS),
       hasComponentKey: scroller["hasComponentKey"] === true,
       scrollHeight: num(scroller["scrollHeight"]),
       clientHeight: num(scroller["clientHeight"]),

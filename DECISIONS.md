@@ -2072,6 +2072,20 @@ the unguarded version.
 `embedded-json` > `dom-snapshot`, which is `CLAUDE.md`'s own order. An exact match sorts
 ahead of a substring match, because an exact hit is a path a parser reads directly.
 
+**Amended 2026-08-09, same day, in review: the embedded-json path comes from `cssPath`,
+the same function the DOM walk uses.** It was hand-built as
+`script[type="…"]:nth-of-type(<n>)` where `n` counted the scripts *this function had
+collected so far* — across both types, across parents, skipping the ones that were empty
+or did not parse. `:nth-of-type` counts siblings of the same **tag** within one parent and
+the `[type=…]` predicate does not narrow that count, so on any page with a plain `<script>`
+before the structured one, or with structured scripts under two parents, the committed
+FIELD-MAP would have carried paths resolving to the wrong script or to nothing. A field map
+whose paths do not resolve is the one thing this module's own contract forbids, and it
+would have been discovered by Task 22 trying to use it. The regression test asserts sibling
+numbering across two parents, numbering unaffected by a skipped unparseable script, and —
+the property itself — that the emitted selector, fed back through cheerio, selects the
+script the value came from.
+
 ## D175 — the committed FIELD-MAP carries no captured value (2026-08-09)
 
 **Decision.** `renderSweep` prints field names, sources, files, paths and match kinds, and
@@ -2087,6 +2101,15 @@ depended on classifying each field would be wrong the first time someone added a
 Meaning is not lost: it moves to the pinning tests, which live beside the gitignored
 fixture and already carry real values by established practice
 (`parse.fixture.test.ts` asserts a real profile urn and a real city).
+
+**Amended 2026-08-09, same day, in review: the `--samples` escape hatch is gone, not
+fixed.** It rendered no samples at all — it only swapped the document's preamble for a
+warning that the file "carries captured samples and must not be committed", which was
+false in the one direction that matters. Reviewing the choice rather than the bug: a
+samples column would have echoed the sweep's own input back, because every value in it is
+one the operator wrote into `wanted.json`. So it bought nothing and turned a committable
+file into one that leaks whoever the `people` sub-page listed. There is now no way to ask
+for it, and a test asserts the parameter does not exist.
 
 ## D176 — the probe's receipt reports the page's construction, never its content (2026-08-09)
 
@@ -2148,3 +2171,71 @@ and may carry no company marker at all. A probe reporting only company markers w
 minefield, and D119's trap has now been found in four separate places. Two columns cost
 nothing and make the emptiness of one of them a fact rather than an absence. Pinned by a
 test that gives the people sub-page a person-only body and asserts both columns.
+
+## D180 (out-of-range, see note) — the tap is drained per sub-page, not once per run (2026-08-09, in review)
+
+**Numbering note.** Task 21 owns D170–D179 (D18) and all ten are used. This is a Task 21
+review fix that rises to a decision, so it takes the next free number; **Task 22's reserved
+range becomes D181–D189.** Recorded here and in `STATE.md` so the next session does not
+collide, exactly as D130 did for Task 17.
+
+**Bug, found in review of `d5eb8d8`, before any live run.** `company.probe` summarized each
+sub-page's captures *inside* the loop and drained the tap once, after it. A capture enters
+the tap's list only when its body fetch and archive write have finished, so a body still in
+flight at the moment of the slice was missing from its own sub-page's rows — and because
+the next sub-page's cursor is taken after that body lands, it was then counted into the
+**next** sub-page's window. On the last sub-page there is no next window and the row was
+simply absent.
+
+**Why it mattered more than it looked.** The run's totals are computed after the final
+drain, so they were always right; only the per-sub-page attribution was wrong. Tasks 22–25
+read `subpages[].endpoints` as "which endpoints does this tab fetch" — that is the probe's
+primary deliverable, and a silently mis-attributed row is exactly the kind of measurement
+error the probe exists to prevent downstream.
+
+**Decision.** `await tap.drain()` immediately before each sub-page's slice, in addition to
+the `finally` that covers the whole loop. Draining twice costs nothing — it settles
+already-finished work — and the two answer different questions: the inner one makes
+attribution complete, the outer one makes the archive complete on the throwing path (D2).
+
+Pinned by a test where a fast body satisfies the api wait and a slow one is still on the
+wire when the sub-page is summarized; verified to fail against the single-drain version.
+
+## D181 (out-of-range) — a mid-probe halt is recorded in the event log, because it cannot be recorded on the receipt (2026-08-09, in review)
+
+**Numbering note.** As D180: Task 22's range becomes D182–D189.
+
+**Bug, found in review.** The probe pushed a `SUBPAGE_INCOMPLETE` warning describing which
+sub-pages finished and where the failing one stopped. That warning was unreachable. A
+sub-page can only fail by throwing out of the loop, and the runner builds an error receipt
+from the error and the cost alone (`buildErr`) — a capability's warnings never reach it. The
+README promised output that could not exist, and a live probe halting on sub-page three
+would have left no record of which sub-pages completed.
+
+**Decision.** The warning is deleted rather than made reachable, and the loop's `catch`
+logs an `error` event naming the sub-page, the stage it stopped at, whether its page load
+was spent, which sub-pages completed, and which were never attempted. `log:why` reads it.
+The loads actually spent were already truthful on the error receipt's `cost`.
+
+**Why not make it reachable** by catching and finishing with a partial ok receipt: a probe
+halts for a challenge, a budget refusal or a failed navigation, and every one of those is a
+reason to stop touching the account rather than to report success with a footnote. The
+general shape, and the reason this is written down: **a warning added on a throwing path is
+dead code**, because the receipt on that path is the runner's and is built from the error.
+
+## D182 (out-of-range) — an unknown `--subpages` value is rejected by the args schema (2026-08-09, in review)
+
+**Numbering note.** As D180/D181: Task 22's range becomes D183–D189.
+
+**Bug, found in review.** `parseSubPages` threw `COMPANY_SUBPAGE_UNKNOWN`, and the README
+documented that code — but the runner calls `def.cost(args)` before `run`, `cost` calls
+`parseSubPages`, and `run.ts` wraps any throw from it as `COST_ESTIMATE_FAILED`. The
+operator would never have seen the documented code, and the throw inside `run` was
+unreachable behind it.
+
+**Decision.** The schema validates it, via a `superRefine` that delegates to
+`parseSubPages`. The runner checks args *before* it estimates cost, takes the lease or opens
+a tab, so a typo now costs nothing and surfaces as `ARGS_INVALID` — the code the runner
+actually emits for a bad argument. `parseSubPages` keeps its own throw for a caller that
+invokes `run` directly, which Task 22's composition will, and the README documents both
+paths rather than one that cannot happen.

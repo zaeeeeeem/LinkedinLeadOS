@@ -1,8 +1,8 @@
 import { describe, expect, it } from "vitest";
 import * as cheerio from "cheerio";
 import {
-  MAX_NAMESPACES, MAX_SCRIPT_GLOBALS, PAYLOAD_GLOBALS, emptySurface, interpretSurface,
-  surfaceExpression,
+  MAX_ID_CHARS, MAX_NAMESPACES, MAX_PREFIX_CHARS, MAX_SCRIPT_GLOBALS, MAX_TAG_CHARS,
+  MAX_URL_CHARS, PAYLOAD_GLOBALS, emptySurface, interpretSurface, surfaceExpression,
 } from "../src/capabilities/company.probe/surface.js";
 
 /**
@@ -227,6 +227,31 @@ describe("interpretSurface", () => {
     expect(
       interpretSurface({ ...raw(), embedded: { ...raw().embedded, globals: many } })?.embedded.globals.length,
     ).toBeLessThanOrEqual(MAX_SCRIPT_GLOBALS);
+  });
+
+  it("bounds every page-controlled string, because the page decides what these hold", () => {
+    const huge = "x".repeat(10_000);
+    const out = interpretSurface({
+      ...raw(),
+      url: `https://www.linkedin.com/company/${huge}`,
+      scroller: { ...raw().scroller, tag: huge, id: huge },
+      namespaces: [{ prefix: huge, n: 1 }],
+      tabs: [{ sub: "about", linked: true, tag: huge, links: 1 }],
+    })!;
+    expect(out.url.length).toBeLessThanOrEqual(MAX_URL_CHARS + 1);
+    expect(out.scroller.tag!.length).toBeLessThanOrEqual(MAX_TAG_CHARS + 1);
+    expect(out.scroller.id!.length).toBeLessThanOrEqual(MAX_ID_CHARS + 1);
+    expect(out.namespaces[0]!.prefix.length).toBeLessThanOrEqual(MAX_PREFIX_CHARS + 1);
+    expect(out.tabs[0]!.tag!.length).toBeLessThanOrEqual(MAX_TAG_CHARS + 1);
+    // The whole report is bounded, not just each field of it.
+    expect(JSON.stringify(out).length).toBeLessThan(4_000);
+  });
+
+  it("keeps one row per sub-page however many the page answers with", () => {
+    const flood = Array.from({ length: 50_000 }, () => ({ sub: "about", linked: true, tag: "a", links: 1 }));
+    const out = interpretSurface({ ...raw(), tabs: flood })!;
+    expect(out.tabs).toHaveLength(1);
+    expect(out.tabs[0]!.sub).toBe("about");
   });
 
   it("coerces a non-finite count to zero rather than letting NaN reach a receipt", () => {

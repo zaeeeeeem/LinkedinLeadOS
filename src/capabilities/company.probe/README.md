@@ -55,14 +55,14 @@ The task's stated ceiling of six loads per invocation is also enforced in code
 | code | exit | means |
 |---|---|---|
 | `COMPANY_URL_INVALID` | 1 | the target could not be canonicalized; nothing was opened or spent |
-| `COMPANY_SUBPAGE_UNKNOWN` | 1 | `--subpages` named something that is not one of the five |
+| `ARGS_INVALID` | 1 | `--subpages` named something that is not one of the five; caught at argument parsing, before a tab or the lease is taken |
+| `COMPANY_SUBPAGE_UNKNOWN` | 1 | the same, thrown by `parseSubPages` for a caller that invokes `run` directly rather than through the CLI |
 | `PROBE_BUDGET_EXCEEDED` | 7 | more loads asked for than a probe may make |
 | `BUDGET_*` | 7 | the invocation cap or the ledger refused |
 | `CHALLENGE_*` | 2 | a challenge on any sub-page halts the whole probe; never pushed past |
 | `PROBE_NO_CAPTURE` | 6 | pages loaded and nothing was archived |
 
-Warnings — all of them findings rather than errors: `SUBPAGE_INCOMPLETE`,
-`SUBPAGE_NO_API_RESPONSE`, `SUBPAGE_NOT_LAID_OUT`, `SUBPAGE_REDIRECTED`,
+Warnings — all of them findings rather than errors: `SUBPAGE_NO_API_RESPONSE`, `SUBPAGE_NOT_LAID_OUT`, `SUBPAGE_REDIRECTED`,
 `DOM_SNAPSHOT_MISSING`, `SUBJECT_CONTAINER_NOT_RENDERED`, `SURFACE_UNMEASURED`,
 `NO_COMPANY_PAYLOAD`, `PATTERN_MISMATCH`, `CAPTURE_MISSES`,
 `RESPONSE_STATUS_UNRECOGNIZED`, `TAB_NOT_FOREGROUND`.
@@ -70,6 +70,14 @@ Warnings — all of them findings rather than errors: `SUBPAGE_INCOMPLETE`,
 On a first probe of an unmeasured surface, `PATTERN_MISMATCH` is the *expected*
 reading: the specific patterns are this build's guess and the broad net is what
 makes the guess checkable (D110).
+
+There is **no warning for a sub-page that did not finish**, and that is not an
+omission. A sub-page can only fail by throwing out of the loop, and the runner
+builds an error receipt from the error and the cost alone — a capability's
+warnings are not on it. The durable record of a halt is an `error` event naming
+the sub-page, the stage it stopped at, which sub-pages completed and which were
+never attempted; read it with `log:why`. The loads actually spent are on the
+error receipt's `cost`.
 
 ## What it never puts on stdout
 

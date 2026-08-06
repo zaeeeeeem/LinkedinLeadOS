@@ -67,6 +67,11 @@ Task N owns `D(10 × (N − 4))` through `D(10 × (N − 4) + 9)` (D18): Task 20
 Task 21 → D170–D179 … Task 33 → D290–D299. Plan-level decisions taken at approval time are
 D152 (probe-first mandatory) and D153 (per-capability daily sub-caps).
 
+**A task whose ten are used takes the next free numbers and says so**, in `DECISIONS.md`
+and in `STATE.md`, the way D130 did for Task 17. Already happened once here: Task 21's
+review round took D180–D182, so **Task 22's range is D183–D189**. Check `DECISIONS.md`
+before assuming your range is free.
+
 ## Model assignment
 
 Split by consequence of a silent bug, as before. Every probe task and every live gate is

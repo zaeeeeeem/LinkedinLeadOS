@@ -23,6 +23,7 @@ import type { HumanCursor } from "../src/core/input/cursor.js";
 import type { SpendRecord } from "../src/core/budget/ledger.js";
 import { CapabilityError, EXIT, type Warning } from "../src/core/run/receipt.js";
 import { inspectLease } from "../src/core/lease/tab-lease.js";
+import { readEvents } from "../src/core/run/events.js";
 import { DEFAULT_FLAGS } from "../src/cli/flags.js";
 import { execute } from "../src/cli/run.js";
 import type { AnyCapability, SessionLike, TabLike, UniversalFlags } from "../src/cli/types.js";
@@ -59,6 +60,9 @@ class FakePage {
    *  that throws with a fetch still in flight can be told apart from one that
    *  waited for it. */
   slowBodies = new Set<string>();
+  /** How long a slow body takes. Long enough, in the late-body test, to still
+   *  be on the wire when the sub-page has finished being read. */
+  slowBodyMs = 60;
   /** url substring → responses that page "fetches". */
   responsesFor: (navigatedUrl: string) => Response[] = () => [{ url: gql("voyagerOrganizationDashCompanies.aa"), body: COMPANY_BODY }];
 
@@ -217,7 +221,7 @@ class FakeSession implements SessionLike {
         if (body === undefined) throw new Error("no such request");
         const url = this.page.urlOf(requestId);
         if (url !== undefined && this.page.slowBodies.has(url)) {
-          await new Promise((r) => setTimeout(r, 60));
+          await new Promise((r) => setTimeout(r, this.page.slowBodyMs));
         }
         return { body, base64Encoded: false } as T;
       }
@@ -356,6 +360,40 @@ describe("company.probe — the happy path", () => {
     expect(by["people"]!.company_ish).toBe(0);
     expect(by["people"]!.person_ish).toBe(1);
     expect(subs.every((s) => s.captured === 1)).toBe(true);
+  });
+
+  it("attributes a body still in flight to the sub-page that fetched it, including the last one", async () => {
+    // A capture enters the tap's list only once its archive write finishes. On
+    // the last sub-page there is no later window for a late body to fall into,
+    // so an undrained slice loses it entirely — and the totals still look right,
+    // which is what makes it worth a test.
+    const fast = gql("voyagerJobsDashJobCards.fast");
+    const slow = gql("voyagerJobsDashJobCards.slow");
+    const { outcome } = invoke({
+      args: { subpages: "main,jobs" },
+      tune: (s) => {
+        // The fast body satisfies the api wait, so the sub-page is read and
+        // summarized while the slow one is still coming off the wire. Without a
+        // per-sub-page drain the slow row is simply gone — and the run's totals,
+        // computed after the final drain, still look right.
+        s.page.responsesFor = (url) =>
+          url.includes("/jobs/")
+            ? [{ url: fast, body: COMPANY_BODY }, { url: slow, body: COMPANY_BODY }]
+            : [{ url: gql("voyagerOrganizationDashCompanies.aa"), body: COMPANY_BODY }];
+        s.page.slowBodies.add(slow);
+        s.page.slowBodyMs = 400;
+      },
+    });
+    const { receipt } = await outcome;
+    expect(receipt.ok).toBe(true);
+    if (!receipt.ok) return;
+    const subs = (receipt.data as { subpages: SubPageOutcome[] }).subpages;
+    expect(subs.map((x) => x.captured)).toEqual([1, 2]);
+    expect(subs[1]!.endpoints.map((e) => e.query_id).sort()).toEqual([
+      "voyagerJobsDashJobCards.fast", "voyagerJobsDashJobCards.slow",
+    ]);
+    // And nothing has leaked backwards into the earlier sub-page.
+    expect(subs[0]!.endpoints.map((e) => e.query_id)).toEqual(["voyagerOrganizationDashCompanies.aa"]);
   });
 
   it("honours --subpages, spending only what was asked for", async () => {
@@ -558,6 +596,22 @@ describe("company.probe — the budget is checked before anything is spent", () 
     expect(ledgerLines()).toEqual([]);
   });
 
+  it("rejects an unknown sub-page at argument parsing, before a tab or a lease is taken", async () => {
+    const { outcome, session } = invoke({ args: { subpages: "main,insights" } });
+    const { receipt, exit } = await outcome;
+    expect(exit).toBe(EXIT.GENERIC);
+    expect(receipt.ok).toBe(false);
+    if (receipt.ok) return;
+    // Not COST_ESTIMATE_FAILED: the runner checks args before it estimates cost,
+    // so a typo is caught where a typo belongs and costs nothing.
+    expect(receipt.error.code).toBe("ARGS_INVALID");
+    expect(receipt.error.message).toMatch(/insights/);
+    expect(receipt.error.message).toMatch(/known sub-pages/);
+    expect(session.tab.navigated).toEqual([]);
+    expect(ledgerLines()).toEqual([]);
+    expect((await inspectLease(paths.leasePath)).state).toBe("free");
+  });
+
   it("declares the whole invocation's cost up front, which is what preflight gates on", () => {
     // The refusal above happens before the capability's own `run` is entered,
     // and this is the value that makes it happen: a cost function that reported
@@ -618,20 +672,17 @@ describe("pushSurfaceWarnings — one row per finding, naming which sub-pages", 
     expect(unsettled[0]!.field).toMatch(/main, about/);
   });
 
-  it("names the stage an unfinished sub-page died at", () => {
+  it("says nothing at all about a sub-page that did not finish", () => {
+    // There is no warning for it, on purpose: a sub-page can only fail by
+    // throwing out of the loop, and the runner builds an error receipt from the
+    // error alone. A warning on that path would never reach a receipt, and
+    // describing an unmeasured page as one that "answered nothing" would be a
+    // measurement claim about a page that was never measured.
     const warnings: Warning[] = [];
-    pushSurfaceWarnings(warnings, [outcome({ sub: "posts", stage: "snapshot" })]);
-    const incomplete = warnings.find((w) => w.code === "SUBPAGE_INCOMPLETE")!;
-    expect(incomplete.field).toMatch(/posts \(stopped at snapshot\)/);
-  });
-
-  it("does not report an unfinished sub-page as one that answered nothing", () => {
-    // A sub-page that never reached the wait has `api_response: false` because
-    // nothing set it, and reporting that as "this tab fetches nothing" would be
-    // a measurement claim about a page that was never measured.
-    const warnings: Warning[] = [];
-    pushSurfaceWarnings(warnings, [outcome({ sub: "jobs", stage: "navigate", api_response: false, layout_settled: false })]);
-    expect(warnings.map((w) => w.code)).toEqual(["SUBPAGE_INCOMPLETE"]);
+    pushSurfaceWarnings(warnings, [
+      outcome({ sub: "jobs", stage: "navigate", api_response: false, layout_settled: false, surface: null }),
+    ]);
+    expect(warnings).toEqual([]);
   });
 
   it("is silent when every sub-page finished cleanly", () => {
@@ -672,6 +723,34 @@ describe("the modules company.probe is the first to compose", () => {
         expect(match(companySubPageUrl(target, other)), `${sub} vs ${other}`).toBe(false);
       }
     }
+  });
+});
+
+describe("a halt leaves a durable record of where it happened", () => {
+  it("logs which sub-pages finished, which one died and at what stage", async () => {
+    const { outcome } = invoke({ tune: (s) => { s.tab.navFailsOn = "/posts/"; } });
+    const { receipt } = await outcome;
+    expect(receipt.ok).toBe(false);
+    if (receipt.ok) return;
+
+    // The receipt cannot carry this: `buildErr` takes the error and the cost,
+    // not the capability's warnings. The event log is where a halt is diagnosed.
+    const events = readEvents(join(paths.runsDir, receipt.run_id, "events.ndjson"));
+    const halted = events.find((e) => e.event === "error" && e.detail?.["sub"] !== undefined)!;
+    expect(halted).toBeDefined();
+    expect(halted.detail).toMatchObject({
+      sub: "posts",
+      stopped_at: "navigate",
+      page_load_spent: true,
+      completed: ["main", "about"],
+      not_attempted: ["people", "jobs"],
+    });
+  });
+
+  it("still reports the loads it spent on the error receipt", async () => {
+    const { receipt } = await invoke({ tune: (s) => { s.tab.navFailsOn = "/posts/"; } }).outcome;
+    expect(receipt.ok).toBe(false);
+    expect(receipt.cost.page_loads).toBe(3);
   });
 });
 

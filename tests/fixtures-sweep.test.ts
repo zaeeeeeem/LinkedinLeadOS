@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import * as cheerio from "cheerio";
 import {
   MAX_DEPTH, MAX_ELEMENTS, MAX_HITS_PER_FIELD, MAX_NODES, MIN_CONTAINS_CHARS,
   embeddedJsonOf, normalize, renderSweep, sweepSources, walkDom, walkJson,
@@ -70,7 +71,7 @@ describe("sweepSources — which source carries a field", () => {
     const result = sweepSources({ documents: [VOYAGER, DOCUMENT, SNAPSHOT], wanted: WANT });
     const paths = result.fields.flatMap((f) => f.hits.map((h) => `${h.source} ${h.path}`));
     expect(paths).toContain("voyager-body $.data.company.name");
-    expect(paths).toContain('embedded-json script[type="application/ld+json"]:nth-of-type(1) → $.name');
+    expect(paths).toContain("embedded-json head > script → $.name");
     expect(paths.some((p) => p.startsWith("dom-snapshot main#workspace"))).toBe(true);
   });
 
@@ -248,14 +249,59 @@ describe("embeddedJsonOf", () => {
     const found = embeddedJsonOf('<script id="state" type="application/json">{"a":1}</script>');
     expect(found[0]!.prefix).toBe("script#state → $");
   });
+
+  it("numbers a positional selector by sibling position, not by how many it has collected", () => {
+    // `:nth-of-type` counts siblings of the same *tag* within one parent, and
+    // `[type=…]` does not narrow that count. Here the ld+json script is the
+    // second `<script>` in `<head>`, and a selector numbered `1` because it is
+    // the first thing collected would resolve to the JavaScript above it.
+    const html =
+      "<html><head>" +
+      "<script>var a = 1;</script>" +
+      '<script type="application/ld+json">{"a":1}</script>' +
+      "</head><body>" +
+      '<script type="application/json">{"b":2}</script>' +
+      "</body></html>";
+    const found = embeddedJsonOf(html);
+    expect(found).toHaveLength(2);
+    expect(found[0]!.prefix).toBe("head > script:nth-of-type(2) → $");
+    // A different parent restarts the count, which an accumulator cannot do.
+    expect(found[1]!.prefix).toBe("body > script → $");
+  });
+
+  it("does not let an unparseable script shift the numbering of the ones after it", () => {
+    const html =
+      "<html><head>" +
+      '<script type="application/json">{oops</script>' +
+      '<script type="application/json">{"a":1}</script>' +
+      "</head></html>";
+    const found = embeddedJsonOf(html);
+    expect(found).toHaveLength(1);
+    // Second script of its parent, regardless of the first having been skipped.
+    expect(found[0]!.prefix).toBe("head > script:nth-of-type(2) → $");
+  });
+
+  it("gives every embedded hit a path that resolves back to the script it came from", () => {
+    const html =
+      "<html><head><script>noise()</script>" +
+      '<script type="application/ld+json">{"name":"Acme Robotics"}</script></head></html>';
+    const result = sweepSources({
+      documents: [{ file: "z.json.gz", kind: "document-html", body: html }],
+      wanted: [WANT[0]!],
+    });
+    const hit = result.fields[0]!.hits[0]!;
+    const selector = hit.path.slice(0, hit.path.indexOf(" → "));
+    // The claim a field map makes is that its paths resolve. Checked, not asserted.
+    expect(cheerio.load(html)(selector).attr("type")).toBe("application/ld+json");
+  });
 });
 
 describe("renderSweep — what may be committed", () => {
   const result = sweepSources({ documents: [SNAPSHOT, VOYAGER], wanted: WANT });
-  const render = (samples?: boolean) =>
-    renderSweep({ surface: "company page family", generatedAt: "2026-08-09T00:00:00Z", sourceRun: "R", result, ...(samples === undefined ? {} : { samples }) });
+  const render = () =>
+    renderSweep({ surface: "company page family", generatedAt: "2026-08-09T00:00:00Z", sourceRun: "R", result });
 
-  it("prints no captured value by default, because this file is committed and fixtures are not", () => {
+  it("prints no captured value, because this file is committed and fixtures are not", () => {
     const md = render();
     expect(md).not.toContain("Acme Robotics");
     expect(md).not.toContain("acme.example");
@@ -276,8 +322,12 @@ describe("renderSweep — what may be committed", () => {
     expect(render()).toMatch(/\*\*DOM-only fields:\*\* hq/);
   });
 
-  it("says out loud when a copy carries samples and must not be committed", () => {
-    expect(render(true)).toMatch(/must not be committed/);
+  it("has no way to ask for samples at all", () => {
+    // The flag that used to be here rendered nothing and only swapped the
+    // preamble for a warning about a risk it was not taking. A knob that does
+    // not do what its name says is worse than no knob.
+    expect("samples" in ({} as Parameters<typeof renderSweep>[0])).toBe(false);
+    expect(render()).not.toMatch(/must not be committed/);
   });
 
   it("marks a trap row rather than presenting it as a source", () => {

@@ -774,11 +774,38 @@ Reused, not forked: `profile.capture`'s pacing constants, `readLikeAHuman`,
 (D178) and the scroller-selection rule was extracted so both surfaces ask it the same way
 (D177) — behaviour unchanged, existing tests still green.
 
-Proven: **911/911 offline (93 new), typecheck clean.** Mutations verified to bite: reading a
+Proven: **927/927 offline (109 new), typecheck clean.** Mutations verified to bite: reading a
 DOM snapshot's inline scripts as `embedded-json`; reading the document response's markup;
-dropping the drain so a body still in flight at a mid-run halt is lost. `surfaceExpression`
+dropping the per-sub-page drain so a late body is attributed to the wrong tab. `surfaceExpression`
 is executed as real JavaScript against a cheerio-parsed document, so the selectors are tested
 against markup rather than against a stub that agrees with them.
+
+**Reviewed 2026-08-09, high effort, before any live run — six findings, all fixed.** Two
+would have corrupted the deliverable and are worth knowing about:
+
+- **Per-sub-page capture attribution could put a row on the wrong tab** (D180). The tap was
+  drained once per run but summarized once per sub-page, and a capture only lands after its
+  archive write finishes. Run totals were always right; `subpages[].endpoints` — the probe's
+  primary deliverable — was not. Now drained before each slice.
+- **Every embedded-json path in the FIELD-MAP would have been wrong** (D174, amended).
+  `:nth-of-type` counts same-tag siblings within one parent and the `[type=…]` predicate
+  does not narrow it; the index was an accumulator across both types and all parents. Paths
+  now come from `cssPath`, and a test feeds the emitted selector back through cheerio to
+  prove it selects the script the value came from.
+
+The other four: an unreachable `SUBPAGE_INCOMPLETE` warning promising a partial-failure
+receipt the runner can never build (D181 — replaced by an `error` event, which is where a
+halt is actually diagnosable); a `--samples` flag that rendered no samples and only swapped
+in a false warning (D175, amended — deleted); an unknown `--subpages` value surfacing as
+`COST_ESTIMATE_FAILED` rather than the documented code (D182 — now rejected by the args
+schema, before a tab or the lease); and page-controlled strings (`url`, scroller `tag`/`id`,
+namespace prefixes, the `tabs` list) reaching the receipt unbounded despite the module's own
+contract.
+
+**Numbering: D180–D182 were taken by this review round, so Task 22's reserved range is
+D183–D189.**
+
+Now: **927/927 offline, typecheck clean.**
 
 **Not built, and blocked on the live run:** fixtures, `FIELD-MAP.md`, the pinning tests, the
 company identity verdict, and the source verdicts Tasks 22–25 are waiting on. Per D152 none
