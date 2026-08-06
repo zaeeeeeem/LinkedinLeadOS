@@ -578,6 +578,45 @@ is pure and Task 17 specifies fixture verification, so it spent zero page loads.
 
 Budget spent 2026-08-09: 2 page loads, 0 profile opens beyond the earlier dedupe window.
 
+Task 18 — bounded log queries. `src/core/log/queries.ts` (pure, offline): `listRuns` /
+`queryWhy` / `queryErrors` / `queryDrift` read `runs/<id>/{run.json,summary.json,
+events.ndjson}` directly with plain `fs` calls — never `RunContext.open({ runId })`, which
+mutates the run it opens (D141). `src/capabilities/log.{runs,why,errors,drift}/` wrap them as
+`risk: local` capabilities, `needsBrowser: false`, zero cost, named with dots rather than the
+spec table's colons to satisfy Task 12's existing capability-name invariant (D140). `--since`
+reuses Task 14's `parseDuration`; `log.runs` default `24h`, `log.drift` default `7d`, matching
+spec §5's examples. Every result is capped (200 runs, 500 events, 200 drift groups) and marks
+`truncated` rather than growing unbounded, per D3's fixed-size intent — truncation always
+drops the least-relevant end (oldest runs/events, smallest drift counts), keeping the most
+recently active. A run whose `run.json` cannot be attributed still contributes: `listRuns`
+surfaces it as `status: "corrupt"` with no timestamp rather than being silently dropped by
+the time filter it has no readable timestamp to be judged against, and `queryDrift` groups
+its `parse.miss` events under capability `"(unknown)"` rather than losing them; an event
+missing `detail.field` groups under field `"(unknown)"` for the same reason.
+
+Proven: 38 new offline tests (534 passed / 13 skipped across the full suite without local
+Supabase running — three consecutive clean runs), typecheck clean. 26 in `tests/log-queries.
+test.ts` pin the pure query functions directly: ordered event readback, a truncated trailing
+NDJSON line not erasing the complete events before it (both for `log:why` on one item and
+`log:errors` on a whole run — proven against a run that failed outright and one that partly
+succeeded, per the task's discipline gate), per-item filtering excluding other items'
+events, warn/error-only filtering excluding info/debug, since-window filtering of run
+summaries including the corrupt-`run.json` and corrupt-`summary.json` cases, drift grouping
+by capability and field across multiple runs and multiple capabilities, and every truncation
+bound proven by exceeding it (501 events, 201 runs, 201 drift groups) and checking which end
+survived. 12 in `tests/log-capabilities.test.ts` drive the real `execute()` pipeline end to
+end — registry lookup, args validation, `RunContext`, receipt assembly — with no fake browser
+deps, since `needsBrowser: false` means `preflight` never opens a session or a lease; this is
+the first place `execute()` and `core/log/queries.ts` compose, including the real edge case
+of `log:runs` observing its own just-started invocation as `status: "incomplete"` because it
+scans before it has written its own `summary.json`. Live via the real CLI subprocess: `cap
+list` shows all four; `cap log.runs` returns `ok`/exit 0 and a second invocation lists the
+first as `status: "ok"`; `cap log.why --run=<real-id> --item=<unmatched>` returns `ok`/exit 0
+with an empty list; `cap log.why` missing `--item` returns `ARGS_INVALID`/exit 1; `cap
+log.errors --run=<unknown>` returns `RUN_NOT_FOUND`/exit 1; `cap log.drift` returns `ok`/exit
+0 with an empty group list against an archive with no `parse.miss` events yet (Task 16/17,
+which will produce them, are not built).
+
 ## In progress
 Task 15 — capture fixture. **Offline complete. Two live runs done. Both found bugs in this
 task's own code. Not Built: the captures do not contain the profile, and D116 is open.**

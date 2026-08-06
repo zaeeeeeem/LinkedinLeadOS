@@ -1755,3 +1755,69 @@ that the longest-common-prefix cut may have moved into the card-name suffix, mak
 by the same characters. Rejected: recomputing these guards in the parser after
 `checkDomIdentity` — two copies of a load-bearing identity rule can drift, and it parsed the same
 875KB snapshot twice for no additional evidence.
+
+## D140 — the log-query capabilities are named `log.<verb>`, not `log:<verb>`
+2026-08-08, Task 18. Spec §5's table writes `log:why`, `log:errors`, `log:drift`, `log:runs`
+with colons, and the task file quotes those names verbatim. Implemented as `log.why`,
+`log.errors`, `log.drift`, `log.runs` instead.
+
+D81's registry requires the directory name to equal the capability name, and Task 12 already
+pinned a general invariant on every capability name — `tests/cli-registry.test.ts`, "scans a
+real directory tree and every entry it finds is a well-formed capability" — asserting
+`/^[a-z0-9]+(\.[a-z0-9]+)+$/` against `loadCapabilities()`'s real scan of `src/capabilities/`.
+A colon fails that regex outright; landing `log:why` would either break an already-green
+Task 12 test or require weakening an invariant written for every capability, present and
+future, to fit four names whose punctuation was illustrative table formatting, not a
+consumed contract — nothing parses `log:why` as a wire format anywhere in the codebase.
+Dot notation keeps the CLI surface `cap log.why --run=<id> --item=<ref>` and costs nothing
+else: no runtime dependency, no interface another task consumes, no change to the attach
+surface or safety model.
+
+## D141 — log queries read the run archive directly; they never call `RunContext.open({ runId })`
+2026-08-08, Task 18. `src/core/log/queries.ts` reads `run.json` / `summary.json` /
+`events.ndjson` with plain `fs` calls, reusing only `readEvents` from `core/run/events.ts`.
+
+`RunContext.open({ runId })` is a resume, not a read: it appends a `resumed_at` timestamp to
+`run.json` and logs a `checkpoint.resume` event into the run it opens (Task 6, D22). Every
+log-query capability is a read of a run some other invocation owns — often one that failed
+and is being inspected for exactly that reason — and mutating it to look at it would corrupt
+the forensic record `log:why` exists to read faithfully, and would make `log:runs`'s own
+scan of `runs/` change the very data it is scanning mid-query. A corrupt `run.json` for one
+run degrades to a visible `status: "corrupt"` entry rather than throwing, so one damaged run
+directory cannot take down a query spanning every run (`log:runs`, `log:drift`).
+
+## D142 — `log:runs` excludes its own kind by default (2026-08-09)
+
+**Decision.** `listRuns` skips runs whose capability matches `^log\.` unless `--include-queries`
+is passed.
+
+**Why.** Every `log.*` invocation goes through `execute()` and therefore creates a run
+directory. Those runs sort newest-first, so they land at the top of the very answer they
+produce, and each debugging session adds more. Measured against an archive of 250 real runs:
+the query's own run occupied slot 0 and, past the cap, real runs get pushed out — `log.runs`
+converges on reporting `log.runs`. A query that answers with its own history is not a debugging
+tool.
+
+Excluded rather than not-archived: the receipt trail for a local query still has value, and
+dropping it would be a bigger change to `execute()` than the problem justifies.
+
+## D143 — the result bound is bytes, not only a count (2026-08-09)
+
+**Decision.** `MAX_RESULT_BYTES = 32_768` applies to every query result alongside the existing
+count caps. Whichever bites first wins. Truncation still drops from the end furthest from
+"now", so the two bounds never disagree about which rows survive, and never below one row.
+
+**Why.** The count bound worked exactly as written and still missed. A live capture's events
+run about 340 bytes each; 500 of them serialize to **170,142 bytes** on stdout — roughly 42k
+tokens, for a capability whose stated objective is "debugging costs hundreds of tokens, not
+hundreds of thousands", and against `CLAUDE.md`'s "never print large results". 500 was chosen
+without anyone multiplying it by a row width.
+
+After: the same probe returns **33,278 bytes**, 96 events, `dropped: 504`.
+
+**Also here:** `LOG_RESULT_TRUNCATED`'s `n` was the number of rows *returned*, which reads as
+the number dropped. It is now the number dropped, and `dropped` is on `data` as well.
+
+**Never zero rows.** A single event wider than the whole budget is returned anyway. Returning
+nothing because one row is too big would be the silent-empty result this capability exists to
+prevent.
