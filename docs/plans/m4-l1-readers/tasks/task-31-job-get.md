@@ -3,46 +3,43 @@
 **Model:** Sonnet · **Depends on:** Task 30 (fixture), Task 25 (`jobs` write path)
 **Spec:** §7 jobs, §9 · **Decisions owned:** D270–D279
 
-> **STILL BLOCKED 2026-08-09 — on one operator decision, and nothing else.**
-> The probe has run twice and the measurement is complete; see D303 and D304.
+> **UNBLOCKED 2026-08-09 — the operator approved the DOM-source exception (D305).**
 >
-> *Source verdict from Task 30:* **the job surface has no labeled-field source.**
+> *Source verdict from Task 30 (D303, D304), measured twice:* **the job surface has no
+> labeled-field source.**
 >
 > - Run `01KZKMJS9FD0H18VAZMFFVPEYB` (cold, API net): 25 bodies, `misses: 0`, **no job
->   endpoint at all**. That was the net's blind spot, not an absence — see D303.
+>   endpoint at all** — the net's blind spot, not an absence (D303).
 > - Run `01KZKNJ16QD3WSFJ3XMHTG4V1W` (widest net, `isLinkedInDataUrl`): 21 bodies,
 >   **none under `/voyager/`**. `/jobs/view/<id>` is server-rendered SDUI and talks to
 >   `/flagship-web/rsc-action/actions/component` instead.
-> - The description **is** on the network, in full, in a 6,654-byte component response —
->   but as an **RSC flight tree**, addressed only by position in a render tree. No
->   `"description"` key, no `"title"`, no job urn in that body.
-> - Across all 21 bodies the §7 fields are absent everywhere: no `listedAt`, no
->   `workplaceTypes`, no `workRemoteAllowed`, no `formattedLocation`, no
->   `companyDetails`, no `urn:li:fsd_company:`. The only structured job reference is
->   `urn:li:jobPosting:<id>` in the document, inside *report* actions — identity, not
->   content.
+> - The description **is** on the network, in a 6,654-byte component response — but as
+>   an **RSC flight tree**, addressed only by position. No `"description"` key, no
+>   `"title"`, no job urn in that body.
+> - Across all 21 bodies: no `listedAt`, no `originalListedAt`, no `workplaceTypes`, no
+>   `workRemoteAllowed`, no `formattedLocation`, no `companyDetails`, no
+>   `urn:li:fsd_company:`. The only structured job reference is `urn:li:jobPosting:<id>`
+>   in the document, inside *report* actions — identity, not content.
 >
-> **[DECISION NEEDED — operator]** Two ways to read a posting, and this task may not
-> pick one on its own:
+> **So this reader reads the DOM, under D305, in exactly the profile reader's shape:**
 >
-> 1. **Extend the CLAUDE.md DOM-source exception to the job surface**, as D123/D130 did
->    for the profile reader: parse the archived DOM snapshot offline, tag every row
->    DOM-sourced, anchor on `data-testid` (the description sits under
->    `data-testid="expandable-text-box"`). *Recommended* — the precedent exists, the
->    snapshot is already archived raw, and those anchors are stabler than flight-row
->    indices.
-> 2. **Read the RSC flight tree by position** — forbidden by D121, and the DOM's
->    fragility with worse ergonomics.
+> - Source is the **`outerHTML` snapshot** the probe already archives, parsed
+>   **offline**. Never a live `innerHTML` read, never the flight tree by position —
+>   D121 stands.
+> - Every row is **tagged DOM-sourced**.
+> - Anchor on **`data-testid`**, never container position or class names: LinkedIn's
+>   classes are hashed per build (`_5e09f4d5`) and change without notice. The
+>   description sits under `data-testid="expandable-text-box"`, inside an `h2` labelled
+>   "About the job".
+> - Identity **resolved or refused**: the id comes from the normalized url and is
+>   cross-checked against `urn:li:jobPosting:<id>` in the document. Disagreement stores
+>   nothing rather than inventing a key.
 >
-> **Before this task starts, two things must land regardless of which option wins:**
->
-> - The promoter routes relevance and probes by family (`familyOf`) but **not the DOM
->   map**, so `job.get`'s field map was generated with the *profile* card-ref rule and
->   says "no subject scope, do not write a parser". That is a false alarm about the
->   wrong rule. Route the DOM map by family too, then re-promote.
-> - The job document is HTML, so the promoter skips it as `not_json`. If option 1 wins,
->   the snapshot is the fixture and this is fine; if the verdict is ever revisited, the
->   document has to be promotable.
+> **One thing to fix first.** The promoter routes relevance and probes by family
+> (`familyOf`) but **not the DOM map**, so `job.get`'s field map was generated with the
+> *profile* card-ref rule and says "no subject scope, do not write a parser". That is a
+> false alarm about the wrong rule. Route the DOM map by family, re-promote from
+> `01KZKNJ16QD3WSFJ3XMHTG4V1W`, then work against the regenerated map.
 
 ## Objective
 
