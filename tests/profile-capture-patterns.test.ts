@@ -5,6 +5,7 @@ import {
   PROFILE_PATTERNS,
   documentPattern,
   isLinkedInApiUrl,
+  isLinkedInDataUrl,
   isProfileIsh,
   queryIdOf,
   summarizeCaptures,
@@ -66,6 +67,53 @@ function miss(patterns: string[]): CaptureMiss {
     at: "2026-08-08T00:00:00.000Z",
   };
 }
+
+describe("isLinkedInDataUrl — the widest net", () => {
+  it("catches same-origin data paths the API net misses", () => {
+    // The measured case: the job page fetched nothing under `/voyager/`, so the
+    // API net reported `misses: 0` while watching none of the traffic that
+    // mattered. Each of these is invisible to `isLinkedInApiUrl` by design.
+    for (const url of [
+      "https://www.linkedin.com/jobs-guest/jobs/api/jobPosting/4450930857",
+      "https://www.linkedin.com/sdui/jobs/view/4450930857",
+      "https://www.linkedin.com/jobs/view/4450930857/",
+    ]) {
+      expect(isLinkedInDataUrl(url), url).toBe(true);
+      expect(isLinkedInApiUrl(url), url).toBe(false);
+    }
+  });
+
+  it("still refuses assets, other hosts, and telemetry", () => {
+    for (const url of [
+      "https://static.licdn.com/aero-v1/sc/h/abc.js",
+      "https://www.linkedin.com/aero-v1/sc/h/bundle.js",
+      "https://www.linkedin.com/scds/common/style.css",
+      "https://www.linkedin.com/media/photo.JPG".toLowerCase(),
+      "https://www.linkedin.com/fonts/x.woff2",
+      "https://media.licdn.com/dms/image/abc/profile.png",
+      "https://example.com/jobs/view/1",
+      "https://www.linkedin.com/li/track",
+      "https://www.linkedin.com/platform-telemetry/perftracker?a=1",
+      "not a url at all",
+    ]) {
+      expect(isLinkedInDataUrl(url), url).toBe(false);
+    }
+  });
+
+  it("is strictly wider than the API net", () => {
+    // Anything the API net accepts, the widest net accepts too — otherwise
+    // swapping one for the other on a probe would lose captures rather than
+    // add them.
+    for (const url of [
+      "https://www.linkedin.com/voyager/api/graphql?queryId=x",
+      "https://www.linkedin.com/voyager/api/me",
+      "https://www.linkedin.com/sales-api/salesApiProfiles/(profileId:ACw)",
+    ]) {
+      expect(isLinkedInApiUrl(url), url).toBe(true);
+      expect(isLinkedInDataUrl(url), url).toBe(true);
+    }
+  });
+});
 
 describe("isLinkedInApiUrl — the broad net", () => {
   it("matches LinkedIn's api surfaces", () => {
