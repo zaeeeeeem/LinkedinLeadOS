@@ -876,7 +876,129 @@ the API calls, not a non-LinkedIn host), that an unparseable url returns false i
 throwing inside the tap's listener, and that a run-time `specific` pattern is not counted as
 unpredicted — that last one fails against the pre-fix `summarizeCaptures`.
 
+Task 26 — person-activity + post surface probe. **Offline half built; the live probe has
+NOT run, so this task is not complete and Tasks 27–29 stay blocked (D229).**
+
+Code: `src/capabilities/activity.capture/{url,patterns,constants,index}.ts` + README,
+`src/core/fixtures/{timeshape,activity-probes,activitymap}.ts`, plus additive extensions to
+`profile.capture/{patterns,read}.ts`, `core/fixtures/{fieldmap,promote}.ts`,
+`core/budget/constants.ts` and `scripts/promote-fixtures.ts`.
+Contract doc: `docs/capabilities/activity.capture.md`. Decisions D220–D229.
+
+`activity.capture` opens **one** page of the family — `/in/<vanity>/recent-activity/`
+`all|shares|posts|comments|reactions/`, or a `/feed/update/urn:li:activity:…` or `/posts/…`
+permalink — through the normal runner: lease, ledger, both challenge gates, raw-first
+archive with `finally { drain() }`, DOM snapshot. It reuses `profile.capture`'s reader,
+scroller, snapshot and `sessionUrnsOf` rather than forking them. It parses nothing.
+
+What is deliberately its own, each with a decision behind it: a url module that does **not**
+collapse `/recent-activity/…` onto the profile the way `normalizeProfileUrl` does on
+purpose, and refuses an unmeasured tab rather than guessing (D220–D223); a relevance
+predicate that is not `isProfileIsh`, because every post names its author and the profile
+predicate would make the pattern-vs-reality answer identical on every run (D220); a
+`profile_open` ref byte-identical to `profile.capture`'s, so a profile read and an activity
+read of one person on one day are one distinct person (D223); and no `profile_open` at all
+for a permalink, which opens nobody's profile (D222).
+
+Three measurement instruments, all pure and offline, all shape-based rather than name-based
+so they report what a page contains instead of confirming what someone expected (D225):
+`timeshape.ts` classifies a value as epoch-ms / epoch-s / ISO-8601 / relative; `ACTIVITY_PROBES`
+locates post urn, author urn, text, counts and timestamps in a JSON body — and `FieldProbe`
+gained a `number` matcher, without which a body full of `createdAt: 1754697600000` reports as
+carrying no timestamp at all (D224); `activitymap.ts` reports, from a DOM snapshot, every
+attribute carrying a `urn:li:` (candidate post-card markers, whatever they are called), every
+leaf whose text reads as a time, and what each time binds to.
+
+`VIEWPORT_EXPRESSION` now also **describes** the element it measured and every candidate,
+capped and with the true total (D227). It already picked the tallest scrollable element
+rather than the document (D115), but a height alone cannot say which container it came from,
+so a surface with two nested scrollers could report a settled layout while scrolling the
+wrong box.
+
+Promotion is surface-selected: `--surface=activity` moves relevance, probes and DOM map
+together, because promoting an activity run under the profile settings drops every body that
+carries posts and no person urn — exactly the body a post parser needs (D226).
+
+Proven: **910/910 offline (107 new), typecheck clean.** Mutations verified to bite: reverting
+the relevance predicate to `isProfileIsh` (4 failures); charging a permalink a `profile_open`
+(1); dropping the `SESSION_IDENTITY_UNAVAILABLE` warning (1); removing the scroller
+descriptor (4). Pinned by test, not by prose: the `profile_open` ref *agrees with*
+`normalizeProfileUrl` rather than matching a literal; every bound (`MAX_URNS_PER_FAMILY`,
+`MAX_URN_ATTRIBUTES`, `MAX_TIME_LEAVES`, `MAX_SCROLLER_CANDIDATES`) is exceeded by a test
+that also asserts the truncation flag; the receipt carries no urn, name, post text or query
+string; the lease is released on the challenge, the transient and the bad-url paths; a body
+still on the wire when the run halts is still archived. A compile-time block asserts the
+three `profile.capture` modules and the activity map compose — this capability is the first
+place they meet (review shape 4).
+
+**Spend: 0 of the 5 budgeted page loads.** No live run happened; the operator supervises
+every live run.
+
+**`fixtures/` holds nothing for this surface, there is no `FIELD-MAP.md`, and no source
+verdict is written — honestly so (D229).** Tasks 27–29 carry the blocked note and the exact
+unblock sequence.
+
+---
+
+## The live probe Task 26 is waiting on (operator-supervised)
+
+Task 26 is **not complete** until this runs. Budget: **max 5 page loads**; each command
+below is one load. Prefer a target already in the store so the freshness cache and the
+`profile_open` dedupe amortise, and **never the operator's own profile** — its captures are
+the session-identity trap the parser must refuse (D119/D126).
+
+Run them one at a time, reading the receipt between each. Stop on any non-zero exit; exit 2
+is a challenge and means stop entirely, not retry.
+
+```
+# 1-3 — the three person surfaces of one chosen prospect
+npm run cap -- activity.capture --url='https://www.linkedin.com/in/<vanity>/recent-activity/all/'
+npm run cap -- activity.capture --url='https://www.linkedin.com/in/<vanity>/recent-activity/comments/'
+npm run cap -- activity.capture --url='https://www.linkedin.com/in/<vanity>/recent-activity/reactions/'
+
+# 4 — one post permalink, ideally one seen on the feed above (spends no profile_open)
+npm run cap -- activity.capture --url='https://www.linkedin.com/feed/update/urn:li:activity:<id>/'
+
+# 5 — spare
+
+# then, per run id, promote (no LinkedIn traffic; safe to re-run)
+npm run fixtures:promote -- --run=<runId> --capability=profile.posts    --surface=activity
+npm run fixtures:promote -- --run=<runId> --capability=profile.activity --surface=activity
+npm run fixtures:promote -- --run=<runId> --capability=post.get         --surface=activity
+```
+
+**Default flags on purpose** (M4 CONTEXT rule 5). If a surface needs `--scrolls=12` to
+capture anything, the default is wrong and gets fixed with the pacing trade-off recorded —
+the flag is not blessed.
+
+**What to read on each receipt, in this order:**
+
+1. `warnings` — `POSTED_AT_RELATIVE_ONLY` and `SESSION_IDENTITY_UNAVAILABLE` are the two
+   that change what the next tasks may do. `FEED_NOT_EXHAUSTED` means the capture is a
+   prefix, so its counts describe the scroll rather than the person.
+2. `data.reading.viewport.scroller` / `scrollerCandidates` — **is the activity feed its own
+   scroll container?** This is the measurement M4 CONTEXT rule 3 asks for. More than one
+   candidate is worth recording either way.
+3. `data.capture.patterns` and `unmatched_activity_ish` — a specific pattern with zero hits
+   next to a non-zero unmatched count is the finding: the endpoint guess was wrong, and the
+   body is on disk regardless.
+4. `data.probe.body_session_urn_hits` and `dom.session_urns_present` — non-zero on the
+   *actor* of a post would be D119 in a fourth place.
+5. `data.probe.dom.urn_attributes` — whether a post card is bound to a post urn through an
+   attribute at all. If not, the subject/stranger boundary on this surface has no DOM
+   anchor and that is a finding in itself.
+
+**Verify independently of the receipt** (M4 CONTEXT rule 6): list `runs/<runId>/raw/`,
+read the ledger lines for `capability: "activity.capture"`, and confirm `runs/tab.lock` is
+free afterwards. Do not take the receipt's word for any of it.
+
+**Then, and only then:** fill the source verdict into Tasks 27–29, and if the content
+proves DOM-only, decide whether to extend `CLAUDE.md`'s DOM-source exception to this
+surface (D229, M4 CONTEXT rule 7). Until that decision lands in `DECISIONS.md`, Tasks 27–29
+do not start.
+
 ## Next
+
 
 M1–M3 are complete. **The M4 plan is written and approved** (`docs/plans/m4-l1-readers/`,
 2026-08-09): the remaining eleven L1 readers across five page surfaces, probe-first (D152) with

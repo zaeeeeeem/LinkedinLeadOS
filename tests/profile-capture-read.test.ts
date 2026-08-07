@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
-  VIEWPORT_EXPRESSION, readLikeAHuman, waitForLayout,
+  MAX_SCROLLER_CANDIDATES, VIEWPORT_EXPRESSION, readLikeAHuman, waitForLayout,
 } from "../src/capabilities/profile.capture/read.js";
 import type { ReadCursor, ReadTab } from "../src/capabilities/profile.capture/read.js";
 import {
@@ -278,11 +278,24 @@ describe("VIEWPORT_EXPRESSION, executed as real javascript", () => {
     innerWidth: number;
     innerHeight: number;
     documentScrollHeight: number;
-    elements: Array<{ clientHeight: number; scrollHeight: number; overflowY: string }>;
+    elements: Array<{
+      clientHeight: number;
+      scrollHeight: number;
+      overflowY: string;
+      /** Optional, so every assertion written before the descriptors existed
+       *  still exercises the expression against an element that has none —
+       *  which is also what a stripped-down DOM node looks like. */
+      tagName?: string;
+      attrs?: Record<string, string>;
+    }>;
   }): unknown {
+    const withAttrs = page.elements.map((el) => ({
+      ...el,
+      getAttribute: (name: string) => el.attrs?.[name] ?? null,
+    }));
     const document = {
       documentElement: { scrollHeight: page.documentScrollHeight },
-      querySelectorAll: () => page.elements,
+      querySelectorAll: () => withAttrs,
     };
     const getComputedStyle = (el: { overflowY: string }) => ({ overflowY: el.overflowY });
     const window = { innerWidth: page.innerWidth, innerHeight: page.innerHeight };
@@ -348,5 +361,76 @@ describe("VIEWPORT_EXPRESSION, executed as real javascript", () => {
     expect(result.scrolled).toBeGreaterThan(0);
     // Never further than the scroller actually has: 7348 - 746.
     expect(result.scrolled).toBeLessThanOrEqual(7348 - 746);
+  });
+
+  it("says which element it measured, not only how tall it was", () => {
+    // A height alone cannot tell an operator which container it came from, so a
+    // new surface could report a settled layout while scrolling the wrong box
+    // (M4 CONTEXT rule 3). The descriptor is what makes the scroller a
+    // measurement rather than an assumption.
+    const measured = evaluateAgainst({
+      innerWidth: 1333, innerHeight: 798, documentScrollHeight: 798,
+      elements: [
+        {
+          clientHeight: 746, scrollHeight: 7348, overflowY: "scroll",
+          tagName: "MAIN", attrs: { id: "workspace" },
+        },
+      ],
+    }) as Record<string, unknown>;
+
+    expect(measured["scroller"]).toEqual({
+      tag: "main", id: "workspace", role: null, componentkey: null,
+      scrollHeight: 7348, clientHeight: 746,
+    });
+    expect(measured["scrollerCandidates"]).toBe(1);
+  });
+
+  it("describes an element that carries no attributes at all", () => {
+    const measured = evaluateAgainst({
+      innerWidth: 1333, innerHeight: 798, documentScrollHeight: 798,
+      elements: [{ clientHeight: 746, scrollHeight: 7348, overflowY: "scroll" }],
+    }) as Record<string, unknown>;
+    expect(measured["scroller"]).toMatchObject({ tag: "", id: null, role: null });
+  });
+
+  it("describes every candidate, tallest first, so a second scroller is visible", () => {
+    // The activity feed may be its own scroll container nested inside the
+    // page's. Reporting only the tallest would hide that there were two.
+    const measured = evaluateAgainst({
+      innerWidth: 1333, innerHeight: 798, documentScrollHeight: 798,
+      elements: [
+        { clientHeight: 700, scrollHeight: 3000, overflowY: "auto", tagName: "DIV", attrs: { role: "feed" } },
+        { clientHeight: 746, scrollHeight: 7348, overflowY: "scroll", tagName: "MAIN", attrs: { id: "workspace" } },
+      ],
+    }) as Record<string, unknown>;
+
+    const scrollers = measured["scrollers"] as Array<Record<string, unknown>>;
+    expect(scrollers.map((s) => s["scrollHeight"])).toEqual([7348, 3000]);
+    expect(scrollers[1]!["role"]).toBe("feed");
+    expect(measured["scroller"]).toMatchObject({ id: "workspace" });
+  });
+
+  it("bounds the candidate list and still reports the true total", () => {
+    // Exceeded rather than assumed roomy: this rides on every receipt and the
+    // page is not ours.
+    const over = MAX_SCROLLER_CANDIDATES + 6;
+    const measured = evaluateAgainst({
+      innerWidth: 1333, innerHeight: 798, documentScrollHeight: 798,
+      elements: Array.from({ length: over }, (_, i) => ({
+        clientHeight: 300, scrollHeight: 1000 + i, overflowY: "auto", tagName: "DIV",
+      })),
+    }) as Record<string, unknown>;
+
+    expect((measured["scrollers"] as unknown[]).length).toBe(MAX_SCROLLER_CANDIDATES);
+    expect(measured["scrollerCandidates"]).toBe(over);
+  });
+
+  it("reports no scroller at all on a page that has none", () => {
+    const measured = evaluateAgainst({
+      innerWidth: 1280, innerHeight: 800, documentScrollHeight: 5200, elements: [],
+    }) as Record<string, unknown>;
+    expect(measured["scroller"]).toBeNull();
+    expect(measured["scrollers"]).toEqual([]);
+    expect(measured["scrollerCandidates"]).toBe(0);
   });
 });

@@ -18,6 +18,9 @@ import { existsSync, readdirSync, readFileSync, statSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { isProfileIsh } from "../src/capabilities/profile.capture/patterns.js";
 import { normalizeProfileUrl } from "../src/capabilities/profile.capture/url.js";
+import { isActivityIsh } from "../src/capabilities/activity.capture/patterns.js";
+import { normalizeActivityUrl } from "../src/capabilities/activity.capture/url.js";
+import { ACTIVITY_PROBES } from "../src/core/fixtures/activity-probes.js";
 import { RawArchive } from "../src/core/archive/raw.js";
 import { isPrivateEndpoint, personUrnsIn, promoteFixtures } from "../src/core/fixtures/promote.js";
 import type { PromoteSubject } from "../src/core/fixtures/promote.js";
@@ -32,6 +35,15 @@ type Options = {
   runsDir: string;
   fixturesDir: string | null;
   subject: string | null;
+  /**
+   * Which page family this run captured. It selects three things together —
+   * what counts as a relevant body, which probes the JSON field map runs, and
+   * which DOM map a snapshot gets — because they are one decision: promoting an
+   * activity run under the profile settings drops every body that carries posts
+   * and no person urn, and hands the snapshot to a map that looks for cards
+   * that are not there (D226).
+   */
+  surface: "profile" | "activity";
 };
 
 /**
@@ -47,6 +59,11 @@ function subjectOf(runsDir: string, runId: string, override: string | null): Pro
   const raw = override ?? readRunUrl(runsDir, runId);
   if (raw === null) return null;
   try {
+    // A post permalink names no person, so it has no subject to scope by. Said
+    // out loud rather than falling through to `normalizeProfileUrl`, which
+    // would refuse it and leave promotion on the "any person data" fallback
+    // that filled `fixtures/` with the operator's own inbox (D118).
+    if (isPostPermalink(raw)) return null;
     const target = normalizeProfileUrl(raw);
     // A Sales Navigator lead has no vanity slug; its member id is what every
     // body naming that person carries instead.
@@ -55,6 +72,15 @@ function subjectOf(runsDir: string, runId: string, override: string | null): Pro
   } catch {
     // Already a bare slug, most likely — `--subject=tankots`.
     return /^[a-z0-9-]{3,100}$/i.test(raw) ? { vanity: raw } : null;
+  }
+}
+
+/** True for an input that names one post rather than a person. */
+function isPostPermalink(raw: string): boolean {
+  try {
+    return normalizeActivityUrl(raw).surface === "post";
+  } catch {
+    return false;
   }
 }
 
@@ -95,7 +121,8 @@ function usage(message: string): never {
   process.stderr.write(`${message}\n\n`);
   process.stderr.write(
     "usage: npm run fixtures:promote -- (--run=<runId> | --latest) " +
-      "[--capability=profile.get] [--subject=<vanity>] [--all] [--runs-dir=<dir>] [--fixtures-dir=<dir>]\n",
+      "[--capability=profile.get] [--surface=profile|activity] [--subject=<vanity>] [--all] " +
+      "[--runs-dir=<dir>] [--fixtures-dir=<dir>]\n",
   );
   process.exit(1);
 }
@@ -109,6 +136,7 @@ function parse(argv: string[]): Options {
     runsDir: defaultRunsDir(),
     fixturesDir: null,
     subject: null,
+    surface: "profile",
   };
   for (const token of argv) {
     const [name, value] = token.startsWith("--")
@@ -120,6 +148,10 @@ function parse(argv: string[]): Options {
       case "capability": o.capability = value ?? usage("--capability needs a name"); break;
       case "all": o.all = true; break;
       case "subject": o.subject = value ?? usage("--subject needs a vanity slug or profile url"); break;
+      case "surface":
+        if (value !== "profile" && value !== "activity") usage("--surface must be profile or activity");
+        o.surface = value;
+        break;
       case "runs-dir": o.runsDir = resolve(value ?? usage("--runs-dir needs a path")); break;
       case "fixtures-dir": o.fixturesDir = resolve(value ?? usage("--fixtures-dir needs a path")); break;
       default: usage(`unknown argument ${token}`);
@@ -161,7 +193,8 @@ async function main(): Promise<void> {
     capability: o.capability,
     sourceRun: runId,
     all: o.all,
-    isRelevant: isProfileIsh,
+    isRelevant: o.surface === "activity" ? isActivityIsh : isProfileIsh,
+    ...(o.surface === "activity" ? { probes: ACTIVITY_PROBES, domMap: "activity" as const } : {}),
     ...(subject === null ? {} : { subject }),
     sessionUrns,
   });
@@ -172,6 +205,7 @@ async function main(): Promise<void> {
       {
         run: runId,
         capability: o.capability,
+        surface: o.surface,
         // Whether, not who: the slug is the prospect's identity, and only counts
         // and paths belong on stdout.
         subject_known: subject !== null,

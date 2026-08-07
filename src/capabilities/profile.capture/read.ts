@@ -31,6 +31,29 @@ export type ReadCursor = {
   pause(min?: number, max?: number): Promise<number>;
 };
 
+/**
+ * Enough of an element to say *which* element it was, without reading anything
+ * a class name would give away. Class names on this page are content-hashed and
+ * churn on every deploy (D128's reasoning), so they are deliberately not here.
+ */
+export type ScrollerDescriptor = {
+  tag: string;
+  id: string | null;
+  role: string | null;
+  /** LinkedIn's SDUI component key, when the element carries one. */
+  componentkey: string | null;
+  scrollHeight: number;
+  clientHeight: number;
+};
+
+/**
+ * How many scroller candidates are described. A page has a handful; a bound
+ * exists because this rides on every receipt and an unbounded list from a page
+ * we do not control is not a thing to ship. `scrollerCandidates` reports the
+ * true total, so a truncated list is visible rather than silently short.
+ */
+export const MAX_SCROLLER_CANDIDATES = 8;
+
 export type Viewport = {
   width: number;
   height: number;
@@ -44,6 +67,22 @@ export type Viewport = {
   /** `document.documentElement.scrollHeight`, kept for diagnosis — on LinkedIn
    *  it is a constant equal to the viewport and means nothing (D115). */
   documentScrollHeight: number;
+  /**
+   * Which element was measured. Optional because a page that has no inner
+   * scroller has none to describe, and because a caller (or a test double) from
+   * before this existed still satisfies `Viewport`.
+   *
+   * It exists because "the scroller is `main#workspace`" is a fact about the
+   * profile page and an assumption about every other one (M4 CONTEXT rule 3).
+   * A height alone cannot tell an operator which container it came from, so a
+   * new surface could report a settled layout while scrolling the wrong box.
+   */
+  scroller?: ScrollerDescriptor | null;
+  /** Every genuinely-scrollable element found, tallest first, capped at
+   *  `MAX_SCROLLER_CANDIDATES`. */
+  scrollers?: ScrollerDescriptor[];
+  /** How many candidates there were in total, cap or no cap. */
+  scrollerCandidates?: number;
 };
 
 export type LayoutResult = {
@@ -111,7 +150,34 @@ export const SCROLLER_SELECTION_JS = `(function () {
 
 export const VIEWPORT_EXPRESSION = `(() => {
   try {
+    var MAX = ${MAX_SCROLLER_CANDIDATES};
+    var attr = function (el, name) {
+      try { return el.getAttribute ? el.getAttribute(name) : null; } catch (e) { return null; }
+    };
+    var describe = function (el) {
+      return {
+        tag: (el.tagName || '').toLowerCase(),
+        id: attr(el, 'id') || null,
+        role: attr(el, 'role') || null,
+        componentkey: attr(el, 'componentkey') || null,
+        scrollHeight: el.scrollHeight,
+        clientHeight: el.clientHeight,
+      };
+    };
     var best = ${SCROLLER_SELECTION_JS}();
+    var found = [];
+    var els = document.querySelectorAll('*');
+    for (var i = 0; i < els.length; i++) {
+      var el = els[i];
+      if (el.clientHeight < 200) continue;
+      if (el.scrollHeight <= el.clientHeight + 50) continue;
+      var oy = getComputedStyle(el).overflowY;
+      if (oy !== 'auto' && oy !== 'scroll' && oy !== 'overlay') continue;
+      found.push(el);
+    }
+    found.sort(function (a, b) { return b.scrollHeight - a.scrollHeight; });
+    var described = [];
+    for (var j = 0; j < found.length && j < MAX; j++) described.push(describe(found[j]));
     var docH = (document.documentElement && document.documentElement.scrollHeight) || 0;
     return {
       width: window.innerWidth || 0,
@@ -121,6 +187,10 @@ export const VIEWPORT_EXPRESSION = `(() => {
       innerScroller: !!best,
       scrollerHeight: best ? best.clientHeight : (window.innerHeight || 0),
       documentScrollHeight: docH,
+      /** Which element was measured, and what else could have been. */
+      scroller: best ? describe(best) : null,
+      scrollers: described,
+      scrollerCandidates: found.length,
     };
   } catch (e) { return null; }
 })()`;

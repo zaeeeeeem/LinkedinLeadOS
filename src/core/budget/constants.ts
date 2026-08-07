@@ -111,6 +111,14 @@ export const CAPABILITY_SUB_CAPS: Readonly<Record<string, CapabilitySubCaps>> = 
   // a search page or a profile open would be doing something it was not built
   // to do, and a cap of zero is what turns that into exit 7 instead of a habit.
   "company.probe": { pageLoadsPerDay: 12, searchPagesPerDay: 0, distinctProfilesPerDay: 0 },
+  // The Task 26 probe. Capped well below the fallback because it is a
+  // measurement capability, not a working reader: its whole job is a handful of
+  // supervised page loads per surface, and a number in the hundreds would let a
+  // mis-typed loop spend the day's budget on pages nobody is reading. Zero
+  // search pages for the same reason profile.capture has zero — it never
+  // issues a search, so a search spend under this name means it is doing
+  // something it was not built to do (D221).
+  "activity.capture": { pageLoadsPerDay: 30, searchPagesPerDay: 0, distinctProfilesPerDay: 20 },
 };
 
 /** The daily sub-caps in force for one capability. Never returns uncapped. */

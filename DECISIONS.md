@@ -2353,3 +2353,134 @@ overrides the archive location on top of that, unchanged.
 
 Numbering note: this is infrastructure discovered while unblocking three tasks at
 once, so it belongs to none of their ranges. D300 is held by Task 26.
+## D220 — the activity surface gets its own relevance predicate, and `summarizeCaptures` takes one (2026-08-09)
+
+**Decision.** `summarizeCaptures` gains an optional `isRelevant` parameter, defaulting to
+`isProfileIsh` so every existing caller is unchanged. `activity.capture` passes
+`isActivityIsh`, which matches post, comment and reaction markers and deliberately does
+**not** match `urn:li:fsd_profile`.
+
+**Why.** Every post card names its author, so "carries person data" is true of essentially
+every body on this surface. Under the profile predicate the two-tier pattern report (D110)
+would say the same thing on every run, and `unmatched_profile_ish` — the number that exists
+to tell us the endpoint guess was wrong — would be noise. Rejected: forking the summary
+(two copies of the one function that produces this task's acceptance evidence).
+
+## D221 — `activity.capture` is a probe capability with its own small daily sub-cap (2026-08-09)
+
+**Decision.** The probe is a capability under `src/capabilities/`, not a script, and it
+carries a `CAPABILITY_SUB_CAPS` entry of 30 page loads / 0 search pages / 20 distinct
+profiles per day — well under the fallback (D162).
+
+**Why.** M4 CONTEXT rule 8 requires probes through the normal runner: lease, ledger,
+challenge gate, raw-first archive. Given that, D153's blast-radius argument applies to it
+too, and it applies *harder*: this capability's whole job is a handful of supervised loads
+per surface, so a number in the hundreds would let one mistyped loop spend a working
+reader's day on pages nobody is reading. Zero search pages for `profile.capture`'s reason —
+it never issues a search, so a search spend under this name means it is doing something it
+was not built to do.
+
+## D222 — a post permalink costs a page load and no `profile_open` (2026-08-09)
+
+**Decision.** `activity.capture` spends `page_load` on every surface and `profile_open`
+only on the three person surfaces. `cost()` branches on `looksLikePostPermalink`, which is
+total and never throws.
+
+**Why.** §8's `distinctProfilesPerDay` rations *how many people we looked at today*. A
+permalink opens nobody's profile; charging it would ration the wrong thing, and would make
+a day of post reads exhaust the budget that protects prospect views. The `cost` helper is
+total because a throw there is reported by the runner as `COST_ESTIMATE_FAILED` and the
+real `ACTIVITY_URL_INVALID` message is lost — the refusal belongs inside `run`, where it
+reads properly.
+
+## D223 — an activity page's `profile_open` ref is the profile's own ref (2026-08-09)
+
+**Decision.** `ActivityTarget.personRef` is `in:<vanity>`, byte for byte what
+`normalizeProfileUrl` produces, and that is the string passed to the ledger.
+
+**Why.** The three person surfaces are three pages of one person. A different spelling
+would count one prospect two or four times against `distinctProfilesPerDay`, and the
+freshness dedupe would stop amortising loads across a profile read and an activity read of
+the same person on the same day — which is exactly what M4 CONTEXT's "prefer targets
+already in the store" is for. Pinned by a test that asserts the two functions agree rather
+than asserting the literal.
+
+## D224 — a field probe may match a number (2026-08-09)
+
+**Decision.** `FieldProbe` gains `number?: (v: number) => boolean`, and `value` is widened
+from `RegExp` to a `StringMatcher` so a shape predicate that is not expressible as a regex
+(`looksIso8601` parses as well as matches) needs no cast.
+
+**Why.** `matches()` only ever tested `value` against strings, and LinkedIn's timestamps
+are epoch millis — numbers. Without this, the one question Task 26 exists to answer, *does
+any source carry an absolute time*, would be answered "no" by a body full of
+`createdAt: 1754697600000`, and `person_posts.posted_at` would get derived from the run
+clock for no reason at all.
+
+## D225 — the activity DOM map is shape-based, and it is an instrument, not a parser (2026-08-09)
+
+**Decision.** `core/fixtures/activitymap.ts` reports what a snapshot *contains* by shape:
+any attribute whose value holds a `urn:li:` is a candidate post-card marker whatever it is
+called; any leaf whose text reads as a time is a candidate `posted_at`; the nearest
+ancestor carrying a urn attribute is what binds the two. It resolves nothing and refuses
+nothing. `dommap.ts` is left alone: it is the profile page's map and is written against
+that page's card-ref namespace.
+
+**Why.** Nothing about this surface has been measured. A map that looked for named fields
+would confirm what someone expected instead of reporting what is there, which is the
+failure D152 exists to prevent — and it would then be lifted into Tasks 27–29 as a parser.
+So no part of this file may be lifted unchanged: those tasks are written against what it
+measured, not against it. It also reports whether the profile card-ref namespace (D127)
+exists here at all, as a measurement rather than an expectation.
+
+## D226 — promotion selects a surface, and relevance, probes and DOM map move together (2026-08-09)
+
+**Decision.** `promoteFixtures` gains `domMap: "profile" | "activity"`, and the promote
+script gains `--surface=profile|activity` which sets `isRelevant`, `probes` and `domMap`
+in one go. Default `profile`, so every existing invocation is unchanged. A post permalink
+run yields no subject, and the script says so rather than falling through.
+
+**Why.** They are one decision, not three. Promoting an activity run under the profile
+settings drops every body that carries posts and no person urn — which is exactly the body
+a post parser needs — and hands the snapshot to a map looking for cards that are not there.
+Selected rather than sniffed from the archive: inferring which page a run captured is the
+kind of guess that produced D118.
+
+## D227 — the scroller is described, not only measured (2026-08-09)
+
+**Decision.** `VIEWPORT_EXPRESSION` now returns a descriptor of the element it measured —
+tag, `id`, `role`, `componentkey`, and its two heights — plus every candidate, tallest
+first, capped at `MAX_SCROLLER_CANDIDATES` with the true total alongside. Class names are
+excluded: they are content-hashed and churn on every deploy.
+
+**Why.** M4 CONTEXT rule 3 says each new surface measures its own scroller. The expression
+already picked the tallest genuinely-scrollable element rather than the document (D115), but
+a height alone cannot tell an operator *which container* it came from, so a surface with two
+nested scrollers could report a settled layout while scrolling the wrong box — and nothing
+on the receipt would show it. Reporting the candidates is what makes "the feed is its own
+scroll container" a measurement rather than a claim.
+
+## D228 — a feed read only part of the way down is a warning, not a silent prefix (2026-08-09)
+
+**Decision.** When the measured scroller still has distance below the last pass,
+`activity.capture` raises `FEED_NOT_EXHAUSTED` with the remaining pixels.
+
+**Why.** On a profile page a short read costs some lazy sections. On a feed it changes what
+the numbers mean: the count of posts describes the scroll rather than the person, and a
+short capture and a short feed produce the same receipt. That is the silent-loss shape
+review has already caught here (the tap's forgotten-versus-never-arrived case) applied to a
+page that is unbounded by construction.
+
+## D229 — Tasks 27–29 stay blocked on the live probe and on the operator (2026-08-09)
+
+**Decision.** The offline half of Task 26 — the probe capability, the measurement
+instruments and their tests — ships now. The `FIELD-MAP.md`, the fixtures and the per-field
+source verdicts do not exist and will not be written from expectation. Tasks 27–29 remain
+blocked on two things: the supervised live run, and, if the run confirms that this surface's
+content lives only in the rendered DOM, an operator decision extending `CLAUDE.md`'s
+DOM-source exception to it (M4 CONTEXT rule 7).
+
+**Why.** D152 forbids parse code before a real-load fixture, and the exception in
+`CLAUDE.md` is the profile reader *and nothing else* — it is never silently inherited by a
+new surface. Writing a field map now would produce exactly the artefact D152 exists to
+prevent: a document that looks measured and is not.
