@@ -893,6 +893,30 @@ unpredicted — that last one fails against the pre-fix `summarizeCaptures`.
 
 ## Next
 
+**Task 23 — `company.posts` is in progress on `task-23-company-posts`.** Source and
+composition checkpoints are complete: one measured posts-tab load, Voyager-only parsing,
+corroborated company identity, typed actor filtering, two-hop social counts, activity-snowflake
+timestamps, bounded parsing, and batch store ordering are recorded in D190–D194. No LinkedIn
+contact has occurred; parser/store/composition implementation and offline proof are next.
+
+**Task 23 implementation checkpoint.** Parser, composition, explicit 150/0/0 sub-cap,
+`company_posts` batch store, README, eight synthetic parser tests, the gated measured-fixture
+test, two composition tests, and two store tests now exist. Four required mutations were
+observed failing their named tests: author-filter deletion produced 11 rows instead of 4;
+constructed counts lost reactions/comments; an exclusive since comparison lost the boundary;
+and removed limit break parsed 2 rows. The fixture-absence run passed 9 synthetic tests with
+1 visible skip. No LinkedIn contact or browser launch occurred.
+
+**Task 23 offline complete; live gate untouched.** `company.posts` now has its pure bounded
+Voyager parser, resolved-or-refused subject identity, four-of-eleven author filtering,
+two-hop counts, snowflake timestamps, inclusive `--since`, work-bounded `--limit`, atomic
+`company_posts` batch storage, explicit 150/0/0 sub-cap, README/SQL recipes, and D190–D199.
+Final verification: **989/989 tests across 50 files**, `tsc --noEmit` clean, and
+`git diff --check` clean. The next step is the operator-supervised default-flags live gate;
+it must verify one metered page load, only subject-authored rows, counts/timestamps by an
+independent Supabase query, receipt/storage counts on a second run, archive files, and the
+ledger. Zero LinkedIn contact; no browser was launched during Task 23.
+
 M1–M3 are complete. **The M4 plan is written and approved** (`docs/plans/m4-l1-readers/`,
 2026-08-09): the remaining eleven L1 readers across five page surfaces, probe-first (D152) with
 per-capability daily sub-caps (D153). Fourteen task files (20–33): Task 20 (budget sub-caps +

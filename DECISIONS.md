@@ -2370,6 +2370,69 @@ Fixture evidence is now durable inside the shared gitignored fixture library rat
 read from `runs/<id>/raw`. Fixture-only tests skip visibly when their two required files are
 absent; all bounds and field-behavior tests are synthetic and run on every checkout.
 
+## D190 — `company.posts` delegates exactly one measured posts-tab load (2026-08-09)
+
+`company.posts` reuses `company.probe` with `subpages=posts` and six scroll passes, the exact
+depth recorded by run `01KZKGD683T76H70YA4DMRCRZH`. It does not invent pagination: the measured
+surface produced its feed body from one load, and `--limit` bounds parser work within that body.
+
+## D191 — company-post identity requires a corroborated subject and a typed actor key (2026-08-09)
+
+The parser resolves the subject company with `company.get`'s normalized, cross-body
+corroboration rule, then admits only updates whose actor `detailData` has the
+`*companyName` key equal to that subject. A `*profileFullName` actor is a stranger even when
+some nested urn happens to resemble a company; author type comes from the measured key.
+
+## D192 — company-post bounds are bodies, nodes, field text, and accepted-update work (2026-08-09)
+
+The parser reads at most 256 bodies, walks 200,000 JSON nodes per root, stores 20,000
+characters per post text, and stops update projection at `--limit`. Every exceeded structural
+or field bound emits typed exit-5 drift; the requested limit is therefore a work ceiling, not
+an output slice after all updates were parsed.
+
+## D193 — post time and social counts follow stable identity and references (2026-08-09)
+
+`posted_at` is the epoch milliseconds encoded in the activity snowflake (`id >> 22`), never
+the run clock or rendered relative label. Counts follow Update `*socialDetail` and then
+SocialDetail `*totalSocialActivityCounts`; constructing a counts urn from the activity id is
+forbidden because it resolves for zero of the eleven measured updates.
+
+## D194 — a post batch lands before its freshness marker (2026-08-09)
+
+`company_posts` are batch-upserted on `urn` in one request, with `first_seen` omitted and
+`last_seen` appended last to each payload. A failed request leaves the prior set stale; there
+is no company-row foreign-key precondition, preserving D94's independent entity paths.
+
+## D195 — `--since` is inclusive and fixture evidence is optional at test time (2026-08-09)
+
+The boundary retains a post whose activity-derived timestamp equals `--since`; only older
+posts are excluded. Measured-corpus tests skip visibly when the shared gitignored fixture is
+absent, while identity, filtering, references, timestamps, limits, and all growth bounds remain
+synthetic tests that run in a fresh clone.
+
+## D196 — `company.posts` gets an explicit reader sub-cap with two zero assertions (2026-08-09)
+
+Its daily cap is 150 page loads, 0 search pages, and 0 profile opens. Leaving it on the
+generic fallback would silently authorize 25 searches and 60 profile opens under a reader
+whose measured composition performs neither.
+
+## D197 — `--no-store` changes storage only (2026-08-09)
+
+Archive and parsing still run under `--no-store`; only the batch and drift writes are skipped.
+This preserves raw-first evidence and makes the flag incapable of bypassing the budget ledger.
+
+## D198 — an empty accepted set is a successful zero-row batch (2026-08-09)
+
+A company tab can contain only stranger posts or all subject posts can precede `--since`.
+That is a truthful success with zero stored rows, not identity drift and not an empty upsert
+request; the store returns `{ rows: 0 }` without contacting PostgREST.
+
+## D199 — receipts expose counts and work, never captured post content or company identity (2026-08-09)
+
+The receipt reports usable rows, inspected updates, storage counts, and a SQL next step. It
+does not copy post text, activity urns, or the resolved company urn into `data`; bulk values
+remain in Supabase and raw archives under D3 and D100.
+
 ## D301 (out-of-range, infrastructure) — shared state is anchored to the repository root, never to the cwd (2026-08-09)
 
 Three parser tasks — 22, 27 and 31 — each reported that the surface fixture they
@@ -2544,3 +2607,14 @@ argument — an exception is not permission to read pages loosely:
 and every other kind of field, still takes data only from captured network
 bodies. This does not generalize to a surface that merely *looks* similar; the
 next surface needs its own measurement and its own decision.
+
+## D190a (review) — one activity is stored once, however many feed pages carried it (2026-08-09)
+
+`company.posts` scrolls the posts tab, and consecutive pages of
+`voyagerFeedDashOrganizationalPageUpdates` overlap — the same activity urn arrives in
+more than one captured body. The parser keeps the first occurrence and drops the rest.
+
+Without the guard `--limit` counts the same post twice, and the batch upsert fails
+outright: Postgres refuses an `ON CONFLICT` statement that touches one row a second
+time, so a company with more than one page of posts would never store at all. Verified
+by mutation — removing the guard fails the overlapping-pages test.

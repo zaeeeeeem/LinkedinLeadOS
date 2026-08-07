@@ -104,3 +104,25 @@ export type CompanyInput = {
 
 export type StoredCompany = { company: CompanyRow; vanityMatches?: number };
 export type CompanyUpsertResult = { urn: string; rows: 1 };
+
+export type CompanyPostRow = {
+  urn: string;
+  company_urn: string;
+  text: string | null;
+  posted_at: string | null;
+  reactions: number | null;
+  comments: number | null;
+  first_seen: string;
+  last_seen: string;
+};
+
+export type CompanyPostInput = {
+  urn: string;
+  company_urn: string;
+  text?: string | null;
+  posted_at?: string | null;
+  reactions?: number | null;
+  comments?: number | null;
+};
+
+export type CompanyPostsUpsertResult = { rows: number };
