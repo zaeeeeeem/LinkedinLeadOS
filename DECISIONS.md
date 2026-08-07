@@ -2384,3 +2384,78 @@ credited with the wait.
 `navigate` returns a `Navigation` (`settledOn`, `readyState`, `waitedMs`) instead
 of `void`. Which of the two it settled on is a fact about the page worth putting
 on a receipt, not one to swallow.
+
+## D303 (out-of-range, infrastructure) — the broad net was a guess wearing a safety net's clothes (2026-08-09)
+
+`isLinkedInApiUrl` matches `/voyager/api/`, `/sales-api/` and `/graphql`. It is
+described as the net that makes the specific patterns *checkable* — an endpoint
+nobody predicted is still archived and still counted.
+
+It is not, and the job surface proved it. Run `01KZKMJS9FD0H18VAZMFFVPEYB`
+captured 25 bodies on `/jobs/view/<id>`, reported `misses: 0`, and contained no
+job endpoint at all. Read literally that says the posting's data never crossed
+the network. What it actually said was that nothing was watching outside
+`/voyager/`.
+
+Re-running the same page with a wider net (`01KZKNJ16QD3WSFJ3XMHTG4V1W`) captured
+21 bodies, **none of them under `/voyager/`**, on a stack the old net could not
+see at all:
+
+- `/flagship-web/rsc-action/actions/component?componentId=com.linkedin.sdui.…`
+- `/flagship-web/rsc-action/actions/server-request?sduiid=…`
+- `/preload/?_bprMode=vanilla`
+
+A net that only catches what you predicted cannot tell you the prediction was
+wrong. `isLinkedInDataUrl` accepts any same-origin LinkedIn response that is not
+an asset and not telemetry, and is pinned as strictly wider than the API net so
+swapping one for the other on a probe can only add captures. It is for probes
+settling a source verdict, not for readers; the tap's total buffer bounds it.
+
+**Every surface verdict reached with only the old net is provisional.** The
+company and profile surfaces found their data because it genuinely is under
+`/voyager/` — that is a result, not a validation of the net.
+
+## D304 (out-of-range) — the job surface has no labeled-field source, and the RSC flight tree is not one (2026-08-09)
+
+Measured twice on `/jobs/view/4450930857/`: once cold with the API net
+(`01KZKMJS9FD0H18VAZMFFVPEYB`, 25 bodies) and once with the widest net
+(`01KZKNJ16QD3WSFJ3XMHTG4V1W`, 21 bodies). The two runs share no endpoints and
+agree on the finding.
+
+**The description is on the network.** It is in a 6,654-byte
+`/flagship-web/rsc-action/actions/component` response, in full.
+
+**It is not in a labeled field.** That body is an RSC flight tree — numbered rows
+of render output:
+
+```
+7:["$","$L8",null,{"textProps":{…"children":[["$","p","text-attr-2",
+   {"children":["Our bet: every hospital in Southeast Asia …"]}]]}}]
+```
+
+The text is addressed only by its position in a render tree. There is no
+`"description"` key, no `"title"`, no job urn in that body at all.
+
+Across all 21 bodies, the labeled job fields §7 needs are **absent everywhere**:
+no `listedAt`, no `originalListedAt`, no `workplaceTypes`, no
+`workRemoteAllowed`, no `formattedLocation`, no `companyDetails`, no
+`urn:li:fsd_company:`. The only structured job reference in the whole run is
+`urn:li:jobPosting:<id>` ×10 in the document, and every one of those sits inside
+a *report* action (`GenericReportedInfo.targetEntityUrn`) — identity, not
+content.
+
+So Task 31 has exactly two ways to read a posting, and both need a decision the
+capability cannot make for itself:
+
+1. **Extend the DOM-source exception to the job surface**, the way D123/D130
+   extended it to the profile reader — read from the archived DOM snapshot,
+   every row tagged DOM-sourced.
+2. **Read the RSC flight tree by position**, which D121 forbids outright, and
+   which is the DOM's fragility with worse ergonomics and no `data-testid` to
+   anchor on.
+
+**[DECISION NEEDED — operator.]** Task 31 stays blocked on this and nothing else.
+Recommendation: option 1. It is the precedent that already exists, the snapshot
+is already archived raw, and the job card carries `data-testid` attributes
+(`expandable-text-box` on the description) that are stabler anchors than flight
+row indices.
