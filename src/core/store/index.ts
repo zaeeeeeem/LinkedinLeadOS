@@ -25,7 +25,12 @@ export {
   upsertPerson,
   type StoreOpts,
 } from "./persons.js";
+export { findCompanyByUrn, findCompanyByVanity, upsertCompany } from "./companies.js";
 export type {
+  CompanyInput,
+  CompanyRow,
+  CompanyUpsertResult,
+  StoredCompany,
   ExperienceInput,
   PersonExperienceRow,
   PersonInput,

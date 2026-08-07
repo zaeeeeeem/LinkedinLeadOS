@@ -686,6 +686,21 @@ Not verified live, and it does not need a live run: both changes are pure L0. Th
 real-Chrome behaviour is the operator's next cold start (see Next).
 
 ## In progress
+Task 22 — `company.get`. **Offline implementation complete on branch
+`task-22-company-get`; stopped before the operator-supervised live gate as required.**
+`src/capabilities/company.get/` supplies the pure parser, composition, tests and README;
+`src/core/store/companies.ts` supplies freshness lookups and the ordered company write.
+Decisions D185–D188. The real run fixture pins all seven §7 fields. Review fixes moved the
+document body from ephemeral run storage into `fixtures/company.get/`, made fixture tests
+skip visibly when absent, split all synthetic contracts into an always-running suite, added
+exact numeric-id resolution, and let legal Big Pipe JSON fill a missing Voyager name. Every growth bound is
+exceeded by a test; identity refusal, missing required name and field truncation were each
+mutation-verified by breaking the implementation and observing the named test fail.
+Proven offline after review: **976/976 tests pass (46 files), typecheck clean,
+`git diff --check` clean.** The Big Pipe name fallback was mutation-verified separately.
+Not run: the live default-flags gate, independent Supabase/archive/ledger verification, and
+the immediate freshness rerun; these require the operator-supervised metered page load.
+
 Task 15 — capture fixture. **Offline complete. Two live runs done. Both found bugs in this
 task's own code. Not Built: the captures do not contain the profile, and D116 is open.**
 

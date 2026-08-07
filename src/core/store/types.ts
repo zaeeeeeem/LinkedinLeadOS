@@ -77,3 +77,30 @@ export type PersonUpsertResult = {
     removed: number;
   };
 };
+
+export type CompanyRow = {
+  urn: string;
+  name: string | null;
+  vanity: string | null;
+  website: string | null;
+  industry: string | null;
+  size_range: string | null;
+  hq: string | null;
+  about: string | null;
+  first_seen: string;
+  last_seen: string;
+};
+
+export type CompanyInput = {
+  urn: string;
+  name?: string | null;
+  vanity?: string | null;
+  website?: string | null;
+  industry?: string | null;
+  size_range?: string | null;
+  hq?: string | null;
+  about?: string | null;
+};
+
+export type StoredCompany = { company: CompanyRow; vanityMatches?: number };
+export type CompanyUpsertResult = { urn: string; rows: 1 };

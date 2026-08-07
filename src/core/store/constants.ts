@@ -5,6 +5,7 @@
 export const TABLES = {
   persons: "persons",
   personExperience: "person_experience",
+  companies: "companies",
   parseDrift: "parse_drift",
 } as const;
 

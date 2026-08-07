@@ -2316,6 +2316,60 @@ formats it, and never reads these strings.
 Numbering note: as D180–D183, this belongs to Task 21 and lands out of range.
 **Task 22's reserved range becomes D185–D189.**
 
+## D185 — `company.get` delegates one `main` load to `company.probe` and resolves identity by corroboration (2026-08-09)
+
+`company.get` calls the already-proven `company.probe` run path with `subpages=main`; it does
+not add another navigator, tap, pacing loop, challenge gate or budget spend. The caller's
+`RunBudget` remains bound to `company.get`, so the delegated load spends against the reader's
+Task 20 sub-cap rather than the probe's cap. The main document carries the complete company
+record in its Big Pipe islands, so loading `about` as well would spend a second page for no
+additional §7 `companies` field.
+
+Company identity is resolved-or-refused from agreement between independent captured bodies:
+the initial document's embedded company record whose `universalName` equals the normalized
+target vanity supplies the candidate, and a Voyager body from that same main load must carry
+the same normalized company urn. A candidate present in the session/trap identity set, a non-company urn, no
+candidate, disagreement, or missing corroboration is exit-5 drift and stores nothing. This
+rejects the attractive but unsafe alternative of taking the first company urn in a body,
+where related companies, jobs and tracking entities occur beside the subject.
+
+## D186 — `company.get` has a 150-load reader cap and zero allowance for searches or profile opens (2026-08-09)
+
+The Task 20 per-capability cap is explicit for `company.get`:
+`{ pageLoadsPerDay: 150, searchPagesPerDay: 0, distinctProfilesPerDay: 0 }`. The page-load
+number retains the bounded-reader fallback, while the two zeroes are assertions about this
+reader's surface. Leaving it on the generic fallback would allow 25 search pages and 60
+profile opens under its name, masking a composition regression until it had already spent.
+
+## D187 — the company parser bounds bodies, nodes, and stored field length independently (2026-08-09)
+
+The pure parser reads at most 256 captured bodies, walks at most 200,000 JSON nodes per
+root, and stores at most 20,000 characters per text field. Crossing any bound is visible as
+a typed exit-5 drift warning; a long field is truncated with the exact dropped-character
+count instead of discarding an otherwise usable company. These are separate ceilings because
+a small number of deeply nested bodies and a large number of tiny bodies are different drift
+shapes, and neither should make parser memory or a PostgREST payload unbounded.
+
+## D188 — numeric company targets resolve by exact id; legal embedded fields may fill a Voyager stub (2026-08-09, review)
+
+A numeric `/company/<id>/` target resolves when the embedded candidate normalizes to exactly
+`urn:li:fsd_company:<id>` and the Voyager body independently carries that same urn. Requiring
+`universalName === <id>` rejected valid numeric URLs because `universalName` remains the
+company's vanity slug. Cross-body corroboration remains mandatory. The numeric input itself
+is never stored as `companies.vanity`: a real slug is taken from Voyager's company URL when
+present, otherwise vanity is omitted.
+
+For content projection, a labeled field in the initial document's Big Pipe JSON may fill a
+missing field on the corroborating Voyager stub. In particular, `name` now prefers Voyager
+and falls back to the embedded subject record instead of warning and silently upserting a
+nameless company while the legal captured value is present. This is D184's source verdict,
+not a DOM fallback. The session/trap-set refusal remains: Task 22 explicitly requires that
+guard and its mutation proof, even though today's `sessionUrnsOf` normally yields person urns.
+
+Fixture evidence is now durable inside the shared gitignored fixture library rather than
+read from `runs/<id>/raw`. Fixture-only tests skip visibly when their two required files are
+absent; all bounds and field-behavior tests are synthetic and run on every checkout.
+
 ## D301 (out-of-range, infrastructure) — shared state is anchored to the repository root, never to the cwd (2026-08-09)
 
 Three parser tasks — 22, 27 and 31 — each reported that the surface fixture they
