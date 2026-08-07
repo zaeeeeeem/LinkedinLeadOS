@@ -5,12 +5,27 @@ import type { CdpEvent, Unsubscribe } from "../cdp/client.js";
 import { CapabilityError, EXIT } from "../run/receipt.js";
 import {
   FOREGROUND_SETTLE_MS,
+  INTERACTIVE_SETTLE_MS,
   NAVIGATE_TIMEOUT_MS,
   NETWORK_RESOURCE_BUFFER_BYTES,
   NETWORK_TOTAL_BUFFER_BYTES,
   READY_POLL_INTERVAL_MS,
   TEARDOWN_STEP_TIMEOUT_MS,
 } from "./constants.js";
+
+/**
+ * How a navigation finished waiting.
+ *
+ * `settledOn` is reported rather than swallowed because the two are not equally
+ * good news: `complete` is a page that finished, `interactive` is a page that
+ * parsed and then held a connection open forever. A capability that settles on
+ * `interactive` has a working page and a fact worth putting on its receipt.
+ */
+export type Navigation = {
+  settledOn: "complete" | "interactive";
+  readyState: string;
+  waitedMs: number;
+};
 
 /**
  * The slice of `CdpClient` the tab uses. Structural on purpose: the attach
@@ -192,8 +207,15 @@ export class WorkerTab {
    * consuming that event would mean `Page.enable` (D8). Evaluation failures while
    * polling are expected — the execution context is torn down and rebuilt mid
    * navigation — so they count as "not ready yet", never as an error.
+   *
+   * Settles on `complete`, or on `interactive` once it has held for
+   * `INTERACTIVE_SETTLE_MS` — LinkedIn's activity feed keeps a connection open and
+   * never fires the load event, and failing a capture whose bytes are already
+   * archived spends a metered page load to report nothing (D302). Which of the two
+   * it settled on is returned rather than hidden, so a caller can put it on a
+   * receipt.
    */
-  async navigate(url: string, timeoutMs = NAVIGATE_TIMEOUT_MS): Promise<void> {
+  async navigate(url: string, timeoutMs = NAVIGATE_TIMEOUT_MS): Promise<Navigation> {
     const r = await this.send<{ errorText?: string }>("Page.navigate", { url });
     if (r.errorText) {
       throw transient(
@@ -203,13 +225,37 @@ export class WorkerTab {
       );
     }
 
-    const deadline = Date.now() + timeoutMs;
+    const started = Date.now();
+    const deadline = started + timeoutMs;
+    let interactiveSince: number | null = null;
+
     while (Date.now() < deadline) {
+      let state: string | null = null;
       try {
-        if ((await this.evaluate<string>("document.readyState")) === "complete") return;
+        state = await this.evaluate<string>("document.readyState");
       } catch {
         /* context swapped underneath us mid-navigation; keep waiting */
       }
+
+      if (state === "complete") {
+        return { settledOn: "complete", readyState: "complete", waitedMs: Date.now() - started };
+      }
+
+      if (state === "interactive") {
+        interactiveSince ??= Date.now();
+        if (Date.now() - interactiveSince >= INTERACTIVE_SETTLE_MS) {
+          return {
+            settledOn: "interactive",
+            readyState: "interactive",
+            waitedMs: Date.now() - started,
+          };
+        }
+      } else {
+        // Back to `loading` — a client-side navigation replaced the document, so
+        // the interactive clock starts again rather than counting a stale page.
+        interactiveSince = null;
+      }
+
       await delay(READY_POLL_INTERVAL_MS);
     }
     throw transient(
