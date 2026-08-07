@@ -53,14 +53,45 @@ export type ProbeResult = {
  * a redirect land between the two reads and produce a verdict about a page that
  * never existed — a clean URL paired with a challenge body, or the reverse.
  *
+ * A matched widget only counts if it is shown: on-screen, sized, and not hidden
+ * by computed style. LinkedIn mounts Google's *invisible* reCAPTCHA Enterprise
+ * on some pages purely for tracking (the pemberly.tracking.recaptcha.v3
+ * experiment; first seen on the company surface, D183) — a display:none badge
+ * plus an iframe parked at left:-9999px — and that is not a challenge anyone is
+ * being asked to solve. A widget whose visibility cannot be judged still counts
+ * as shown, so every failure widens detection rather than narrowing it.
+ *
  * This is one of the four DOM reads D1 permits.
  */
 export const PROBE_EXPRESSION = `(() => {
   try {
     var sel = ${JSON.stringify(CAPTCHA_SELECTORS)};
+    var de = document.documentElement;
+    var vw = (de && de.clientWidth) || 0;
+    var vh = (de && de.clientHeight) || 0;
+    var view = document.defaultView;
+    var shown = function (el) {
+      try {
+        var r = el.getBoundingClientRect();
+        if (!r || r.width < 2 || r.height < 2) return false;
+        if (r.right <= 0 || r.bottom <= 0) return false;
+        if (vw > 0 && r.left >= vw) return false;
+        if (vh > 0 && r.top >= vh) return false;
+        if (view && view.getComputedStyle) {
+          var s = view.getComputedStyle(el);
+          if (s && (s.display === "none" || s.visibility === "hidden")) return false;
+        }
+        return true;
+      } catch (e) { return true; }
+    };
     var captcha = false;
-    for (var i = 0; i < sel.length; i++) {
-      try { if (document.querySelector(sel[i])) { captcha = true; break; } } catch (e) {}
+    for (var i = 0; i < sel.length && !captcha; i++) {
+      try {
+        var found = document.querySelectorAll(sel[i]);
+        for (var j = 0; j < found.length; j++) {
+          if (shown(found[j])) { captcha = true; break; }
+        }
+      } catch (e) {}
     }
     var body = document.body;
     return {

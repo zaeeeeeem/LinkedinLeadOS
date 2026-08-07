@@ -36,6 +36,45 @@ export function isLinkedInApiUrl(rawUrl: string): boolean {
 }
 
 /**
+ * File extensions that are page furniture rather than data. Anything ending in
+ * one of these is a script, a stylesheet, a font or an image, and archiving it
+ * would bury the fixtures under megabytes of bundle.
+ */
+const ASSET_EXTENSIONS = [
+  ".js", ".mjs", ".css", ".map", ".png", ".jpg", ".jpeg", ".gif", ".webp",
+  ".svg", ".ico", ".woff", ".woff2", ".ttf", ".otf", ".mp4", ".webm", ".m3u8",
+];
+
+/**
+ * The **widest** net: any same-origin LinkedIn response that is not an asset and
+ * not telemetry.
+ *
+ * `isLinkedInApiUrl` answers "is this on a path we already know LinkedIn serves
+ * data from", and that is a guess wearing a safety net's clothes. It cost a real
+ * measurement: the `/jobs/view/<id>` probe reported `misses: 0` with no job
+ * endpoint captured at all, and the honest reading of that is not "the data is
+ * not on the network" but "nothing was watching outside `/voyager/`". A net that
+ * only catches what you predicted cannot tell you the prediction was wrong.
+ *
+ * For probes settling a surface's source verdict, not for readers: it is noisier
+ * by construction, and the tap's total buffer is what bounds it.
+ */
+export function isLinkedInDataUrl(rawUrl: string): boolean {
+  let url: URL;
+  try {
+    url = new URL(rawUrl);
+  } catch {
+    return false;
+  }
+  const host = url.hostname.toLowerCase();
+  if (host !== "linkedin.com" && !host.endsWith(".linkedin.com")) return false;
+  const path = url.pathname.toLowerCase();
+  if (path.startsWith("/li/track") || path.includes("/perftracker")) return false;
+  if (ASSET_EXTENSIONS.some((ext) => path.endsWith(ext))) return false;
+  return true;
+}
+
+/**
  * The endpoints a `/in/` profile page is *expected* to fetch, plus the nets that
  * catch what it actually fetches.
  *
@@ -110,11 +149,16 @@ function documentKey(rawUrl: string): string | null {
  * profile's sub-pages or the API calls about the same person — the question it
  * answers is "did the payload arrive in the navigation response", and a pattern
  * that also caught the Voyager calls could not answer it.
+ *
+ * `name` exists because a run that loads several documents needs one watch per
+ * document to tell their hit counts apart: five patterns all called
+ * `profile-document` would report as one row and answer nothing (Task 21 loads
+ * five company sub-pages). Omitted, the name is unchanged.
  */
-export function documentPattern(targetUrl: string): TieredPattern {
+export function documentPattern(targetUrl: string, name: string = DOCUMENT_PATTERN_NAME): TieredPattern {
   const wanted = documentKey(targetUrl);
   return {
-    name: DOCUMENT_PATTERN_NAME,
+    name,
     tier: "specific",
     match: (url: string) => wanted !== null && documentKey(url) === wanted,
   };
@@ -215,15 +259,23 @@ function pathOf(rawUrl: string): string {
  * Pure: it reads captures and misses and touches nothing. The counts it produces
  * are the acceptance evidence for this whole task, so they are computed in one
  * tested function rather than inline in the capability where nothing checks them.
+ *
+ * `isRelevant` decides which bodies count as carrying the subject's data — the
+ * `profile_ish` columns below. It is injectable because "a body about a person"
+ * and "a body about a company" are different questions asked of the same
+ * machinery, and a second copy of this function is how the two would drift
+ * apart. Omitted, it is `isProfileIsh` and nothing changes.
  */
 export function summarizeCaptures(
   captures: readonly Capture[],
   misses: readonly CaptureMiss[],
   patterns: readonly TieredPattern[] = PROFILE_PATTERNS,
+  o: { isRelevant?: (body: string) => boolean } = {},
 ): CaptureSummary {
+  const isRelevant = o.isRelevant ?? isProfileIsh;
   const specific = specificNames(patterns);
   const endpoints: EndpointRow[] = captures.map((c) => {
-    const profileIsh = isProfileIsh(c.body);
+    const profileIsh = isRelevant(c.body);
     return {
       path: pathOf(c.url),
       query_id: queryIdOf(c.url),

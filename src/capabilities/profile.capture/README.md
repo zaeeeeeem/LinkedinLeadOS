@@ -25,6 +25,14 @@ mid-load leaves the ledger over-counting rather than under-counting.
 `profile_open` is deduped by `ref` (§8), so re-capturing the same profile within the daily
 window costs no second profile open. `--dry-run` opens no browser and spends nothing.
 
+Two caps apply, both at exit 7 (D153/D160). The global §8 limits (60 page loads/hour,
+400/day, 120 distinct profiles/day) are shared with every other capability. On top of
+them this capability has its own daily sub-cap — **200 page loads, 90 distinct profiles,
+0 search pages** (`CAPABILITY_SUB_CAPS` in `src/core/budget/constants.ts`) — counted over
+its own ledger lines only, so a runaway loop here stops at its own cap instead of draining
+the shared budget. The refusal's `evidence` names which cap bit: `"scope":"global"` or
+`"scope":"capability"` with the capability name.
+
 ## Arguments
 
 | flag | meaning |

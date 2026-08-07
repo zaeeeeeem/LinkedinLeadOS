@@ -45,6 +45,12 @@ A cache miss costs one page load and one distinct-profile open. Both are recorde
 to a live fetch. The receipt's `cost` is measured from the budget ledger, not copied from the
 estimate.
 
+`profile.get` spends under **its own** name even though it delegates to `profile.capture`
+— the `RunBudget` passed down is bound to this capability — so it carries its own daily
+sub-cap (D153/D160): 200 page loads, 90 distinct profiles, 0 search pages, in addition to
+the shared §8 global limits. Either cap refusing is exit 7; the receipt's `evidence` names
+which one (`"scope":"global"` vs `"scope":"capability"`).
+
 ## Receipt and storage
 
 On a live success, `counts.requested` is 1, `counts.captured` is the number of network bodies archived,

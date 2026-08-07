@@ -5,6 +5,32 @@ Updated at every task commit. Trust this over CLAUDE.md's phase line.
 **The active plan is `docs/plans/m1-m3/`** (outcome-driven, one file per task; see D12).
 The 2026-08-07 plan file is superseded — do not execute from it.
 
+**Task 25 in progress; source gate passed offline.** The promoter now preserves initial
+HTML documents that contain parseable structured-data islands separately from DOM snapshots,
+with a regression test; both jobs-tab artifacts are in `fixtures/company.jobs/` and its
+generated FIELD-MAP was read. D210 records outcome (a): outside every `meta.microSchema`
+subtree, the document has 9 subject-scoped `LISTED` JobPosting value records, plus 10
+unscoped navigation stubs across 17 ids. D211 fixes §7 `jobs.id` as the decimal posting id.
+Parser/store TDD is next. Zero LinkedIn contact; no browser launched.
+
+**Task 25 implementation checkpoint.** `company.jobs` now has a pure bounded embedded-JSON
+parser, subject-company scope, numeric id canonicalization, measured list-field projection,
+one-load composition, identifier-free receipt, explicit 150/0/0 sub-cap, atomic id-deduplicated
+`jobs` storage, README/SQL, synthetic tests and a visibly gated 9-row fixture assertion.
+D210–D219 are recorded. Focused verification is 37/37 tests and `tsc --noEmit` clean;
+required mutation checks and the full suite remain. Zero LinkedIn contact; no browser launched.
+
+**Task 25 offline complete; live gate untouched.** Source outcome (a) is recorded with
+measured evidence in D210, and D210–D219 are complete. Final verification is **1016/1016
+tests across 58 files**, `tsc --noEmit` clean, and `git diff --check` clean. With all of
+`fixtures/` moved away, the company.jobs slice reported **11 passed, 1 skipped**. Mutation
+verification failed the named tests for non-subject-company exclusion, canonical numeric job
+id, pre-upsert batch dedupe, and `--limit` work stopping. The next action is the
+operator-supervised default-flags live gate, which must verify one metered jobs-tab load,
+embedded-JSON source, subject-only numeric-id rows, independent Supabase values/counts,
+preserved first_seen with bumped last_seen, archive evidence, and 1/0/0 ledger spend.
+Zero LinkedIn contact; no browser launched during Task 25.
+
 ## Built
 Task 1 — project scaffold and receipt contract (commits 1394d12, c2bea6f).
 Reviewed 2026-08-08: `npx tsc --noEmit` clean, 4/4 tests pass.
@@ -648,7 +674,59 @@ default of 3 scroll passes, archived truthfully, and surfaced `PARSE_FIELD_MISSI
 it did not satisfy the gate, so the verified gate used the existing full-read flag rather than
 changing Task 16's pacing/safety defaults.
 
+Task 20 — per-capability daily budget sub-caps, and the launcher's empty-context reuse bug
+(M4 unblocker). Decisions D160–D164; closes B5.
+
+**Sub-caps (D153).** `src/core/budget/constants.ts` gains `CapabilitySubCaps`,
+`DEFAULT_CAPABILITY_SUB_CAPS` (150 page loads / 25 search pages / 60 distinct profiles per
+day), a `CAPABILITY_SUB_CAPS` table (`profile.capture` and `profile.get` at 200/0/90) and
+`subCapsFor()`, which never returns uncapped — a capability absent from the table gets the
+fallback (D162). `evaluate` in `ledger.ts` now checks the global §8 limits first and the
+capability's own daily sub-cap second, counted over that capability's own ledger lines only;
+both refuse with `BUDGET_EXCEEDED` / exit 7, and the evidence carries
+`scope: "global" | "capability"` (D160). `capability` is required on `CheckInput`, so a
+preflight cannot silently skip half the caps (D161); `RunBudget.check` binds it from the run.
+`profile_open` dedupe is per scope (D163). No ledger format change — spend records already
+carried `capability`.
+
+**B5/D164.** `hasLiveTarget()` in `src/core/chrome/discovery.ts` (a plain `/json/list` GET,
+never throws); `ensureChrome`'s reuse path accepts an endpoint only if it returns at least one
+target, otherwise falls through to the unchanged launch path. Attach surface untouched.
+
+Proven: 818/818 offline (45 new — 31→45 in `budget-ledger.test.ts`, 17→23 in
+`chrome-discovery.test.ts`, 1 new compose test in `cli-registry.test.ts`), typecheck clean, no
+LinkedIn or browser contact anywhere in them. Tests pin: the sub-cap trips exactly at its
+boundary while the global limits stay open for other capabilities; the global limit still trips
+and still says "global" when sub-caps are roomy; 6 racing spends against a sub-cap of 2 land
+exactly 2, over 5 trials; an override above a sub-cap is ignored and one below is honoured; a
+capability's own lines are the only ones its sub-cap counts. The **pre-Task-20 ledger** case runs
+against `tests/fixtures-budget/pre-task-20-budget.ndjson` — the real M3 ledger copied verbatim
+except that `ref` values are redacted (captured LinkedIn data is never committed) — and asserts it
+parses, counts, evaluates per capability, and is appended to without its old records changing.
+The compose test walks every capability the CLI actually loads and asserts its declared cost fits
+inside its own sub-cap (`profile.get` spends under its own name despite delegating to
+`profile.capture`, which is the omission this catches). Both new guards were verified to bite by
+reverting them: the B5 revert fails 2 launcher tests, a too-small sub-cap fails the compose test.
+
+Not verified live, and it does not need a live run: both changes are pure L0. The launcher guard's
+real-Chrome behaviour is the operator's next cold start (see Next).
+
 ## In progress
+Task 22 — `company.get`. **Offline implementation complete on branch
+`task-22-company-get`; stopped before the operator-supervised live gate as required.**
+`src/capabilities/company.get/` supplies the pure parser, composition, tests and README;
+`src/core/store/companies.ts` supplies freshness lookups and the ordered company write.
+Decisions D185–D188. The real run fixture pins all seven §7 fields. Review fixes moved the
+document body from ephemeral run storage into `fixtures/company.get/`, made fixture tests
+skip visibly when absent, split all synthetic contracts into an always-running suite, added
+exact numeric-id resolution, and let legal Big Pipe JSON fill a missing Voyager name. Every growth bound is
+exceeded by a test; identity refusal, missing required name and field truncation were each
+mutation-verified by breaking the implementation and observing the named test fail.
+Proven offline after review: **976/976 tests pass (46 files), typecheck clean,
+`git diff --check` clean.** The Big Pipe name fallback was mutation-verified separately.
+Not run: the live default-flags gate, independent Supabase/archive/ledger verification, and
+the immediate freshness rerun; these require the operator-supervised metered page load.
+
 Task 15 — capture fixture. **Offline complete. Two live runs done. Both found bugs in this
 task's own code. Not Built: the captures do not contain the profile, and D116 is open.**
 
@@ -711,7 +789,97 @@ snapshot capture, Task 17 = parser, Task 19 = wire e2e). History below stands as
 record that forced the decision. Decisions D120–D123.
 
 > The identity half of that decision was falsified by Task 16's own live run and replaced by
-> D130 — identity comes from the DOM too. See the Task 16 entry above and `## Next`.
+> D130 — identity comes from the DOM too. See the Task 16 entry above and `Task 21 (part 1 of 2) — **company surface probe: the instrument is built and tested; the live
+run has not happened.** `src/capabilities/company.probe/` (url, patterns, surface, constants,
+index, README), `src/core/fixtures/sweep.ts`, `scripts/sweep-sources.ts` (`npm run sweep`).
+Decisions D170–D179.
+
+`company.probe` loads `/company/<slug>/` and its `about` / `posts` / `people` / `jobs`
+sub-pages as five cold loads, one page load each and **no profile_open**, archiving every
+response body and one DOM snapshot per sub-page, with the challenge gate before and after
+each sub-page and `tap.drain()` in a `finally` covering the whole loop. Its own daily
+sub-cap is 12 page loads and **zero** search pages and profile opens (D170); the task's
+six-load per-invocation ceiling is in code and not raisable by a flag.
+
+What is genuinely new rather than reused: a per-sub-page **structural measurement** — which
+element actually scrolls (D115 discipline, not `main#workspace` assumed), whether the page's
+own tab links are real `a[href]`s or SPA routes, how much embedded `ld+json` /
+`application/json` the document carries, and the `componentkey` namespace inventory — all of
+it counts, tag names and dotted namespaces only, never a value (D176). And the **sweep**,
+which works backwards from values the operator reads off the page to the source and path
+that carries them (D173), with the three sources read strictly apart (D174).
+
+Reused, not forked: `profile.capture`'s pacing constants, `readLikeAHuman`,
+`captureDomSnapshot`, `summarizeCaptures`, `documentPattern`, `isLinkedInApiUrl`,
+`sessionUrnsOf`. Two additive parameters were added to `profile.capture/patterns.ts`
+(D178) and the scroller-selection rule was extracted so both surfaces ask it the same way
+(D177) — behaviour unchanged, existing tests still green.
+
+Proven: **927/927 offline (109 new), typecheck clean.** Mutations verified to bite: reading a
+DOM snapshot's inline scripts as `embedded-json`; reading the document response's markup;
+dropping the per-sub-page drain so a late body is attributed to the wrong tab. `surfaceExpression`
+is executed as real JavaScript against a cheerio-parsed document, so the selectors are tested
+against markup rather than against a stub that agrees with them.
+
+**Reviewed 2026-08-09, high effort, before any live run — six findings, all fixed.** Two
+would have corrupted the deliverable and are worth knowing about:
+
+- **Per-sub-page capture attribution could put a row on the wrong tab** (D180). The tap was
+  drained once per run but summarized once per sub-page, and a capture only lands after its
+  archive write finishes. Run totals were always right; `subpages[].endpoints` — the probe's
+  primary deliverable — was not. Now drained before each slice.
+- **Every embedded-json path in the FIELD-MAP would have been wrong** (D174, amended).
+  `:nth-of-type` counts same-tag siblings within one parent and the `[type=…]` predicate
+  does not narrow it; the index was an accumulator across both types and all parents. Paths
+  now come from `cssPath`, and a test feeds the emitted selector back through cheerio to
+  prove it selects the script the value came from.
+
+The other four: an unreachable `SUBPAGE_INCOMPLETE` warning promising a partial-failure
+receipt the runner can never build (D181 — replaced by an `error` event, which is where a
+halt is actually diagnosable); a `--samples` flag that rendered no samples and only swapped
+in a false warning (D175, amended — deleted); an unknown `--subpages` value surfacing as
+`COST_ESTIMATE_FAILED` rather than the documented code (D182 — now rejected by the args
+schema, before a tab or the lease); and page-controlled strings (`url`, scroller `tag`/`id`,
+namespace prefixes, the `tabs` list) reaching the receipt unbounded despite the module's own
+contract.
+
+**Numbering: D180–D182 were taken by the review round and D183–D184 by the live run, so
+Task 22's reserved range is D185–D189.**
+
+**First live run halted on a false positive, fixed (D183).** Run
+`01KZKFR7RNRVA3FXPEJAKDQ30K` against `company/wisprflow` exited 2 `CHALLENGE_CAPTCHA` on
+sub-page 1 of 5, on a normal logged-in page. Cause, from the archived snapshot, not the
+receipt: LinkedIn's `pemberly.tracking.recaptcha.v3` experiment mounts Google's *invisible*
+reCAPTCHA on company pages, and its hidden badge matches two of `CAPTCHA_SELECTORS`. The
+probe now requires a matched widget to be shown (sized, on-screen, not
+`display:none`/`visibility:hidden`); an unjudgeable widget still counts as shown. URL and
+text signals untouched. The three archived profile snapshots carry zero recaptcha
+references, which is why M1–M3 never met it.
+
+**Live run done, and the surface is fully network-sourced (D184).** Run
+`01KZKGD683T76H70YA4DMRCRZH` — company/wisprflow, 5 sub-pages, exit 0, 5 page loads,
+0 profile opens, 5 DOM snapshots, 274 archived files, `PATTERN_MISMATCH` × 17 as expected
+on a first probe. Verified from `runs/<id>/raw` and `runs/budget.ndjson`, not the receipt.
+
+The first sweep called nine fields DOM-only and printed the `[DECISION NEEDED]`. **It was
+wrong.** LinkedIn's server-rendered JSON is in Big Pipe data islands — `<code
+id="bpr-guid-N">`, entity-escaped — and neither `embeddedJsonOf` nor the probe's `embedded`
+measurement knew that carrier existed, so both reported zero embedded JSON on documents
+holding ~11,300 labeled leaves. Both now read the islands, id-anchored so a rendered
+`<code>` block is never laundered into the labeled-field source. **Verdict: no DOM
+exception is needed for the company surface.** The four rows still flagged are rendered
+composites whose structured constituents are in the same embedded JSON (see D184's table).
+
+**Task 22 is unblocked.** Fixtures at `fixtures/company.get/`, map at
+`docs/capabilities/company-surface-field-map.md`.
+
+Now: **938/938 offline, typecheck clean.**
+
+**Not built, and blocked on the live run:** fixtures, `FIELD-MAP.md`, the pinning tests, the
+company identity verdict, and the source verdicts Tasks 22–25 are waiting on. Per D152 none
+of it may be written from an assumption. **Spend so far: 0 of 6 budgeted page loads.**
+
+## Next`.
 
 **D116 probe — run `01KZJ09FEEYGY8WYDD3RQA0BH2`, `/in/tankots/`.** Exit 0, no challenge,
 29.9s, 1 page load, **0 profile opens** (the ref was inside its 24h dedupe window), 26
@@ -751,9 +919,147 @@ unpredicted — that last one fails against the pre-fix `summarizeCaptures`.
 
 ## Next
 
-M1–M3 are complete. Next is the M4 planning/design pass for the remaining L1 readers (company,
-posts, jobs, feed and inbox) against the proven `profile.get` composition. No M4 task file has
-been selected yet.
+**Task 23 — `company.posts` is in progress on `task-23-company-posts`.** Source and
+composition checkpoints are complete: one measured posts-tab load, Voyager-only parsing,
+corroborated company identity, typed actor filtering, two-hop social counts, activity-snowflake
+timestamps, bounded parsing, and batch store ordering are recorded in D190–D194. No LinkedIn
+contact has occurred; parser/store/composition implementation and offline proof are next.
+
+**Task 23 implementation checkpoint.** Parser, composition, explicit 150/0/0 sub-cap,
+`company_posts` batch store, README, eight synthetic parser tests, the gated measured-fixture
+test, two composition tests, and two store tests now exist. Four required mutations were
+observed failing their named tests: author-filter deletion produced 11 rows instead of 4;
+constructed counts lost reactions/comments; an exclusive since comparison lost the boundary;
+and removed limit break parsed 2 rows. The fixture-absence run passed 9 synthetic tests with
+1 visible skip. No LinkedIn contact or browser launch occurred.
+
+**Task 24 measurement checkpoint.** Branch `task-24-company-people` inherits Tasks 22 and 23.
+The two named people bodies were promoted into the shared `fixtures/company.people/` library
+and its generated FIELD-MAP was read before parse code. The measured list is the
+`voyagerSearchDashClusters` cluster: eligibility requires a cluster item reference plus the
+selected `currentCompany` filter matching the resolved company id (D200). Cost is one page load
+and no separate search-page/profile-open unit (D201). Work remains fully offline; no browser was
+launched and LinkedIn was not contacted.
+
+**Task 24 implementation checkpoint.** The pure cluster parser, company/session scope guards,
+name/title filters, work-bounded limit, 256-body/200,000-node/20,000-character ceilings,
+pair-deduplicated `company_people` batch upsert, explicit 150/0/0 sub-cap, composition, README,
+and synthetic/gated-fixture tests now exist. Four mutations failed their named tests: removing
+company scope admitted the non-employee trap; removing session exclusion stored the session urn;
+removing pair dedupe sent two identical keys; disabling the limit break returned two rows. With
+`fixtures/company.people/` moved away, eight tests passed and the measured test skipped visibly.
+
+**Task 24 offline complete; live gate untouched.** `company.people` now resolves company
+identity before parsing, accepts only references from the measured subject-selected
+`currentCompany` cluster, excludes all session urns, returns bounded profile URLs, applies
+capture-data name/title filters, stops work at `--limit`, and atomically stores deduplicated
+association pairs without resending database-owned `discovered_at`. D200–D209, the explicit
+150/0/0 sub-cap, README/SQL, pure tests and gated 12-row fixture assertion are complete. Final
+verification: **1001/1001 tests across 54 files**, `tsc --noEmit` clean and `git diff --check`
+clean. The next step is the operator-supervised default-flags live gate; it must verify one
+metered people-page load, zero separate search/profile-open spend, real downstream-usable URLs,
+session/non-employee exclusion, deduplicated pair storage and preserved discovery timestamps.
+Zero LinkedIn contact; no browser was launched during Task 24.
+
+**Task 23 offline complete; live gate untouched.** `company.posts` now has its pure bounded
+Voyager parser, resolved-or-refused subject identity, four-of-eleven author filtering,
+two-hop counts, snowflake timestamps, inclusive `--since`, work-bounded `--limit`, atomic
+`company_posts` batch storage, explicit 150/0/0 sub-cap, README/SQL recipes, and D190–D199.
+Final verification: **989/989 tests across 50 files**, `tsc --noEmit` clean, and
+`git diff --check` clean. The next step is the operator-supervised default-flags live gate;
+it must verify one metered page load, only subject-authored rows, counts/timestamps by an
+independent Supabase query, receipt/storage counts on a second run, archive files, and the
+ledger. Zero LinkedIn contact; no browser was launched during Task 23.
+
+M1–M3 are complete. **The M4 plan is written and approved** (`docs/plans/m4-l1-readers/`,
+2026-08-09): the remaining eleven L1 readers across five page surfaces, probe-first (D152) with
+per-capability daily sub-caps (D153). Fourteen task files (20–33): Task 20 (budget sub-caps +
+launcher B5 fix) is the unblocker and runs first; then per surface a live probe task feeds
+offline parser+store tasks and a live default-flags gate. Execution has not started — Task 20 is
+the first to dispatch, on Opus, per the m1-m3 execution protocol (fresh subagent, TDD, Opus
+reviewer after each). Read `docs/plans/m4-l1-readers/README.md` then `CONTEXT.md` before
+dispatching.
+
+**Task 20 is done. Task 21 is done, live-verified. Tasks 26 and 30's offline halves are
+done and their live probes have run.**
+
+## 2026-08-09 — three tasks unblocked at once, and one infrastructure bug behind all of them
+
+Tasks 22, 27 and 31 each reported "my surface fixture does not exist". All three were
+wrong in the same way and the cause was in none of them: `fixtures/` and `runs/` are
+gitignored at the repo root, tasks execute in linked git worktrees, and both directories
+were resolved against `process.cwd()`. Every worktree therefore had an empty fixture
+library — and, worse, **its own budget ledger**, multiplying the section 8 daily caps by
+the number of worktrees open (D301, fixed).
+
+Landed on `plan-m4-l1-readers`, nothing merged from a task branch:
+
+| commit | what |
+|---|---|
+| `0439bfb` | D301 — fixtures/runs/ledger anchored to the repo root via git worktree linkage |
+| `69076c1` | D302 — a navigation settles on `interactive` when `complete` never arrives |
+| `ba21df2` | a dead tab or socket fails the navigation wait at once, not 45s later under the wrong code |
+| `576bb62` | `activity.capture` / `job.capture` were on the 150-load *reader* fallback; now probe-capped |
+| `e64b1df` | D303 — `isLinkedInDataUrl`, a net wide enough to disprove the net |
+| `afcecac` | D303/D304 recorded |
+
+Worktrees `three` (Task 26) and `four` (Task 30) are rebased and merged up to all of it,
+green, and carry the captcha fix `ea029aa` they were missing.
+
+### Ready to start in parallel
+
+- **Task 22 — `company.get`.** Fixture and field map were always on disk; only D301 was
+  hiding them.
+- **Task 27 — `profile.posts`.** `fixtures/profile.posts/` from run
+  `01KZKKZZJ91XX4KX2Z3772QRHH`. Voyager JSON, no DOM exception. `posted_at` is derived
+  from the activity urn (`Number(BigInt(id) >> 22n)`), verified against 11 rendered
+  labels in the fixture.
+- **Task 28 — `profile.activity`.** `fixtures/profile.activity/` from runs
+  `01KZKM1E5AX4WJ91BKA8GRWSK4` and `01KZKM2QPPR35QSW0WSA134EZD`. Same verdict as 27.
+
+### Blocked, each on one named thing
+
+- **Task 31 — `job.get`:** needs the operator's DOM-source decision. The job surface has
+  **no labeled-field source** — measured twice, D304. Recommendation in the task file.
+- **Task 29 — `post.get`:** the `/feed/update/<urn>/` permalink drops the CDP socket
+  ~2.5s in, twice. Needs one clean capture; try the `/posts/<slug>` spelling first.
+
+Spend on 2026-08-09: 9 page loads (3 activity surfaces, 2 permalink attempts, 2 job
+probes, 2 earlier company/activity runs), 1 distinct profile (`in:tankots`).
+
+
+**The next action is a live, operator-supervised probe run** — Task 21 cannot finish without
+it, and Tasks 22–25 stay blocked until it does. Nothing about the company surface has been
+measured yet; every field's source is currently unknown, not assumed.
+
+Run, with the operator watching and a company already linked from the stored M3 profile as
+the target:
+
+```
+npm run cap -- company.probe --url=<company url>
+```
+
+Then, offline:
+
+```
+npm run fixtures:promote -- --run=<runId> --capability=company.get --subject=<vanity>
+npm run sweep -- --run=<runId> --want-file=fixtures/company.get/wanted.json \
+  --out=docs/capabilities/company-surface-field-map.md
+```
+
+`wanted.json` is the operator's ground truth read off the rendered page — `[{"field":
+"name", "value": "…"}, …]` for each §7 column of `companies`, `company_posts`,
+`company_people` and `jobs`. It is gitignored along with the rest of `fixtures/`.
+
+Budget: 5 page loads for the probe (6 allowed), 0 profile opens. Expect
+`PATTERN_MISMATCH` — on a first probe of an unmeasured surface that is the reading the
+patterns exist to produce, not an alarm.
+
+**Operator check on the next real Chrome use:** the launcher's reuse decision changed. A normal
+run should behave exactly as before (`launched: false` against the Chrome already on 9223). The
+new path only shows up if that Chrome ever has all its windows closed — it will now relaunch
+instead of attaching to a browser that fails every command. Nothing else in this commit touches
+the browser.
 
 **Leftover:** none. The live M3 gate and cache check both exited 0, `runs/tab.lock` is absent,
 and the automation Chrome remains available on port 9223.

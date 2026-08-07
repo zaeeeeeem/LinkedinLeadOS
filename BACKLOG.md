@@ -124,3 +124,11 @@ plain HTTP GET that already exists in the discovery module.
 Not fixed in Task 16's commit because `ensureChrome` is Task 2's module and preflight is
 Task 12's; this is a behaviour change to the launcher's reuse decision and belongs with
 whoever next touches it, with a test that fakes an empty `/json/list`.
+
+**CLOSED 2026-08-09, Task 20 (D164).** `hasLiveTarget` in `src/core/chrome/discovery.ts`;
+the reuse path in `ensureChrome` now requires it. Fakes in `tests/chrome-discovery.test.ts`
+cover an empty list and an unreadable one, and both fail if the guard is reverted (verified
+by reverting it). The residual — the launch path's discovery is unchanged, so a handoff that
+opens no window can still return `launched: true` on a context-less browser — is recorded in
+D164 rather than fixed, because changing launch-path discovery was explicitly out of this
+item's settled scope.

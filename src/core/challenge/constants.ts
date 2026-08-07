@@ -179,9 +179,12 @@ export const TEXT_MARKERS: ReadonlyArray<{
 export const SOFT_MARKER_MAX_TEXT = 2_000;
 
 /**
- * Selectors whose presence means a captcha widget is mounted. UNVERIFIED —
- * LinkedIn fronts its challenge with a third-party captcha in an iframe, and
- * these are the shapes that vendor uses; Task 15 is the first real check.
+ * Selectors whose presence means a captcha widget is mounted. Presence alone is
+ * not enough: LinkedIn mounts Google's invisible reCAPTCHA Enterprise for
+ * tracking on company pages (verified live 2026-08-09, run
+ * 01KZKFR7RNRVA3FXPEJAKDQ30K), and two of these selectors match its hidden
+ * badge. The probe therefore also requires the matched widget to be shown —
+ * see PROBE_EXPRESSION in detect.ts and D183.
  */
 export const CAPTCHA_SELECTORS: readonly string[] = [
   'iframe[src*="captcha" i]',

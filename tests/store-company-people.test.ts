@@ -1,0 +1,7 @@
+import { describe, expect, it, vi } from "vitest";
+import { StoreWriteError, upsertCompanyPeople, type StoreClient } from "../src/core/store/index.js";
+function client(result: { data: unknown[] | null; error: unknown; status: number }) { const select = vi.fn(async () => result); const upsert = vi.fn(() => ({ select })); const from = vi.fn(() => ({ upsert })); return { value: { from } as unknown as StoreClient, from, upsert }; }
+describe("company_people store", () => {
+  it("deduplicates pairs in one batch and preserves database-owned discovered_at", async () => { const fake = client({ data: [{}], error: null, status: 200 }); const pair = { company_urn: "urn:li:fsd_company:42", person_urn: "urn:li:fsd_profile:one" }; const got = await upsertCompanyPeople([pair, pair], { client: fake.value }); expect(got.rows).toBe(1); const [rows, options] = fake.upsert.mock.calls[0] as unknown as [Record<string, unknown>[], object]; expect(rows).toEqual([pair]); expect(rows[0]).not.toHaveProperty("discovered_at"); expect(options).toEqual({ onConflict: "company_urn,person_urn" }); });
+  it("hides database error strings", async () => { const fake = client({ data: null, error: { message: "database secret" }, status: 500 }); await upsertCompanyPeople([{ company_urn: "urn:li:fsd_company:42", person_urn: "urn:li:fsd_profile:one" }], { client: fake.value }).catch((error) => { expect(error).toBeInstanceOf(StoreWriteError); expect(error.message).not.toContain("database secret"); }); });
+});

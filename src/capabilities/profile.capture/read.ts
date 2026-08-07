@@ -83,18 +83,35 @@ export type ReadResult = {
  * back to the document when there is none — a page that scrolls normally is
  * still measured correctly.
  */
+/**
+ * Which element on this page actually scrolls, as a JavaScript function
+ * expression other page-scripts embed.
+ *
+ * Extracted so `VIEWPORT_EXPRESSION` and any other surface's probe ask the
+ * question the same way. D115 is a measurement of *one* page; the rule that
+ * found it — the tallest element with a real `overflow-y` and a viewport's worth
+ * of height — is what carries to a surface nobody has measured yet, and two
+ * copies of that rule would be two answers the day one of them was tuned.
+ *
+ * `null` when the document itself is the scroller.
+ */
+export const SCROLLER_SELECTION_JS = `(function () {
+  var best = null;
+  var els = document.querySelectorAll('*');
+  for (var i = 0; i < els.length; i++) {
+    var el = els[i];
+    if (el.clientHeight < 200) continue;
+    if (el.scrollHeight <= el.clientHeight + 50) continue;
+    var oy = getComputedStyle(el).overflowY;
+    if (oy !== 'auto' && oy !== 'scroll' && oy !== 'overlay') continue;
+    if (best === null || el.scrollHeight > best.scrollHeight) best = el;
+  }
+  return best;
+})`;
+
 export const VIEWPORT_EXPRESSION = `(() => {
   try {
-    var best = null;
-    var els = document.querySelectorAll('*');
-    for (var i = 0; i < els.length; i++) {
-      var el = els[i];
-      if (el.clientHeight < 200) continue;
-      if (el.scrollHeight <= el.clientHeight + 50) continue;
-      var oy = getComputedStyle(el).overflowY;
-      if (oy !== 'auto' && oy !== 'scroll' && oy !== 'overlay') continue;
-      if (best === null || el.scrollHeight > best.scrollHeight) best = el;
-    }
+    var best = ${SCROLLER_SELECTION_JS}();
     var docH = (document.documentElement && document.documentElement.scrollHeight) || 0;
     return {
       width: window.innerWidth || 0,

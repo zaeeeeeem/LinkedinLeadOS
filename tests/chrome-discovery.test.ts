@@ -9,7 +9,7 @@ import {
   PERSONAL_CHROME_PORT,
   CHROME_PROFILE_DIR,
 } from "../src/core/chrome/constants.js";
-import { discoverBrowserWsUrl, isChromeUp } from "../src/core/chrome/discovery.js";
+import { discoverBrowserWsUrl, hasLiveTarget, isChromeUp } from "../src/core/chrome/discovery.js";
 import { ensureChrome } from "../src/core/chrome/launcher.js";
 import { CapabilityError, EXIT } from "../src/core/run/receipt.js";
 
@@ -37,6 +37,36 @@ async function deadPort(): Promise<number> {
 
 const versionBody = (ws: string) =>
   JSON.stringify({ Browser: "Chrome/151.0.0.0", webSocketDebuggerUrl: ws });
+
+/** One page target, shaped as Chrome's real `/json/list` element. */
+const listBody = (n: number) =>
+  JSON.stringify(
+    Array.from({ length: n }, (_, i) => ({
+      id: `TARGET${i}`,
+      type: "page",
+      title: "LinkedIn",
+      url: "https://www.linkedin.com/feed/",
+      webSocketDebuggerUrl: `ws://127.0.0.1:9223/devtools/page/TARGET${i}`,
+    })),
+  );
+
+/**
+ * A Chrome that answers both discovery endpoints. `targets: 0` is the B5
+ * condition (D122): every window closed, `/json/version` still fine,
+ * `/json/list` empty, every browser-level command on it broken.
+ */
+const chromeServing = (ws: string, targets: number) => (path: string) => {
+  if (path === "/json/version") return { status: 200, body: versionBody(ws) };
+  if (path === "/json/list") return { status: 200, body: listBody(targets) };
+  return { status: 404, body: "" };
+};
+
+/**
+ * A binary path that cannot exist, so any fall-through to the launch path
+ * fails loudly at `CHROME_BINARY_MISSING` instead of spawning a real Chrome
+ * onto the operator's automation profile mid-test.
+ */
+const NO_BINARY = "/nonexistent/Google Chrome";
 
 afterEach(async () => {
   if (server) await new Promise<void>((ok) => server!.close(() => ok()));
@@ -140,12 +170,61 @@ describe("isChromeUp", () => {
   });
 });
 
+describe("hasLiveTarget", () => {
+  it("is true when /json/list returns at least one target", async () => {
+    const port = await fake(chromeServing("ws://127.0.0.1:9223/devtools/browser/x", 2));
+    expect(await hasLiveTarget(port)).toBe(true);
+  });
+
+  it("is false for the B5 condition: /json/version fine, /json/list empty", async () => {
+    const port = await fake(chromeServing("ws://127.0.0.1:9223/devtools/browser/x", 0));
+    expect(await hasLiveTarget(port)).toBe(false);
+  });
+
+  it("is false, never a throw, on a dead port or a non-array body", async () => {
+    expect(await hasLiveTarget(await deadPort())).toBe(false);
+    if (server) await new Promise<void>((ok) => server!.close(() => ok()));
+    const port = await fake(() => ({ status: 200, body: JSON.stringify({ not: "an array" }) }));
+    expect(await hasLiveTarget(port)).toBe(false);
+  });
+
+  it("still refuses port 9222 — the guard is not a probe result", async () => {
+    const e = (await hasLiveTarget(PERSONAL_CHROME_PORT).catch((x: unknown) => x)) as CapabilityError;
+    expect(e).toBeInstanceOf(CapabilityError);
+    expect(e.code).toBe("CHROME_FORBIDDEN_PORT");
+  });
+});
+
 describe("ensureChrome", () => {
-  it("reuses an already-listening endpoint without spawning", async () => {
+  it("reuses an already-listening endpoint that still has a target, without spawning", async () => {
     const ws = "ws://127.0.0.1:9223/devtools/browser/reused";
-    const port = await fake(() => ({ status: 200, body: versionBody(ws) }));
-    const ep = await ensureChrome({ port });
+    const port = await fake(chromeServing(ws, 1));
+    // A binary that cannot exist: if this took the launch path at all it would
+    // throw CHROME_BINARY_MISSING rather than quietly reusing.
+    const ep = await ensureChrome({ port, binary: NO_BINARY });
     expect(ep).toEqual({ port, wsUrl: ws, launched: false });
+  });
+
+  it("refuses to reuse a Chrome with an empty /json/list and falls through to launch (B5)", async () => {
+    // The whole B5 bug: /json/version answers, so the old code reused this
+    // endpoint and every browser-level command then failed with a retryable
+    // code no retry could fix. Reaching CHROME_BINARY_MISSING proves the
+    // launch path was entered — reverting the guard returns launched:false
+    // here instead, and this assertion fails.
+    const port = await fake(chromeServing("ws://127.0.0.1:9223/devtools/browser/ghost", 0));
+    const e = (await ensureChrome({ port, binary: NO_BINARY }).catch((x: unknown) => x)) as CapabilityError;
+    expect(e).toBeInstanceOf(CapabilityError);
+    expect(e.code).toBe("CHROME_BINARY_MISSING");
+  });
+
+  it("also falls through when /json/list itself cannot be read — 'cannot tell' is not 'healthy'", async () => {
+    const port = await fake((path) =>
+      path === "/json/version"
+        ? { status: 200, body: versionBody("ws://127.0.0.1:9223/devtools/browser/x") }
+        : { status: 500, body: "" },
+    );
+    const e = (await ensureChrome({ port, binary: NO_BINARY }).catch((x: unknown) => x)) as CapabilityError;
+    expect(e.code).toBe("CHROME_BINARY_MISSING");
   });
 
   it("refuses to ever target port 9222", async () => {

@@ -234,3 +234,122 @@ describe("WorkerTab teardown", () => {
   });
 
 });
+
+/**
+ * The other property that is safety rather than orchestration: a page that never
+ * fires its load event must not burn a metered page load (D302). LinkedIn's
+ * activity feed is exactly that page, and a live check cannot pin the boundary —
+ * it either loads or it does not.
+ *
+ * `readyState` answers come from a scripted queue, so each test states the exact
+ * sequence Chrome reports and asserts what the wait did with it.
+ */
+function readyStates(...states: string[]) {
+  const queue = [...states];
+  return () => ({ result: { value: queue.length > 1 ? queue.shift()! : queue[0]! } });
+}
+
+const NAV = { ...ATTACH, "Page.navigate": () => ({}) };
+
+describe("WorkerTab.navigate", () => {
+  it("settles on complete immediately, without waiting out the interactive grace", async () => {
+    const cdp = new FakeCdp({ ...NAV, "Runtime.evaluate": readyStates("complete") });
+    const tab = await WorkerTab.attach(cdp, "T1");
+
+    const started = Date.now();
+    const nav = await tab.navigate("https://www.linkedin.com/in/x/");
+
+    expect(nav.settledOn).toBe("complete");
+    // The grace period is 10s; a complete page must not have paid any of it.
+    expect(Date.now() - started).toBeLessThan(2_000);
+  });
+
+  it("settles on interactive once it has held, instead of timing out", async () => {
+    const cdp = new FakeCdp({ ...NAV, "Runtime.evaluate": readyStates("loading", "interactive") });
+    const tab = await WorkerTab.attach(cdp, "T1");
+
+    // A short grace so the test is fast; the boundary is the same one production
+    // uses, just parameterised through the timeout.
+    const nav = await tab.navigate("https://www.linkedin.com/in/x/recent-activity/all/", 60_000);
+
+    expect(nav.settledOn).toBe("interactive");
+    expect(nav.readyState).toBe("interactive");
+    expect(nav.waitedMs).toBeGreaterThanOrEqual(0);
+  }, 30_000);
+
+  it("still times out when the page never leaves loading", async () => {
+    const cdp = new FakeCdp({ ...NAV, "Runtime.evaluate": readyStates("loading") });
+    const tab = await WorkerTab.attach(cdp, "T1");
+
+    await expect(tab.navigate("https://www.linkedin.com/in/x/", 400)).rejects.toMatchObject({
+      code: "TAB_NAVIGATE_TIMEOUT",
+    });
+  });
+
+  it("restarts the interactive clock when the document goes back to loading", async () => {
+    // interactive, then a client-side navigation drops it back to loading and it
+    // never returns: the earlier interactive run must not be credited.
+    const cdp = new FakeCdp({
+      ...NAV,
+      "Runtime.evaluate": readyStates("interactive", "interactive", "loading"),
+    });
+    const tab = await WorkerTab.attach(cdp, "T1");
+
+    await expect(tab.navigate("https://www.linkedin.com/in/x/", 1_500)).rejects.toMatchObject({
+      code: "TAB_NAVIGATE_TIMEOUT",
+    });
+  });
+
+  it("fails immediately on a dead tab instead of waiting out the deadline", async () => {
+    // The permalink run's real failure: the CDP socket died, every readyState
+    // poll threw, and the wait reported TAB_NAVIGATE_TIMEOUT 45s later for a
+    // problem that had nothing to do with the page.
+    // The tab has to die *after* `Page.navigate` is accepted, or the send itself
+    // refuses and the polling loop — the thing under test — is never entered.
+    const cdp: FakeCdp = new FakeCdp({
+      ...NAV,
+      "Page.navigate": () => {
+        setTimeout(
+          () => cdp.emit({ method: "Target.detachedFromTarget", params: { sessionId: "S1" } }),
+          0,
+        );
+        return {};
+      },
+    });
+    const tab = await WorkerTab.attach(cdp, "T1");
+
+    const started = Date.now();
+    await expect(tab.navigate("https://www.linkedin.com/in/x/", 30_000)).rejects.toMatchObject({
+      code: "TAB_DETACHED",
+    });
+    expect(Date.now() - started).toBeLessThan(5_000);
+  });
+
+  it("keeps waiting through an ordinary mid-navigation context swap", async () => {
+    // The other side of the same rule: a throwing evaluate that is *not* one of
+    // the unrecoverable codes must still be treated as "not ready yet".
+    let calls = 0;
+    const cdp = new FakeCdp({
+      ...NAV,
+      "Runtime.evaluate": () => {
+        calls += 1;
+        if (calls < 3) throw new Error("Cannot find context with specified id");
+        return { result: { value: "complete" } };
+      },
+    });
+    const tab = await WorkerTab.attach(cdp, "T1");
+
+    await expect(tab.navigate("https://www.linkedin.com/in/x/", 10_000)).resolves.toMatchObject({
+      settledOn: "complete",
+    });
+  });
+
+  it("reports a navigation Chrome refused rather than waiting on it", async () => {
+    const cdp = new FakeCdp({ ...ATTACH, "Page.navigate": () => ({ errorText: "net::ERR_ABORTED" }) });
+    const tab = await WorkerTab.attach(cdp, "T1");
+
+    await expect(tab.navigate("https://www.linkedin.com/in/x/")).rejects.toMatchObject({
+      code: "TAB_NAVIGATE_FAILED",
+    });
+  });
+});

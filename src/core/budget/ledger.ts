@@ -12,7 +12,9 @@ import {
   LEDGER_LOCK_STALE_MS,
   LEDGER_LOCK_TIMEOUT_MS,
   SPEND_KINDS,
+  subCapsFor,
   type BudgetLimits,
+  type CapabilitySubCaps,
   type SpendKind,
   defaultBudgetPath,
 } from "./constants.js";
@@ -40,9 +42,18 @@ export type LedgerInput = {
   path?: string;
   now?: Date;
   limits?: Partial<BudgetLimits>;
+  /** Per-invocation lowering of this capability's daily sub-caps (D153). */
+  subCaps?: Partial<CapabilitySubCaps>;
 };
 
+/**
+ * `capability` is required, not optional, and that is the whole point: the
+ * sub-cap (D153) is keyed on it, so a caller that could omit it would get a
+ * check that silently skipped one of the two caps — a fail-open in the module
+ * whose only job is to fail closed. The compiler is the enforcement.
+ */
 export type CheckInput = LedgerInput & {
+  capability: string;
   kind: SpendKind;
   n?: number;
   ref?: string;
@@ -50,7 +61,6 @@ export type CheckInput = LedgerInput & {
 
 export type SpendInput = CheckInput & {
   runId: string;
-  capability: string;
 };
 
 // EEXIST is included for mkdir: recursively creating a directory whose path
@@ -99,14 +109,32 @@ function corrupt(path: string, lineNo: number, reason: string): CapabilityError 
   });
 }
 
-function exceeded(kind: SpendKind, window: string, limit: number, current: number, n: number): CapabilityError {
+/**
+ * Which cap refused. Exit 7 stays one code for one operator action — "you are
+ * out of budget, stop" — because that is what the operator does either way;
+ * the *evidence* is what tells them whether to wait out the day or go fix one
+ * runaway reader, so the scope is named in both the message and the evidence.
+ */
+type CapScope = { scope: "global" } | { scope: "capability"; capability: string };
+
+function exceeded(
+  where: CapScope,
+  kind: SpendKind,
+  window: string,
+  limit: number,
+  current: number,
+  n: number,
+): CapabilityError {
+  const named = where.scope === "global" ? "global" : `capability ${where.capability}`;
   return new CapabilityError({
     code: "BUDGET_EXCEEDED",
     exit: EXIT.BUDGET,
     action: "HALT_AND_NOTIFY",
     retryable: false,
-    message: `budget exceeded: ${kind} per ${window} limit is ${limit}, already at ${current}, this would add ${n}`,
-    evidence: JSON.stringify({ kind, window, limit, current, requested: n }),
+    message:
+      `budget exceeded: ${named} ${kind} per ${window} limit is ${limit}, ` +
+      `already at ${current}, this would add ${n}`,
+    evidence: JSON.stringify({ ...where, kind, window, limit, current, requested: n }),
   });
 }
 
@@ -216,34 +244,78 @@ function resolveLimits(overrides?: Partial<BudgetLimits>): BudgetLimits {
   return out;
 }
 
-/** Throws if `n` more of `kind` would cross a limit; otherwise returns quietly. */
+/**
+ * A per-invocation sub-cap override obeys the same lower-only rule as the
+ * global limits: it is measured against the capability's own resolved cap
+ * (table entry, else the fallback), and anything at or above it is ignored.
+ * An override can therefore never widen a sub-cap, whatever a caller passes.
+ */
+function resolveSubCaps(capability: string, overrides?: Partial<CapabilitySubCaps>): CapabilitySubCaps {
+  const out = { ...subCapsFor(capability) };
+  if (!overrides) return out;
+  for (const key of Object.keys(out) as (keyof CapabilitySubCaps)[]) {
+    const v = overrides[key];
+    if (typeof v === "number" && Number.isFinite(v) && v >= 0 && v < out[key]) out[key] = v;
+  }
+  return out;
+}
+
+/**
+ * Throws if `n` more of `kind` would cross a limit; otherwise returns quietly.
+ *
+ * Two caps are evaluated, global first (D160). If the account-wide budget is
+ * gone, that is the fact the operator has to act on — every capability is
+ * stopped, not just this one — so it is the fact the receipt names, and the
+ * message an existing global refusal produces does not change because a
+ * sub-cap now also exists.
+ */
 function evaluate(
   entries: SpendRecord[],
+  capability: string,
   kind: SpendKind,
   n: number,
   ref: string | undefined,
   nowMs: number,
   limits: BudgetLimits,
+  subCaps: CapabilitySubCaps,
 ): void {
+  const GLOBAL: CapScope = { scope: "global" };
+  const OWN: CapScope = { scope: "capability", capability };
+  // The sub-cap counts this capability's own lines only — that is what makes it
+  // a blast-radius guard rather than a second copy of the global limit.
+  const mine = entries.filter((e) => e.capability === capability);
+
   if (kind === "page_load") {
     const hour = sumKind(entries, kind, nowMs, HOUR_MS);
-    if (hour + n > limits.pageLoadsPerHour) throw exceeded(kind, "hour", limits.pageLoadsPerHour, hour, n);
+    if (hour + n > limits.pageLoadsPerHour) throw exceeded(GLOBAL, kind, "hour", limits.pageLoadsPerHour, hour, n);
     const day = sumKind(entries, kind, nowMs, DAY_MS);
-    if (day + n > limits.pageLoadsPerDay) throw exceeded(kind, "day", limits.pageLoadsPerDay, day, n);
+    if (day + n > limits.pageLoadsPerDay) throw exceeded(GLOBAL, kind, "day", limits.pageLoadsPerDay, day, n);
+    const own = sumKind(mine, kind, nowMs, DAY_MS);
+    if (own + n > subCaps.pageLoadsPerDay) throw exceeded(OWN, kind, "day", subCaps.pageLoadsPerDay, own, n);
     return;
   }
   if (kind === "search_page") {
     const day = sumKind(entries, kind, nowMs, DAY_MS);
-    if (day + n > limits.searchPagesPerDay) throw exceeded(kind, "day", limits.searchPagesPerDay, day, n);
+    if (day + n > limits.searchPagesPerDay) throw exceeded(GLOBAL, kind, "day", limits.searchPagesPerDay, day, n);
+    const own = sumKind(mine, kind, nowMs, DAY_MS);
+    if (own + n > subCaps.searchPagesPerDay) throw exceeded(OWN, kind, "day", subCaps.searchPagesPerDay, own, n);
     return;
   }
   // profile_open: reopening an already-counted ref is always free, so it
   // never trips the distinct-count limit no matter how full the day already is.
+  //
+  // "Already counted" is per scope. A profile another capability opened today
+  // is free globally but still costs this capability one of its own opens —
+  // otherwise a runaway reader could re-walk another run's whole day of
+  // profiles for nothing, which is the loop the sub-cap exists to stop.
   if (!ref) throw profileRefRequired();
   const distinct = distinctRefs(entries, kind, nowMs, DAY_MS);
-  if (distinct.has(ref)) return;
-  if (distinct.size + 1 > limits.distinctProfilesPerDay) {
-    throw exceeded(kind, "day", limits.distinctProfilesPerDay, distinct.size, 1);
+  if (!distinct.has(ref) && distinct.size + 1 > limits.distinctProfilesPerDay) {
+    throw exceeded(GLOBAL, kind, "day", limits.distinctProfilesPerDay, distinct.size, 1);
+  }
+  const own = distinctRefs(mine, kind, nowMs, DAY_MS);
+  if (!own.has(ref) && own.size + 1 > subCaps.distinctProfilesPerDay) {
+    throw exceeded(OWN, kind, "day", subCaps.distinctProfilesPerDay, own.size, 1);
   }
 }
 
@@ -333,9 +405,10 @@ export async function check(o: CheckInput): Promise<void> {
   const n = o.n ?? 1;
   const nowMs = (o.now ?? new Date()).getTime();
   const limits = resolveLimits(o.limits);
+  const subCaps = resolveSubCaps(o.capability, o.subCaps);
   if (o.kind === "profile_open" && !o.ref) throw profileRefRequired();
   const entries = await readAll(path);
-  evaluate(entries, o.kind, n, o.ref, nowMs, limits);
+  evaluate(entries, o.capability, o.kind, n, o.ref, nowMs, limits, subCaps);
 }
 
 /**
@@ -386,6 +459,7 @@ export async function spend(o: SpendInput): Promise<SpendRecord> {
   const nowDate = o.now ?? new Date();
   const nowMs = nowDate.getTime();
   const limits = resolveLimits(o.limits);
+  const subCaps = resolveSubCaps(o.capability, o.subCaps);
   if (o.kind === "profile_open" && !o.ref) throw profileRefRequired();
 
   try {
@@ -396,7 +470,7 @@ export async function spend(o: SpendInput): Promise<SpendRecord> {
 
   return withLedgerLock(path, async () => {
     const entries = await readAll(path);
-    evaluate(entries, o.kind, n, o.ref, nowMs, limits);
+    evaluate(entries, o.capability, o.kind, n, o.ref, nowMs, limits, subCaps);
 
     const record: SpendRecord = {
       ts: nowDate.toISOString(),
@@ -436,25 +510,28 @@ export class BudgetLedger {
   private constructor(
     readonly path: string,
     private readonly limits: Partial<BudgetLimits> | undefined,
+    private readonly subCaps: Partial<CapabilitySubCaps> | undefined,
   ) {}
 
   /** Ensures the ledger's directory exists and binds a path + limit overrides. */
-  static open(o: { path?: string; limits?: Partial<BudgetLimits> } = {}): BudgetLedger {
+  static open(
+    o: { path?: string; limits?: Partial<BudgetLimits>; subCaps?: Partial<CapabilitySubCaps> } = {},
+  ): BudgetLedger {
     const path = o.path ?? defaultBudgetPath();
     try {
       mkdirSync(dirname(path), { recursive: true });
     } catch (e) {
       rethrowUnwritable(path, e);
     }
-    return new BudgetLedger(path, o.limits);
+    return new BudgetLedger(path, o.limits, o.subCaps);
   }
 
-  check(o: { kind: SpendKind; n?: number; ref?: string; now?: Date }): Promise<void> {
-    return check({ ...o, path: this.path, limits: this.limits });
+  check(o: { capability: string; kind: SpendKind; n?: number; ref?: string; now?: Date }): Promise<void> {
+    return check({ ...o, path: this.path, limits: this.limits, subCaps: this.subCaps });
   }
 
   spend(o: { runId: string; capability: string; kind: SpendKind; n?: number; ref?: string; now?: Date }): Promise<SpendRecord> {
-    return spend({ ...o, path: this.path, limits: this.limits });
+    return spend({ ...o, path: this.path, limits: this.limits, subCaps: this.subCaps });
   }
 
   usage(now?: Date): Promise<UsageSnapshot> {

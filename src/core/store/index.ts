@@ -25,7 +25,23 @@ export {
   upsertPerson,
   type StoreOpts,
 } from "./persons.js";
+export { findCompanyByUrn, findCompanyByVanity, upsertCompany } from "./companies.js";
+export { upsertCompanyPosts } from "./company-posts.js";
+export { upsertCompanyPeople } from "./company-people.js";
+export { upsertJobs } from "./jobs.js";
 export type {
+  CompanyInput,
+  CompanyRow,
+  CompanyUpsertResult,
+  CompanyPostInput,
+  CompanyPostRow,
+  CompanyPostsUpsertResult,
+  CompanyPersonInput,
+  CompanyPeopleUpsertResult,
+  JobInput,
+  JobRow,
+  JobsUpsertResult,
+  StoredCompany,
   ExperienceInput,
   PersonExperienceRow,
   PersonInput,

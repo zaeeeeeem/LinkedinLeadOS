@@ -15,7 +15,8 @@
     "db:stop": "supabase stop",
     "db:reset": "supabase db reset --local",
     "db:verify": "node scripts/verify-schema.mjs",
-    "fixtures:promote": "tsx scripts/promote-fixtures.ts"
+    "fixtures:promote": "tsx scripts/promote-fixtures.ts",
+    "sweep": "tsx scripts/sweep-sources.ts"
   },
   "keywords": [],
   "author": "",

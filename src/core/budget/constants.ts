@@ -52,3 +52,83 @@ export const LEDGER_LOCK_STALE_MS = 5_000;
 export const LEDGER_LOCK_TIMEOUT_MS = 3_000;
 
 export const LEDGER_LOCK_POLL_MS = 20;
+
+/**
+ * A single capability's own daily ceiling, evaluated *in addition to* the
+ * global `BudgetLimits` above (D153). The global limits protect the account;
+ * these protect every other capability from one runaway reader — a pagination
+ * loop that does not terminate, or a `--limit` that bounds output but not
+ * work, trips its own cap at exit 7 long before it can drain the shared 400.
+ *
+ * Daily only, deliberately: the hourly window already exists globally and is
+ * the pacing guard; the sub-cap is a blast-radius guard, and a blast radius is
+ * a per-day quantity.
+ */
+export type CapabilitySubCaps = {
+  pageLoadsPerDay: number;
+  searchPagesPerDay: number;
+  distinctProfilesPerDay: number;
+};
+
+/**
+ * The cap a capability with no entry in `CAPABILITY_SUB_CAPS` gets. Every
+ * capability is capped: a new reader added without touching this file must
+ * land capped rather than uncapped, because "uncapped by omission" is exactly
+ * the failure D153 exists to prevent. Each number is a fraction of the §8
+ * global for the same kind (150/400, 25/50, 60/120), so one bad reader can
+ * spend at most roughly a third of the day before its own cap stops it.
+ */
+export const DEFAULT_CAPABILITY_SUB_CAPS: CapabilitySubCaps = {
+  pageLoadsPerDay: 150,
+  searchPagesPerDay: 25,
+  distinctProfilesPerDay: 60,
+};
+
+/**
+ * Per-capability tuning. Only capabilities whose caps should differ from
+ * `DEFAULT_CAPABILITY_SUB_CAPS` appear here; absence is not an exemption.
+ *
+ * A table entry is not an "override" in the §8 sense — it is the capability's
+ * default, and it may sit above the fallback. The lower-only rule (§8) governs
+ * per-invocation overrides passed to `check`/`spend`, which can never raise the
+ * number resolved here.
+ */
+export const CAPABILITY_SUB_CAPS: Readonly<Record<string, CapabilitySubCaps>> = {
+  // The primary L1 reader: allowed more page loads than the fallback because
+  // it is the capability the day's work actually runs through, and zero search
+  // pages because it never issues a search — a search spend recorded under this
+  // name would mean the capability is doing something it was not built to do.
+  "profile.capture": { pageLoadsPerDay: 200, searchPagesPerDay: 0, distinctProfilesPerDay: 90 },
+  // profile.get delegates to profile.capture's `run`, but the RunBudget it
+  // passes down is bound to *its own* name, so its loads land on ledger lines
+  // reading `capability: "profile.get"`. It therefore needs its own entry:
+  // inheriting profile.capture's would silently leave it on the fallback.
+  "profile.get": { pageLoadsPerDay: 200, searchPagesPerDay: 0, distinctProfilesPerDay: 90 },
+  "company.get": { pageLoadsPerDay: 150, searchPagesPerDay: 0, distinctProfilesPerDay: 0 },
+  "company.posts": { pageLoadsPerDay: 150, searchPagesPerDay: 0, distinctProfilesPerDay: 0 },
+  "company.people": { pageLoadsPerDay: 150, searchPagesPerDay: 0, distinctProfilesPerDay: 0 },
+  "company.jobs": { pageLoadsPerDay: 150, searchPagesPerDay: 0, distinctProfilesPerDay: 0 },
+  // A probe is a measuring instrument, not a reader. Its whole job is a handful
+  // of loads on one target, and its stated per-run ceiling is 6 (CONTEXT rule
+  // 8) — so 12 is two full probe runs in a day and nothing more. Zeroes for the
+  // other two kinds are assertions, not allowances: a probe that ever recorded
+  // a search page or a profile open would be doing something it was not built
+  // to do, and a cap of zero is what turns that into exit 7 instead of a habit.
+  "company.probe": { pageLoadsPerDay: 12, searchPagesPerDay: 0, distinctProfilesPerDay: 0 },
+  // The other two probes, on the same reasoning. Listed rather than left to the
+  // fallback because the fallback is a *reader's* 150 loads, and a probe landing
+  // there is precisely the "uncapped by omission" this table exists to stop
+  // (D301's sibling problem: a safety number that is right only by accident).
+  //
+  // `activity.capture` differs from the other two in one way: it opens a person's
+  // page, so it genuinely spends `profile_open` and cannot be capped at zero. Four
+  // is the four surfaces of one subject — a probe that walks a fifth person in a
+  // day is not measuring, it is reading.
+  "activity.capture": { pageLoadsPerDay: 12, searchPagesPerDay: 0, distinctProfilesPerDay: 4 },
+  "job.capture": { pageLoadsPerDay: 12, searchPagesPerDay: 0, distinctProfilesPerDay: 0 },
+};
+
+/** The daily sub-caps in force for one capability. Never returns uncapped. */
+export function subCapsFor(capability: string): CapabilitySubCaps {
+  return CAPABILITY_SUB_CAPS[capability] ?? DEFAULT_CAPABILITY_SUB_CAPS;
+}

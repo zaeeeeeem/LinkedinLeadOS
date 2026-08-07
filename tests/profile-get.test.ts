@@ -15,6 +15,7 @@ import { CapabilityError, EXIT } from "../src/core/run/receipt.js";
 import type { StoreClient } from "../src/core/store/client.js";
 import type { StoredPerson } from "../src/core/store/types.js";
 import type { TapTransport } from "../src/core/tap/network-tap.js";
+import type { Navigation } from "../src/core/session/tab.js";
 import { DOM_SNAPSHOT_PATTERN, domSnapshotUrl } from "../src/capabilities/profile.capture/snapshot.js";
 
 const FUTURE_COOKIE = Math.floor(Date.now() / 1000) + 86_400;
@@ -46,7 +47,10 @@ class FakeTab implements TabLike {
   navigated: string[] = [];
   async send<T>(): Promise<T> { return {} as T; }
   async evaluate<T>(): Promise<T> { return "complete" as T; }
-  async navigate(url: string): Promise<void> { this.navigated.push(url); }
+  async navigate(url: string): Promise<Navigation> {
+    this.navigated.push(url);
+    return { settledOn: "complete", readyState: "complete", waitedMs: 0 };
+  }
   async currentUrl(): Promise<string> { return this.navigated.at(-1) ?? "about:blank"; }
   async screenshot(path: string): Promise<string> { writeFileSync(path, "png"); return path; }
   async foregroundState() { return { hidden: false, focused: true, visibility: "visible" }; }

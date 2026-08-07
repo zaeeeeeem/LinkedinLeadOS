@@ -1854,6 +1854,948 @@ treated it as one could serve the prior owner of a reclaimed slug without any pa
 The safe failure direction costs one page load and produces a real urn rather than returning a
 fresh wrong person.
 
+## D152 — M4 makes probe-first mandatory: no parser before a real-load fixture exists (2026-08-09)
+
+**Decision.** Every M4 page surface gets a dedicated live probe task that runs *first* and
+whose only deliverable is measurement — every response body and a DOM snapshot archived, a
+`FIELD-MAP.md` whose every path is pinned by an offline test against the promoted fixture,
+and a per-field source verdict. No parser or store task for that surface may start until its
+fixture is on disk in the repo. A parser task file names its fixture; if the file is absent,
+the task is blocked, not begun.
+
+**Why.** Every expensive M1–M3 failure had one shape: a task built on an assumed LinkedIn
+data shape that a live probe later falsified. The profile parser was planned twice against
+Voyager JSON that does not exist on a cold load (D116, D121); the identity source was
+falsified by its own first live run (D126); the scroll model assumed the document scrolls
+(D115); the promoter shipped the operator's own inbox as the subject (D118/D119). Every task
+that began from a live measurement landed on the first try; every task that began from an
+assumption was re-cut and rebuilt. The sequence Task 15 → 16 → 17 → 19 is the one that
+worked, so M4 makes it structural rather than a thing a diligent agent might do. The
+alternative — embedding the probe inside each capability task — was rejected because it lets
+probe evidence and parse code share a commit, which is exactly how an assumption slips back
+in unreviewed.
+
+## D153 — per-capability daily budget sub-caps (2026-08-09)
+
+**Decision.** Each L1 reader gets its own daily spend cap in the budget ledger, evaluated in
+addition to the existing global limits (§8: 60/hr, 400/day, etc.). A runaway loop on one
+reader trips its own sub-cap at exit 7 long before it can exhaust the shared daily budget
+that every other capability draws from. The §8 override rule is unchanged: an override lowers
+a cap, never raises or bypasses it, and no flag bypasses the ledger.
+
+**Why.** M4 multiplies the number of distinct readers that spend against one shared ledger.
+With only global limits, a single mis-paced new reader — a pagination loop that does not
+terminate, a `--limit` that bounds output but not work — could burn the whole account's daily
+allowance before the global cap notices, taking every other capability down with it. A
+per-capability cap turns that blast radius from "the account for the day" into "this one
+reader for the day", which is a receipt the operator can act on. Rejected: relying on the
+global cap alone (blast radius too large) and rejected: tighter global caps (would throttle
+legitimate mixed workloads to protect against one bad actor).
+
+## D160 — the global limit is evaluated before the sub-cap, and one exit code covers both (2026-08-09)
+
+**Decision.** `evaluate` checks the §8 global limits first and the per-capability daily
+sub-cap (D153) second. Both refuse with the same `BUDGET_EXCEEDED` / exit 7 /
+`HALT_AND_NOTIFY` / non-retryable error; the *evidence* carries `scope: "global"` or
+`scope: "capability"` plus the capability name, and the message names it in words.
+
+**Why.** One code per distinct operator action: in both cases the operator stops and the
+run is over, so splitting the code would make callers branch on something they cannot act
+on differently. What *does* differ is the fix — wait out the day versus go look at one
+runaway reader — and that is evidence, not classification. Global first because if the
+account-wide budget is gone that is the larger fact, and because it keeps every message an
+existing global refusal already produced unchanged now that a second cap exists.
+Rejected: a separate `BUDGET_CAPABILITY_EXCEEDED` code (a new code for the same action) and
+sub-cap-first (would report "one reader is out" while the whole account was actually out).
+
+## D161 — `capability` is required on `check`, not optional (2026-08-09)
+
+**Decision.** `CheckInput` requires `capability`, so `check()` and `spend()` take it alike;
+`RunBudget` binds it from the run rather than accepting it from the caller.
+
+**Why.** The sub-cap is keyed on the capability. An optional field means a caller that omits
+it gets a preflight that silently evaluates only half the caps and returns "you have room" —
+a fail-open in the one module whose entire job is to fail closed. Making it required moves
+that from a runtime hazard to a compile error. The cost is a one-line change at the four
+existing call sites. Rejected: defaulting to a `"unknown"` bucket (all uncredited spend
+would then share one cap and the receipt would name a capability nobody ran).
+
+## D162 — every capability is sub-capped, including ones absent from the table (2026-08-09)
+
+**Decision.** `subCapsFor(name)` returns `CAPABILITY_SUB_CAPS[name] ?? DEFAULT_CAPABILITY_SUB_CAPS`
+— 150 page loads, 25 search pages, 60 distinct profiles per day. A table entry is the
+capability's own default and may sit *above* the fallback (`profile.capture` and
+`profile.get` are at 200/0/90); the §8 lower-only rule governs per-invocation `subCaps`
+overrides, which can never raise the resolved number.
+
+**Why.** M4 adds ten readers. If absence from a constants table meant "uncapped", the first
+new reader written by someone who did not read this file would land uncapped — and an
+uncapped reader is exactly the failure D153 exists to prevent. Absence is not an exemption.
+The fallback numbers are roughly a third of each §8 global, so one bad reader burns a third
+of the day at worst. Rejected: requiring an entry per capability and throwing without one
+(turns a missing constant into a runtime failure of an otherwise-correct capability).
+
+## D163 — a profile another capability opened still costs this capability a sub-cap unit (2026-08-09)
+
+**Decision.** `profile_open` dedupe is per scope. A ref already opened today is free against
+the global 120; against the sub-cap it is free only if *this capability* already opened it.
+
+**Why.** Global dedupe exists so the account is not charged twice for one view — that is a
+LinkedIn-facing fact and it is unchanged. The sub-cap is a blast-radius guard, and with
+shared dedupe a runaway reader could re-walk every profile another run opened today at zero
+sub-cap cost, which is the exact loop the sub-cap exists to stop. Rejected: sharing the
+dedupe set (leaves the runaway case uncapped).
+
+## D164 — the launcher's reuse path requires a live target; the launch path is unchanged (2026-08-09)
+
+**Decision.** B5 as settled: on the reuse path only, `ensureChrome` accepts an endpoint only
+if `GET /json/list` returns at least one target. `hasLiveTarget` never throws — an
+unreachable, non-200, non-array or empty list is all `false` — and any `false` falls through
+to the existing launch path. Discovery on the launch path, and the attach surface, are
+untouched.
+
+**Why (for the "cannot tell" case, which BACKLOG did not settle).** Treating an unreadable
+`/json/list` as healthy is the same reasoning that produced B5's misleading receipt: a
+`false` costs at most one launch attempt, which reports the real environment problem with a
+fatal code, while a wrong `true` hands preflight a browser on which every browser-level
+command fails behind a retryable code no retry can fix.
+
+**Residual, recorded rather than fixed.** In the B5 condition the fall-through spawns Chrome
+against the same `--user-data-dir`; the running instance takes the handoff and normally opens
+a window, which is what restores the target. If it does not, the launch path's discovery
+(unchanged, by B5's terms) still answers and returns `launched: true` on a browser that may
+still have no context — the next invocation then relaunches again rather than wedging. Making
+the launch path also require a target would change discovery on that path, which B5 explicitly
+put out of scope.
+
+## D170 — the company probe is its own capability, not a `--probe` flag on a company reader (2026-08-09)
+
+**Decision.** `src/capabilities/company.probe/`, registered like any other capability and
+run through the same runner: preflight, tab lease, budget ledger, challenge gate,
+raw-first archive, receipt. Task 21's alternative — a `--probe` face of the eventual
+capture path — was rejected.
+
+**Why.** A capability is the unit the ledger's per-capability sub-cap is keyed on (D153,
+D161). A `--probe` flag on `company.get` would spend against `company.get`'s cap, so a
+morning of probing would eat the reader's budget for the day, and no cap could be set that
+was tight for the probe and loose for the reader. As its own name it takes
+`{ pageLoadsPerDay: 12, searchPagesPerDay: 0, distinctProfilesPerDay: 0 }` — twelve is two
+full probe runs, and the two zeroes are enforced assertions that this capability never
+searches and never opens a profile.
+
+It also keeps `company.get` (Task 22) from having to exist before it can be designed, which
+is the ordering D152 exists to impose.
+
+**Rejected: a script.** CONTEXT rule 8 forbids it, and correctly — an ad-hoc script has no
+lease, so it can run beside another capability on the same Chrome, and no ledger, so its
+loads are invisible to every limit that protects the account.
+
+## D171 — one page load per sub-page, and the tab links are measured rather than clicked (2026-08-09)
+
+**Decision.** The probe navigates to `/company/<slug>/`, `…/about/`, `…/posts/`,
+`…/people/` and `…/jobs/` as five separate cold loads. It does **not** click LinkedIn's own
+tabs, and it records, per sub-page, the url it asked for beside the url it landed on
+(`SUBPAGE_REDIRECTED` when they differ).
+
+The SPA question Task 21 asks — is a sub-page reachable only by an in-page route — is
+answered from the DOM instead: the surface probe reports, per sub-page, whether the page
+carries a real `a[href]` to it and how many. An `href` means a cold load is the page's own
+navigation rather than something this toolkit invented.
+
+**Why not click.** Clicking is more code, more state and more ways to be mid-transition
+when the snapshot is taken, and its payoff is a page load saved — but the loads are already
+inside a six-load budget and the probe's product is *comparable* per-sub-page evidence.
+Five cold loads give five documents, five snapshots and five clean capture attributions; a
+click gives a DOM that changed under a tap whose cursor cannot separate what the click
+fetched from what was already there.
+
+**Why measure the links anyway.** A sub-page with no `href` anywhere is a sub-page Tasks
+22–25 cannot reach the way this probe did, and that is exactly the kind of thing that is
+invisible until it is measured. Cheap: it rides on the one `Runtime.evaluate` already
+being made.
+
+## D172 — a sub-page that fetches nothing is a finding, not a failure (2026-08-09)
+
+**Decision.** Where `profile.capture` throws `TAP_TIMEOUT` when the broad net answers
+nothing, the probe records `api_response: false`, warns `SUBPAGE_NO_API_RESPONSE`, and
+carries on to the scroll, the snapshot and the surface measurement.
+
+**Why the two differ.** `profile.capture` exists to capture a payload, so no payload means
+the page load was wasted and stopping is right. The probe exists to *find out where the
+payload is*, and "this tab issues no API call, so its data is in the document response or
+the DOM only" is one of the four answers it was built to return. Throwing would discard the
+document response and the snapshot — the two artifacts that would have contained the answer.
+
+The timeout is also shorter here (15s against 25s) for the same reason: the cost of waiting
+is seconds on a question whose answer is informative either way.
+
+## D173 — the sweep works backwards from values the operator states, not forwards from key names (2026-08-09)
+
+**Decision.** `src/core/fixtures/sweep.ts`. The operator reads the rendered page and states
+ground truth — "the website is `acme.example`" — and the sweep reports every place that
+value actually appears, in which source, at which path. `scripts/sweep-sources.ts` runs it
+over an archived run and renders the FIELD-MAP.
+
+**Why not another probe list.** `buildFieldMap`'s `FieldProbe` (D-era Task 15) works
+forwards: describe what a field might be *called* and report every path that matches. That
+is the right tool for a surface nobody has seen, and it is also how D119's trap got into a
+field map and how `location` came back as `105,570 followers` (D128) — a path can match the
+shape of a field and hold something else.
+
+Working backwards makes a hit meaning-checked by construction: it *is* the value, so it
+cannot be the wrong field of the right shape. That is the property Task 21's acceptance
+criteria ask for ("meaning-checked assertions, not shape-only") and it is not obtainable
+from a key-name probe at all.
+
+Both remain. The forward map inventories a surface; the backward sweep decides a source.
+
+## D174 — the three sources are read strictly, and a snapshot's inline scripts are not "embedded json" (2026-08-09)
+
+**Decision.** The sweep reads each document by exactly one rule:
+
+- a captured JSON response → `voyager-body`, the whole body;
+- the **initial document response** → `embedded-json` only, from
+  `<script type="application/ld+json">` and `<script type="application/json">`, addressed
+  by a path into the parsed JSON. Its markup is never read;
+- the **DOM snapshot** → `dom-snapshot` only, from markup. Its inline scripts are never
+  read as `embedded-json`.
+
+**Why the last one needed saying.** A DOM snapshot is an HTML document and it contains the
+same `<script type="application/json">` tags the original document did. Sweeping them and
+labelling the result `embedded-json` would report a *DOM read* as the sanctioned source
+D117 permits, and every consumer downstream reads that label to decide whether it may act
+without an operator decision. The snapshot is post-hydration state, not something a server
+sent. Both boundaries are regression-tested and both tests were verified to fail against
+the unguarded version.
+
+**Preference order** when several sources carry a field: `voyager-body` >
+`embedded-json` > `dom-snapshot`, which is `CLAUDE.md`'s own order. An exact match sorts
+ahead of a substring match, because an exact hit is a path a parser reads directly.
+
+**Amended 2026-08-09, same day, in review: the embedded-json path comes from `cssPath`,
+the same function the DOM walk uses.** It was hand-built as
+`script[type="…"]:nth-of-type(<n>)` where `n` counted the scripts *this function had
+collected so far* — across both types, across parents, skipping the ones that were empty
+or did not parse. `:nth-of-type` counts siblings of the same **tag** within one parent and
+the `[type=…]` predicate does not narrow that count, so on any page with a plain `<script>`
+before the structured one, or with structured scripts under two parents, the committed
+FIELD-MAP would have carried paths resolving to the wrong script or to nothing. A field map
+whose paths do not resolve is the one thing this module's own contract forbids, and it
+would have been discovered by Task 22 trying to use it. The regression test asserts sibling
+numbering across two parents, numbering unaffected by a skipped unparseable script, and —
+the property itself — that the emitted selector, fed back through cheerio, selects the
+script the value came from.
+
+## D175 — the committed FIELD-MAP carries no captured value (2026-08-09)
+
+**Decision.** `renderSweep` prints field names, sources, files, paths and match kinds, and
+**no sample values**, unless `--samples` is passed. The no-samples rendering is what goes
+in `docs/capabilities/`; a `--samples` copy belongs in `fixtures/`, which is gitignored.
+
+**Why.** Task 21 requires the FIELD-MAP to land in git while `fixtures/` stays out of it,
+and RECORDING requires "never the captured value itself if it is personal data — name the
+fixture and path instead". A company's own name is public business data, but the same
+document maps the `people` sub-page, and there the values are individuals. A rule that
+depended on classifying each field would be wrong the first time someone added a field.
+
+Meaning is not lost: it moves to the pinning tests, which live beside the gitignored
+fixture and already carry real values by established practice
+(`parse.fixture.test.ts` asserts a real profile urn and a real city).
+
+**Amended 2026-08-09, same day, in review: the `--samples` escape hatch is gone, not
+fixed.** It rendered no samples at all — it only swapped the document's preamble for a
+warning that the file "carries captured samples and must not be committed", which was
+false in the one direction that matters. Reviewing the choice rather than the bug: a
+samples column would have echoed the sweep's own input back, because every value in it is
+one the operator wrote into `wanted.json`. So it bought nothing and turned a committable
+file into one that leaks whoever the `people` sub-page listed. There is now no way to ask
+for it, and a test asserts the parameter does not exist.
+
+## D176 — the probe's receipt reports the page's construction, never its content (2026-08-09)
+
+**Decision.** The surface measurement returns counts, tag names, element ids, and
+`componentkey` values reduced to their **dotted namespace** — everything after the last `.`
+is cut off, which is exactly where an id sits. `com.linkedin.sdui.organization.card.ref<ID>Topcard`
+reports as `com.linkedin.sdui.organization.card`. A key with no dot at all is bucketed as
+`(no dotted namespace)` rather than reported verbatim.
+
+**Why.** §4.1/D3 keep captured data off stdout, and the obvious way to break that here is a
+namespace inventory: it looks structural, and on the profile surface the analogous
+attribute embeds the subject's profile id and, in one case, a `urn:li:member:` on a Connect
+button. The values are all in the archived snapshot, where the offline sweep reads them
+without printing them. Pinned by a test that asserts the rendered report contains neither
+the id nor the member urn that were in the input.
+
+The same rule governs the globals inventory: only names this build asked about
+(`PAYLOAD_GLOBALS`) may come back, so a page answering with something else cannot put an
+unreviewed string on the receipt.
+
+## D177 — the scroller-selection rule is one implementation, embedded by both page scripts (2026-08-09)
+
+**Decision.** `SCROLLER_SELECTION_JS` is extracted from `VIEWPORT_EXPRESSION` in
+`profile.capture/read.ts` and embedded by both it and the company surface probe. Behaviour
+is unchanged and the existing real-JS execution tests still pass against it.
+
+**Why.** D115 is a measurement of *one* page; the rule that found it — the tallest element
+with a real `overflow-y` and a viewport's worth of height — is what carries to a surface
+nobody has measured. CONTEXT rule 3 says measure each surface's scroller rather than
+assuming `main#workspace`, and two copies of the selection rule would be two answers the
+day one of them was tuned. The company probe additionally reports *which* element won, so
+the measurement is on the receipt rather than implied.
+
+## D178 — `documentPattern` takes a name and `summarizeCaptures` takes a relevance rule (2026-08-09)
+
+**Decision.** Two additive parameters on `profile.capture/patterns.ts`, both defaulted so
+nothing existing changes: `documentPattern(url, name?)` and
+`summarizeCaptures(captures, misses, patterns?, { isRelevant? })`.
+
+**Why.** A run that loads five documents needs one watch per document or their hit counts
+report as one row and answer nothing — D120 added the document watch precisely so the
+question "did the payload arrive in the navigation response" became answerable per
+document. And "does this body carry the subject's data" is the same machinery asked of a
+company instead of a person; a second copy of `summarizeCaptures` is a copy that drifts,
+which is the failure D120 itself was.
+
+The `profile_ish` column keeps its name rather than being generalized. Renaming it would
+touch `profile.capture`'s receipt shape, which `profile.get` and the live gates already
+read; the company probe maps it to `company_ish` in its own receipt, which costs one line.
+
+## D179 — the probe counts person-carrying bodies separately from company-carrying ones (2026-08-09)
+
+**Decision.** Each sub-page reports both `company_ish` (`isCompanyIsh`, the company/job/post
+urn family) and `person_ish` (`isProfileIsh`, unchanged).
+
+**Why.** The `people` sub-page is the one surface in this family that carries person urns
+and may carry no company marker at all. A probe reporting only company markers would say
+"nothing here" about the surface with the most identity risk — Task 24 calls it a person-urn
+minefield, and D119's trap has now been found in four separate places. Two columns cost
+nothing and make the emptiness of one of them a fact rather than an absence. Pinned by a
+test that gives the people sub-page a person-only body and asserts both columns.
+
+## D180 (out-of-range, see note) — the tap is drained per sub-page, not once per run (2026-08-09, in review)
+
+**Numbering note.** Task 21 owns D170–D179 (D18) and all ten are used. This is a Task 21
+review fix that rises to a decision, so it takes the next free number; **Task 22's reserved
+range becomes D181–D189.** Recorded here and in `STATE.md` so the next session does not
+collide, exactly as D130 did for Task 17.
+
+**Bug, found in review of `d5eb8d8`, before any live run.** `company.probe` summarized each
+sub-page's captures *inside* the loop and drained the tap once, after it. A capture enters
+the tap's list only when its body fetch and archive write have finished, so a body still in
+flight at the moment of the slice was missing from its own sub-page's rows — and because
+the next sub-page's cursor is taken after that body lands, it was then counted into the
+**next** sub-page's window. On the last sub-page there is no next window and the row was
+simply absent.
+
+**Why it mattered more than it looked.** The run's totals are computed after the final
+drain, so they were always right; only the per-sub-page attribution was wrong. Tasks 22–25
+read `subpages[].endpoints` as "which endpoints does this tab fetch" — that is the probe's
+primary deliverable, and a silently mis-attributed row is exactly the kind of measurement
+error the probe exists to prevent downstream.
+
+**Decision.** `await tap.drain()` immediately before each sub-page's slice, in addition to
+the `finally` that covers the whole loop. Draining twice costs nothing — it settles
+already-finished work — and the two answer different questions: the inner one makes
+attribution complete, the outer one makes the archive complete on the throwing path (D2).
+
+Pinned by a test where a fast body satisfies the api wait and a slow one is still on the
+wire when the sub-page is summarized; verified to fail against the single-drain version.
+
+## D181 (out-of-range) — a mid-probe halt is recorded in the event log, because it cannot be recorded on the receipt (2026-08-09, in review)
+
+**Numbering note.** As D180: Task 22's range becomes D182–D189.
+
+**Bug, found in review.** The probe pushed a `SUBPAGE_INCOMPLETE` warning describing which
+sub-pages finished and where the failing one stopped. That warning was unreachable. A
+sub-page can only fail by throwing out of the loop, and the runner builds an error receipt
+from the error and the cost alone (`buildErr`) — a capability's warnings never reach it. The
+README promised output that could not exist, and a live probe halting on sub-page three
+would have left no record of which sub-pages completed.
+
+**Decision.** The warning is deleted rather than made reachable, and the loop's `catch`
+logs an `error` event naming the sub-page, the stage it stopped at, whether its page load
+was spent, which sub-pages completed, and which were never attempted. `log:why` reads it.
+The loads actually spent were already truthful on the error receipt's `cost`.
+
+**Why not make it reachable** by catching and finishing with a partial ok receipt: a probe
+halts for a challenge, a budget refusal or a failed navigation, and every one of those is a
+reason to stop touching the account rather than to report success with a footnote. The
+general shape, and the reason this is written down: **a warning added on a throwing path is
+dead code**, because the receipt on that path is the runner's and is built from the error.
+
+## D182 (out-of-range) — an unknown `--subpages` value is rejected by the args schema (2026-08-09, in review)
+
+**Numbering note.** As D180/D181: Task 22's range becomes D183–D189.
+
+**Bug, found in review.** `parseSubPages` threw `COMPANY_SUBPAGE_UNKNOWN`, and the README
+documented that code — but the runner calls `def.cost(args)` before `run`, `cost` calls
+`parseSubPages`, and `run.ts` wraps any throw from it as `COST_ESTIMATE_FAILED`. The
+operator would never have seen the documented code, and the throw inside `run` was
+unreachable behind it.
+
+**Decision.** The schema validates it, via a `superRefine` that delegates to
+`parseSubPages`. The runner checks args *before* it estimates cost, takes the lease or opens
+a tab, so a typo now costs nothing and surfaces as `ARGS_INVALID` — the code the runner
+actually emits for a bad argument. `parseSubPages` keeps its own throw for a caller that
+invokes `run` directly, which Task 22's composition will, and the README documents both
+paths rather than one that cannot happen.
+
+## D183 (out-of-range) — a captcha selector match only halts when the widget is shown (2026-08-09)
+
+The first live company probe (run 01KZKFR7RNRVA3FXPEJAKDQ30K) halted with
+CHALLENGE_CAPTCHA on a perfectly normal, logged-in company page. The archived DOM
+snapshot holds the culprit: LinkedIn's `pemberly.tracking.recaptcha.v3` experiment
+mounts Google's invisible reCAPTCHA Enterprise on company pages — a
+`display:none` `.grecaptcha-badge` whose anchor iframe (`size=invisible`) matches
+both `iframe[src*="captcha" i]` and `iframe[title*="captcha" i]`, plus a sibling
+iframe parked at `left:-9999px`. The three archived profile-surface snapshots
+carry zero recaptcha references, which is why M1–M3 never tripped it: the widget
+is surface-specific, and the company probe was the first time the selectors met
+it.
+
+The probe now requires a matched widget to be *shown*: a rect at least 2×2, not
+entirely off-screen, and not hidden by computed `display`/`visibility`. The
+alternative — dropping the two broad `captcha` substring selectors — narrows
+detection, and narrowing is the unsafe direction. Visibility keeps every real
+challenge (an interstitial someone must solve is by definition on-screen) while
+excluding exactly the tracking badge. Every failure inside the visibility check
+counts the widget as shown, so an unjudgeable page still halts; the URL and text
+signals are untouched, so a checkpoint URL or challenge wording still halts
+regardless of what the iframe looks like.
+
+Numbering note: as D180–D182, this belongs to Task 21's live-run round and lands
+out of range. **Task 22's reserved range becomes D184–D189.**
+
+## D184 (out-of-range) — the company surface needs no DOM exception; LinkedIn's embedded JSON lives in `<code id="bpr-guid-N">` (2026-08-09)
+
+The first company sweep reported nine fields as carried only by the rendered DOM —
+`website`, `size_range`, `hq`, `about`, `hq_full`, `founded`, `post_reactions`,
+`post_comments`, `job_posted` — and printed the `[DECISION NEEDED]` asking the
+operator to extend CLAUDE.md's network-tap exception to a second surface.
+
+That reading was wrong, and it was wrong in the expensive direction: it argued
+for widening the project's central safety rule on evidence that does not support
+it, and Tasks 22–25 would have been designed against DOM selectors when labeled
+API fields were available the whole time.
+
+The cause is that **LinkedIn puts its server-rendered JSON in neither script type
+the sweep knew about.** It streams Big Pipe data islands — `<code style="display:
+none" id="bpr-guid-586526">` — holding entity-escaped Voyager JSON, complete with
+`$type` and a `meta.microSchema`. The About document alone carries 18 islands and
+about 11,300 leaves. `embeddedJsonOf` looked only for
+`script[type="application/ld+json"]` and `script[type="application/json"]`, found
+zero, and every value in those islands fell through to the DOM snapshot, which of
+course also contains them. The probe's own `embedded` surface measurement had the
+same blind spot and reported `ldJson: 0, applicationJson: 0`, which is exactly
+what made the gap invisible: the receipt said the document carried no embedded
+JSON, and it carried nothing else.
+
+Both now read the islands, with the id anchored (`/^bpr-guid-\d+$/`) so a `<code>`
+block inside a post or an article — rendered content — is never laundered into the
+labeled-field source. Re-running the sweep offline against the same archived run
+moved `website`, `hq`, `about`, `founded` and `post_reactions` to `embedded-json`.
+
+**Verdict: no exception is needed for the company surface.** Every §7 column
+resolves to a labeled field in a captured body, which D117 already permits.
+
+The four rows the map still marks DOM-only are **rendered composites, not missing
+data**, and each has a structured constituent in the same embedded JSON:
+
+| rendered | structured field a parser actually reads |
+|---|---|
+| `11-50 employees` | `employeeCountRange.{start,end}` = 11 / 50 |
+| `Townsend St, San Francisco, California 94107, US` | `address.{line1,city,geographicArea,postalCode,country}` |
+| `29 comments` | `numComments` = 29 (beside `numLikes` = 80) |
+| `5 days ago` | `listedAt` = 1785517295000 (epoch ms) — the better field anyway |
+
+The sweep is right to keep flagging them: it matches values, and those exact
+strings genuinely exist only in the rendered DOM. The finding is that a composite
+is not evidence of a missing source. Task 22 reads the structured field and
+formats it, and never reads these strings.
+
+Numbering note: as D180–D183, this belongs to Task 21 and lands out of range.
+**Task 22's reserved range becomes D185–D189.**
+
+## D185 — `company.get` delegates one `main` load to `company.probe` and resolves identity by corroboration (2026-08-09)
+
+`company.get` calls the already-proven `company.probe` run path with `subpages=main`; it does
+not add another navigator, tap, pacing loop, challenge gate or budget spend. The caller's
+`RunBudget` remains bound to `company.get`, so the delegated load spends against the reader's
+Task 20 sub-cap rather than the probe's cap. The main document carries the complete company
+record in its Big Pipe islands, so loading `about` as well would spend a second page for no
+additional §7 `companies` field.
+
+Company identity is resolved-or-refused from agreement between independent captured bodies:
+the initial document's embedded company record whose `universalName` equals the normalized
+target vanity supplies the candidate, and a Voyager body from that same main load must carry
+the same normalized company urn. A candidate present in the session/trap identity set, a non-company urn, no
+candidate, disagreement, or missing corroboration is exit-5 drift and stores nothing. This
+rejects the attractive but unsafe alternative of taking the first company urn in a body,
+where related companies, jobs and tracking entities occur beside the subject.
+
+## D186 — `company.get` has a 150-load reader cap and zero allowance for searches or profile opens (2026-08-09)
+
+The Task 20 per-capability cap is explicit for `company.get`:
+`{ pageLoadsPerDay: 150, searchPagesPerDay: 0, distinctProfilesPerDay: 0 }`. The page-load
+number retains the bounded-reader fallback, while the two zeroes are assertions about this
+reader's surface. Leaving it on the generic fallback would allow 25 search pages and 60
+profile opens under its name, masking a composition regression until it had already spent.
+
+## D187 — the company parser bounds bodies, nodes, and stored field length independently (2026-08-09)
+
+The pure parser reads at most 256 captured bodies, walks at most 200,000 JSON nodes per
+root, and stores at most 20,000 characters per text field. Crossing any bound is visible as
+a typed exit-5 drift warning; a long field is truncated with the exact dropped-character
+count instead of discarding an otherwise usable company. These are separate ceilings because
+a small number of deeply nested bodies and a large number of tiny bodies are different drift
+shapes, and neither should make parser memory or a PostgREST payload unbounded.
+
+## D188 — numeric company targets resolve by exact id; legal embedded fields may fill a Voyager stub (2026-08-09, review)
+
+A numeric `/company/<id>/` target resolves when the embedded candidate normalizes to exactly
+`urn:li:fsd_company:<id>` and the Voyager body independently carries that same urn. Requiring
+`universalName === <id>` rejected valid numeric URLs because `universalName` remains the
+company's vanity slug. Cross-body corroboration remains mandatory. The numeric input itself
+is never stored as `companies.vanity`: a real slug is taken from Voyager's company URL when
+present, otherwise vanity is omitted.
+
+For content projection, a labeled field in the initial document's Big Pipe JSON may fill a
+missing field on the corroborating Voyager stub. In particular, `name` now prefers Voyager
+and falls back to the embedded subject record instead of warning and silently upserting a
+nameless company while the legal captured value is present. This is D184's source verdict,
+not a DOM fallback. The session/trap-set refusal remains: Task 22 explicitly requires that
+guard and its mutation proof, even though today's `sessionUrnsOf` normally yields person urns.
+
+Fixture evidence is now durable inside the shared gitignored fixture library rather than
+read from `runs/<id>/raw`. Fixture-only tests skip visibly when their two required files are
+absent; all bounds and field-behavior tests are synthetic and run on every checkout.
+
+## D190 — `company.posts` delegates exactly one measured posts-tab load (2026-08-09)
+
+`company.posts` reuses `company.probe` with `subpages=posts` and six scroll passes, the exact
+depth recorded by run `01KZKGD683T76H70YA4DMRCRZH`. It does not invent pagination: the measured
+surface produced its feed body from one load, and `--limit` bounds parser work within that body.
+
+## D191 — company-post identity requires a corroborated subject and a typed actor key (2026-08-09)
+
+The parser resolves the subject company with `company.get`'s normalized, cross-body
+corroboration rule, then admits only updates whose actor `detailData` has the
+`*companyName` key equal to that subject. A `*profileFullName` actor is a stranger even when
+some nested urn happens to resemble a company; author type comes from the measured key.
+
+## D192 — company-post bounds are bodies, nodes, field text, and accepted-update work (2026-08-09)
+
+The parser reads at most 256 bodies, walks 200,000 JSON nodes per root, stores 20,000
+characters per post text, and stops update projection at `--limit`. Every exceeded structural
+or field bound emits typed exit-5 drift; the requested limit is therefore a work ceiling, not
+an output slice after all updates were parsed.
+
+## D193 — post time and social counts follow stable identity and references (2026-08-09)
+
+`posted_at` is the epoch milliseconds encoded in the activity snowflake (`id >> 22`), never
+the run clock or rendered relative label. Counts follow Update `*socialDetail` and then
+SocialDetail `*totalSocialActivityCounts`; constructing a counts urn from the activity id is
+forbidden because it resolves for zero of the eleven measured updates.
+
+## D194 — a post batch lands before its freshness marker (2026-08-09)
+
+`company_posts` are batch-upserted on `urn` in one request, with `first_seen` omitted and
+`last_seen` appended last to each payload. A failed request leaves the prior set stale; there
+is no company-row foreign-key precondition, preserving D94's independent entity paths.
+
+## D195 — `--since` is inclusive and fixture evidence is optional at test time (2026-08-09)
+
+The boundary retains a post whose activity-derived timestamp equals `--since`; only older
+posts are excluded. Measured-corpus tests skip visibly when the shared gitignored fixture is
+absent, while identity, filtering, references, timestamps, limits, and all growth bounds remain
+synthetic tests that run in a fresh clone.
+
+## D196 — `company.posts` gets an explicit reader sub-cap with two zero assertions (2026-08-09)
+
+Its daily cap is 150 page loads, 0 search pages, and 0 profile opens. Leaving it on the
+generic fallback would silently authorize 25 searches and 60 profile opens under a reader
+whose measured composition performs neither.
+
+## D197 — `--no-store` changes storage only (2026-08-09)
+
+Archive and parsing still run under `--no-store`; only the batch and drift writes are skipped.
+This preserves raw-first evidence and makes the flag incapable of bypassing the budget ledger.
+
+## D198 — an empty accepted set is a successful zero-row batch (2026-08-09)
+
+A company tab can contain only stranger posts or all subject posts can precede `--since`.
+That is a truthful success with zero stored rows, not identity drift and not an empty upsert
+request; the store returns `{ rows: 0 }` without contacting PostgREST.
+
+## D199 — receipts expose counts and work, never captured post content or company identity (2026-08-09)
+
+The receipt reports usable rows, inspected updates, storage counts, and a SQL next step. It
+does not copy post text, activity urns, or the resolved company urn into `data`; bulk values
+remain in Supabase and raw archives under D3 and D100.
+
+## D301 (out-of-range, infrastructure) — shared state is anchored to the repository root, never to the cwd (2026-08-09)
+
+Three parser tasks — 22, 27 and 31 — each reported that the surface fixture they
+depend on did not exist. All three were wrong in the same way, and the cause was
+not in any of them.
+
+`fixtures/` and `runs/` are gitignored at the repo root, deliberately: they hold
+captured LinkedIn bytes. Tasks execute in linked git worktrees. `defaultRunsDir()`
+and `promote-fixtures.ts` both resolved those directories against
+`process.cwd()`, and the profile fixture test helper resolved its own directory
+against `import.meta.url`. All three therefore pointed at the *worktree's* copy,
+which is always empty, because nothing ever promotes into a worktree.
+
+Two consequences, and the second is the serious one:
+
+1. A promoted fixture sitting in the main checkout is invisible from every
+   worktree, and a fixture suite that finds no files skips silently — which reads
+   exactly like "the probe was never run". That is the false blocker.
+2. **Every worktree got its own budget ledger.** The §8 daily caps are enforced by
+   counting lines in `runs/budget.ndjson`. A per-worktree ledger multiplies the
+   real cap by the number of worktrees open, without a flag, without a warning,
+   and without any line in a receipt saying so. The rule is that the ledger cannot
+   be bypassed by a flag; it must not be bypassable by a `cd` either.
+
+`src/core/run/root.ts` resolves the main checkout from git's own linkage rather
+than guessing: a linked worktree's `.git` is a file naming its gitdir, that gitdir
+holds `commondir` pointing at the shared `.git`, and that `.git`'s parent is the
+main checkout. An ordinary checkout stops at the first `.git` directory. Outside
+any repository it falls back to the starting directory, so an unpacked copy still
+runs with the old behaviour — which is correct when there are no worktrees to
+disagree.
+
+`LINKEDIN_OS_REPO_ROOT` overrides it for tests. `LINKEDIN_OS_RUNS_DIR` still
+overrides the archive location on top of that, unchanged.
+
+Numbering note: this is infrastructure discovered while unblocking three tasks at
+once, so it belongs to none of their ranges. D300 is held by Task 26.
+
+## D302 (out-of-range, infrastructure) — a navigation settles on `interactive` when `complete` never comes (2026-08-09)
+
+`WorkerTab.navigate` waited for `document.readyState === "complete"` and failed
+`TAB_NAVIGATE_TIMEOUT` after 45s otherwise. The person-activity feed never reaches
+it. On the measured run (`01KZKG24MBMNJ93YA4AWCCM4CV`,
+`/in/<vanity>/recent-activity/all/`) the document response arrived at +2s at
+1,467,847 bytes, every request had quiesced by +10s, and `readyState` was still
+`interactive` when the deadline fired at 46.5s.
+
+`complete` is the window load event, and a page holding a connection open — which
+LinkedIn's realtime stream does — never fires it. So the wait was measuring
+LinkedIn's connection lifetime, not whether the page was usable.
+
+The cost of that is specific and bad: the capture had **already archived 37 bodies
+including the 611KB `voyagerFeedDashProfileUpdates` response**, and still exited
+transient with no receipt, no DOM snapshot and no promotable fixture — after
+spending a metered page load. A page load that produced the data and reported
+failure is the worst outcome available under §8.
+
+Now `complete` still wins the instant it arrives, and `interactive` is accepted
+once it has held for `INTERACTIVE_SETTLE_MS` (10s). `interactive` is
+DOMContentLoaded: the document is parsed and scripts run, and every reader
+confirms its own render afterwards, so this is a bounded fallback rather than a
+shortcut past the render check. A drop back to `loading` — a client-side
+navigation replacing the document — restarts the clock, so a stale page is never
+credited with the wait.
+
+`navigate` returns a `Navigation` (`settledOn`, `readyState`, `waitedMs`) instead
+of `void`. Which of the two it settled on is a fact about the page worth putting
+on a receipt, not one to swallow.
+
+## D303 (out-of-range, infrastructure) — the broad net was a guess wearing a safety net's clothes (2026-08-09)
+
+`isLinkedInApiUrl` matches `/voyager/api/`, `/sales-api/` and `/graphql`. It is
+described as the net that makes the specific patterns *checkable* — an endpoint
+nobody predicted is still archived and still counted.
+
+It is not, and the job surface proved it. Run `01KZKMJS9FD0H18VAZMFFVPEYB`
+captured 25 bodies on `/jobs/view/<id>`, reported `misses: 0`, and contained no
+job endpoint at all. Read literally that says the posting's data never crossed
+the network. What it actually said was that nothing was watching outside
+`/voyager/`.
+
+Re-running the same page with a wider net (`01KZKNJ16QD3WSFJ3XMHTG4V1W`) captured
+21 bodies, **none of them under `/voyager/`**, on a stack the old net could not
+see at all:
+
+- `/flagship-web/rsc-action/actions/component?componentId=com.linkedin.sdui.…`
+- `/flagship-web/rsc-action/actions/server-request?sduiid=…`
+- `/preload/?_bprMode=vanilla`
+
+A net that only catches what you predicted cannot tell you the prediction was
+wrong. `isLinkedInDataUrl` accepts any same-origin LinkedIn response that is not
+an asset and not telemetry, and is pinned as strictly wider than the API net so
+swapping one for the other on a probe can only add captures. It is for probes
+settling a source verdict, not for readers; the tap's total buffer bounds it.
+
+**Every surface verdict reached with only the old net is provisional.** The
+company and profile surfaces found their data because it genuinely is under
+`/voyager/` — that is a result, not a validation of the net.
+
+## D304 (out-of-range) — the job surface has no labeled-field source, and the RSC flight tree is not one (2026-08-09)
+
+Measured twice on `/jobs/view/4450930857/`: once cold with the API net
+(`01KZKMJS9FD0H18VAZMFFVPEYB`, 25 bodies) and once with the widest net
+(`01KZKNJ16QD3WSFJ3XMHTG4V1W`, 21 bodies). The two runs share no endpoints and
+agree on the finding.
+
+**The description is on the network.** It is in a 6,654-byte
+`/flagship-web/rsc-action/actions/component` response, in full.
+
+**It is not in a labeled field.** That body is an RSC flight tree — numbered rows
+of render output:
+
+```
+7:["$","$L8",null,{"textProps":{…"children":[["$","p","text-attr-2",
+   {"children":["Our bet: every hospital in Southeast Asia …"]}]]}}]
+```
+
+The text is addressed only by its position in a render tree. There is no
+`"description"` key, no `"title"`, no job urn in that body at all.
+
+Across all 21 bodies, the labeled job fields §7 needs are **absent everywhere**:
+no `listedAt`, no `originalListedAt`, no `workplaceTypes`, no
+`workRemoteAllowed`, no `formattedLocation`, no `companyDetails`, no
+`urn:li:fsd_company:`. The only structured job reference in the whole run is
+`urn:li:jobPosting:<id>` ×10 in the document, and every one of those sits inside
+a *report* action (`GenericReportedInfo.targetEntityUrn`) — identity, not
+content.
+
+So Task 31 has exactly two ways to read a posting, and both need a decision the
+capability cannot make for itself:
+
+1. **Extend the DOM-source exception to the job surface**, the way D123/D130
+   extended it to the profile reader — read from the archived DOM snapshot,
+   every row tagged DOM-sourced.
+2. **Read the RSC flight tree by position**, which D121 forbids outright, and
+   which is the DOM's fragility with worse ergonomics and no `data-testid` to
+   anchor on.
+
+**[DECISION NEEDED — operator.]** Task 31 stays blocked on this and nothing else.
+Recommendation: option 1. It is the precedent that already exists, the snapshot
+is already archived raw, and the job card carries `data-testid` attributes
+(`expandable-text-box` on the description) that are stabler anchors than flight
+row indices.
+
+## D305 (out-of-range) — the DOM-source exception is extended to the job surface (2026-08-09, operator-approved)
+
+D304 measured that `/jobs/view/<id>` carries no labeled job field anywhere: the
+description crosses the network only as an RSC flight tree, and `listedAt`,
+`workplaceTypes`, `formattedLocation` and the company urn appear in no captured
+body at all. The two options were a DOM-source exception or positional reads of
+the flight tree.
+
+**The operator approved the DOM-source exception for the job surface.**
+
+It inherits the profile reader's shape exactly, and the shape is the safety
+argument — an exception is not permission to read pages loosely:
+
+- The source is an **`outerHTML` snapshot**, captured after layout settles,
+  archived raw like any body, and **parsed offline**. Never a live `innerHTML`
+  read, never the RSC flight tree by position (D121 stands unchanged).
+- Every row read this way is **tagged DOM-sourced**, so nothing downstream
+  mistakes it for a labeled API field.
+- Scope is anchored on `data-testid` attributes rather than container position or
+  class names — LinkedIn's classes are hashed per build (`_5e09f4d5`) and change
+  without notice. The description sits under `data-testid="expandable-text-box"`.
+- Identity is still **resolved or refused**: the posting's id comes from the
+  normalized url and is cross-checked against `urn:li:jobPosting:<id>` in the
+  document. A snapshot whose id does not agree stores nothing rather than storing
+  content under an invented key.
+
+**The exception is the job surface and nothing else.** Every other capability,
+and every other kind of field, still takes data only from captured network
+bodies. This does not generalize to a surface that merely *looks* similar; the
+next surface needs its own measurement and its own decision.
+
+## D190a (review) — one activity is stored once, however many feed pages carried it (2026-08-09)
+
+`company.posts` scrolls the posts tab, and consecutive pages of
+`voyagerFeedDashOrganizationalPageUpdates` overlap — the same activity urn arrives in
+more than one captured body. The parser keeps the first occurrence and drops the rest.
+
+Without the guard `--limit` counts the same post twice, and the batch upsert fails
+outright: Postgres refuses an `ON CONFLICT` statement that touches one row a second
+time, so a company with more than one page of posts would never store at all. Verified
+by mutation — removing the guard fails the overlapping-pages test.
+
+## D200 — company people rows come only from the measured current-company search cluster (2026-08-09)
+
+The people tab's list is the `voyagerSearchDashClusters` response. A profile urn merely
+appearing in `included[]` is not membership evidence: the same response can carry suggestions,
+actions and the session user. A row is eligible only when its entity-result reference occurs
+in the search cluster and that response's filter metadata has `parameterName: currentCompany`
+with the resolved subject company id selected. This is a labeled Voyager boundary, not a DOM
+inference; removing it must admit the synthetic non-employee trap.
+
+## D201 — company.people costs one page load and no search-page unit (2026-08-09)
+
+Opening `/company/<vanity>/people/` is one reader page load. Although LinkedIn implements the
+tab with its generic search response schema, the capability does not initiate search pagination
+or forge a search request; the one UI-issued response belongs to that page load. Charging an
+additional `search_page` would count the same interaction twice. Its explicit daily sub-cap is
+therefore 150 page loads, 0 search pages and 0 profile opens; any separate search action fails
+the zero cap.
+
+## D202 — people identity is resolved-or-refused before association parsing (2026-08-09)
+
+`company.people` reuses `company.get`'s cross-body company identity proof. No association is
+projected until embedded company identity and Voyager company identity agree, and every person
+urn is checked against the captured session-identity set. An unresolved or session company
+refuses the whole write; a session person is excluded from rows.
+
+## D203 — cluster references, not loose profile urns, define person rows (2026-08-09)
+
+Rows are reached through `SearchItem.item.*entityResult` and resolved to the matching
+`EntityResultViewModel`. Loose profile stubs, lazy actions, member-distance records and any
+other profile-looking object in `included[]` are not rows. The stable person urn is parsed from
+the referenced entity-result urn; the profile URL comes from its labeled `navigationUrl`, with
+the urn as the `profile.get`-usable fallback.
+
+## D204 — name/title filters and limit bound parser work (2026-08-09)
+
+`--name` matches the result title and `--title` matches the primary subtitle,
+case-insensitively, over captured data only. The parser stops walking result references as soon
+as the accepted limit is reached. It does not forge filtered requests or parse every result and
+slice afterward.
+
+## D205 — company.people has explicit parser ceilings with typed drift (2026-08-09)
+
+The pure parser reads at most 256 capture bodies, walks at most 200,000 JSON nodes per body and
+retains at most 20,000 characters per projected field. Every crossed boundary emits a typed
+exit-5 drift warning, and each ceiling has a synthetic test.
+
+## D206 — company_people batches deduplicate the composite key (2026-08-09)
+
+Before the one PostgREST upsert, rows are deduplicated by `(company_urn, person_urn)` with first
+occurrence winning. This prevents Postgres from rejecting the entire `ON CONFLICT` statement
+when overlapping captures repeat a pair. The store test fails when the dedupe is removed.
+
+## D207 — discovered_at is database-owned and never resent (2026-08-09)
+
+The association upsert sends only `company_urn` and `person_urn`, conflicting on that pair.
+`discovered_at` is omitted on first discovery and rediscovery, so the database default creates
+it once and a later observation cannot overwrite it.
+
+## D208 — measured fixture tests skip visibly; contracts remain fixture-free (2026-08-09)
+
+The 12-person real-body assertion lives in `parse.fixture.test.ts` behind `existsSync`.
+Identity, stranger/session exclusion, filters, work limit and all bounds are synthetic in
+`parse.test.ts`. Moving the gitignored company.people fixture away leaves eight tests passing
+and one explicit skip.
+
+## D209 — company.people returns bounded profile URLs while storing only associations (2026-08-09)
+
+The result carries at most `--limit` normalized `/in/<vanity>` URLs or profile-urn fallbacks for
+downstream `profile.get`; the database receives only §7's association columns. Composition
+delegates one `/people/` page load with zero scrolls because the measured UI issued one 12-row
+cluster response; no pagination mechanism is invented before a live measurement proves one.
+
+## D200a (review) — an unmatched employee-scope filter is drift, not an empty company (2026-08-09)
+
+`company.people` scopes a search result to an employee by finding a `currentCompany`
+filter with the subject's id `selected: true`. If that filter's shape changes, every
+captured body is skipped and the capability returns exit 0 with zero rows — which reads
+exactly like a company that lists no employees.
+
+The parser now emits `PARSE_SCOPE_UNMATCHED` when no captured body matched the scope at
+all. Silence and emptiness must not be the same receipt. Verified by mutation.
+## D210 — `company.jobs` reads labeled JobPosting values from the initial document (2026-08-09)
+
+The archived `/company/wisprflow/jobs/` document contains 17 decoded Big Pipe islands.
+After excluding every `$.meta.microSchema` subtree, 9 objects are actual
+`com.linkedin.voyager.dash.jobs.JobPosting` values: each carries `entityUrn`, `title`,
+`companyDetails`, `*location`, `listedAt`, `jobState`, `description`, and `numApplies`.
+All 9 are `LISTED`, all 9 resolve their company reference to the subject company, and all
+9 location references resolve. This is captured embedded Voyager JSON under D117, so
+`company.jobs` needs no DOM exception and must not read the same page's DOM snapshot.
+
+The document also contains 10 lighter objects with `entityUrn`, `trackingUrn`, `title`,
+and `repostedJob`. Those are navigation stubs, not company-scoped JobPosting values. The
+`trackingUrn` numeric id agrees with the fsd urn on every stub, but a stub has neither
+company scope nor posting fields and therefore never becomes a row.
+
+## D211 — the canonical `jobs.id` is the numeric posting id (2026-08-09)
+
+Both `urn:li:fsd_jobPosting:<id>` and `urn:li:jobPosting:<id>` are wrappers around the
+same numeric posting id where both occur. The 17-vs-10 count is a difference in object
+sets (9 full records, 10 stubs, 2 ids overlap), not competing identity systems.
+`company.jobs` strips only an exact recognized job urn to decimal digits and stores those
+digits in §7 `jobs.id`; Task 31 can therefore enrich the same row. No urn is written into
+the id column and no unrelated digit string is accepted as identity.
+
+## D212 — a jobs-tab row is scoped by its typed company reference (2026-08-09)
+
+Only a value record whose `companyDetails.jobCompany.*company` normalizes to the resolved
+subject company can become a row. Title text, document position, and membership in the same
+island are not scope. This excludes unscoped navigation stubs and any recommended or otherwise
+embedded posting from another company.
+
+## D213 — company.jobs stores the measured list fields and omits the rest (2026-08-09)
+
+The 9 measured subject records carry title, a resolvable `*location`, `listedAt`, and full
+`description.text`, so those fields are stored. They carry no workplace type, so
+`workplace_type` is omitted rather than guessed; Task 31 may enrich it later on the same id.
+A missing measured field emits typed exit-5 drift and stays absent — no urn, id, or neighboring
+display string is substituted into a differently typed column.
+
+## D214 — company.jobs has explicit body, node, and field bounds (2026-08-09)
+
+The parser inspects at most 128 capture bodies and 150,000 decoded nodes per root, and stores
+at most 20,000 characters per string field. Every crossed bound produces a typed exit-5
+`PARSE_INPUT_TRUNCATED` or `PARSE_FIELD_TRUNCATED` warning, and every bound is crossed by a
+synthetic test.
+
+## D215 — one jobs-tab load is a reader page load, not a search page (2026-08-09)
+
+The UI route looks like a listing but the measured action is an ordinary company tab load:
+it spends no search credit and opens no profile. One scroll pass reached the measured end and
+no pagination request appeared, so the capability charges 1 page load, 0 search pages, and
+0 profile opens with a 150/0/0 daily sub-cap. `--limit` stops accepted-record parse work; it
+cannot make the single fixed document load cheaper and does not pretend to.
+
+## D216 — jobs are deduplicated before an ordered batch upsert (2026-08-09)
+
+The store keeps the last input for each canonical id before issuing one `onConflict: id`
+batch. Undefined fields are omitted so later Task 31 values survive a list capture that said
+nothing about them. `first_seen` is never sent; one run timestamp is appended as `last_seen`
+after every parser-owned field.
+
+## D217 — unmatched company scope is observable drift, not an empty success (2026-08-09)
+
+If JobPosting value records exist but none carries the resolved subject-company reference,
+the parser emits `PARSE_SCOPE_UNMATCHED` with exit-5 drift semantics. A genuinely empty surface
+and a broken scoping path therefore do not produce the same receipt.
+
+## D218 — structured initial documents are first-class promoted fixtures (2026-08-09)
+
+The fixture promoter previously classified every non-JSON network body as `not_json`, including
+an initial HTML document whose Big Pipe islands are the D117 structured source. It now promotes
+such a document byte-for-byte as `*-document.html`, maps only values returned by
+`embeddedJsonOf`, and keeps a separate dedupe namespace from the rendered DOM snapshot. HTML
+without parseable structured islands remains rejected. The company.jobs fixture test is gated
+by `existsSync`; all contract and bound tests are synthetic.
+
+## D219 — company.jobs receipts remain bounded and identifier-free (2026-08-09)
+
+The receipt reports counts, source kind, storage counts, warnings, and a verification query;
+it returns neither job ids nor the company urn. `--no-store` still captures and parses because
+it is a storage switch, not a budget bypass. Drift persistence follows the established partial
+write contract: if it fails after jobs land, the error carries the already-stored row count.
+
+## D210a (review) — zero jobs has two causes and they do not share a receipt (2026-08-09)
+
+`company.jobs` selects postings by `entityUrn` being a job urn AND the record carrying
+`listedAt`. If LinkedIn renames or restructures that field, nothing is selected and the
+capability returns exit 0 with zero rows — indistinguishable from a company with no
+openings.
+
+The parser now separates the two: job urns present in the document but no record
+matching the expected posting shape emits `PARSE_SCOPE_UNMATCHED` on `job_posting_shape`;
+no job urn anywhere stays silent, because that genuinely is an empty company. This is
+D200a applied one layer in. Verified by mutation, and by a companion test proving the
+empty-company case emits nothing.
+
 ## D309 — The permalink failure is UTF-8 validation in Node's WebSocket, not LinkedIn (2026-08-09)
 
 **Root cause, measured, after four live failures.** The post permalink page is fine. Chrome

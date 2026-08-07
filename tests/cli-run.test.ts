@@ -14,6 +14,7 @@ import { CapabilityError, EXIT, type ExitCode } from "../src/core/run/receipt.js
 import { StoreWriteError } from "../src/core/store/persons.js";
 import { BrowserSession } from "../src/core/session/session.js";
 import { WorkerTab } from "../src/core/session/tab.js";
+import type { Navigation } from "../src/core/session/tab.js";
 import type { TapTransport } from "../src/core/tap/network-tap.js";
 import { checkLogin, type CookieReader, type EventSink } from "../src/cli/preflight.js";
 import { DEFAULT_FLAGS } from "../src/cli/flags.js";
@@ -53,8 +54,9 @@ class FakeTab implements TabLike {
   async evaluate<T>(): Promise<T> {
     return "complete" as T;
   }
-  async navigate(url: string): Promise<void> {
+  async navigate(url: string): Promise<Navigation> {
     this.navigated.push(url);
+    return { settledOn: "complete", readyState: "complete", waitedMs: 0 };
   }
   async currentUrl(): Promise<string> {
     return this.navigated.at(-1) ?? "about:blank";

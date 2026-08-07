@@ -58,8 +58,31 @@ function fakeRun(opts: { shotFails?: boolean; checkpointFails?: boolean } = {}) 
   };
 }
 
+/** A stub element the probe's visibility check can interrogate. `rect` omitted
+ *  means "getBoundingClientRect throws" — an element that cannot be judged. */
+type StubEl = {
+  rect?: { width: number; height: number; top: number; left: number; right: number; bottom: number };
+  style?: { display?: string; visibility?: string };
+};
+
+function stubEl(el: StubEl) {
+  return {
+    getBoundingClientRect() {
+      if (!el.rect) throw new Error("no layout");
+      return el.rect;
+    },
+    __style: { display: "block", visibility: "visible", ...el.style },
+  };
+}
+
+/** An on-screen, normally-sized widget — the shape a real challenge has. */
+const SHOWN: StubEl = { rect: { width: 300, height: 200, top: 100, left: 100, right: 400, bottom: 300 } };
+
 describe("PROBE_EXPRESSION — run as real JS against a stub document", () => {
-  function evalProbe(doc: { body: { innerText: string } | null; hits?: string[] }, href: string) {
+  function evalProbe(
+    doc: { body: { innerText: string } | null; hits?: Record<string, StubEl[]> },
+    href: string,
+  ) {
     const fn = new Function(
       "location",
       "document",
@@ -69,7 +92,11 @@ describe("PROBE_EXPRESSION — run as real JS against a stub document", () => {
       { href },
       {
         body: doc.body,
-        querySelector: (sel: string) => ((doc.hits ?? []).includes(sel) ? {} : null),
+        documentElement: { clientWidth: 1440, clientHeight: 900 },
+        defaultView: {
+          getComputedStyle: (el: { __style: unknown }) => el.__style,
+        },
+        querySelectorAll: (sel: string) => (doc.hits?.[sel] ?? []).map(stubEl),
       },
     );
   }
@@ -89,10 +116,63 @@ describe("PROBE_EXPRESSION — run as real JS against a stub document", () => {
     expect(r).toEqual({ url: "https://www.linkedin.com/feed/", text: "", captcha: false });
   });
 
-  it("reports a mounted captcha widget", () => {
+  it("reports a mounted captcha widget when it is actually shown", () => {
     const r = evalProbe(
-      { body: { innerText: "" }, hits: ['iframe[src*="arkoselabs" i]'] },
+      { body: { innerText: "" }, hits: { 'iframe[src*="arkoselabs" i]': [SHOWN] } },
       "https://www.linkedin.com/checkpoint/challenge/x",
+    );
+    expect(r?.captcha).toBe(true);
+  });
+
+  // The false positive that halted the first company probe (run
+  // 01KZKFR7RNRVA3FXPEJAKDQ30K): LinkedIn's pemberly.tracking.recaptcha.v3
+  // experiment mounts Google's invisible reCAPTCHA Enterprise on company pages.
+  // The rect/style values below are the badge's, verbatim from the archived
+  // snapshot: the anchor iframe sits in a display:none .grecaptcha-badge
+  // (zero-size rect), and a sibling iframe is parked at left:-9999px.
+  it("ignores the invisible reCAPTCHA tracking badge (zero-size rect)", () => {
+    const badge: StubEl = { rect: { width: 0, height: 0, top: 0, left: 0, right: 0, bottom: 0 } };
+    const r = evalProbe(
+      { body: { innerText: "Wispr Flow" }, hits: { 'iframe[title*="captcha" i]': [badge] } },
+      "https://www.linkedin.com/company/wisprflow/",
+    );
+    expect(r?.captcha).toBe(false);
+  });
+
+  it("ignores a captcha iframe parked off-screen", () => {
+    const offscreen: StubEl = {
+      rect: { width: 256, height: 60, top: 0, left: -9999, right: -9743, bottom: 60 },
+    };
+    const r = evalProbe(
+      { body: { innerText: "Wispr Flow" }, hits: { 'iframe[src*="captcha" i]': [offscreen] } },
+      "https://www.linkedin.com/company/wisprflow/",
+    );
+    expect(r?.captcha).toBe(false);
+  });
+
+  it("ignores a sized captcha iframe whose computed style hides it", () => {
+    const hidden: StubEl = { ...SHOWN, style: { visibility: "hidden" } };
+    const r = evalProbe(
+      { body: { innerText: "" }, hits: { 'iframe[src*="captcha" i]': [hidden] } },
+      "https://www.linkedin.com/company/wisprflow/",
+    );
+    expect(r?.captcha).toBe(false);
+  });
+
+  it("still reports the widget when one match is hidden and another is shown", () => {
+    const badge: StubEl = { rect: { width: 0, height: 0, top: 0, left: 0, right: 0, bottom: 0 } };
+    const r = evalProbe(
+      { body: { innerText: "" }, hits: { 'iframe[src*="captcha" i]': [badge, SHOWN] } },
+      "https://www.linkedin.com/checkpoint/challenge/x",
+    );
+    expect(r?.captcha).toBe(true);
+  });
+
+  it("treats a widget whose visibility cannot be judged as shown — fail toward detection", () => {
+    const unjudgeable: StubEl = {}; // getBoundingClientRect throws
+    const r = evalProbe(
+      { body: { innerText: "" }, hits: { "#captcha-internal": [unjudgeable] } },
+      "https://www.linkedin.com/feed/",
     );
     expect(r?.captcha).toBe(true);
   });

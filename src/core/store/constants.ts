@@ -5,6 +5,10 @@
 export const TABLES = {
   persons: "persons",
   personExperience: "person_experience",
+  companies: "companies",
+  companyPosts: "company_posts",
+  companyPeople: "company_people",
+  jobs: "jobs",
   parseDrift: "parse_drift",
 } as const;
 

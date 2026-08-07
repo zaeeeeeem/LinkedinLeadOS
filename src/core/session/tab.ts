@@ -5,12 +5,51 @@ import type { CdpEvent, Unsubscribe } from "../cdp/client.js";
 import { CapabilityError, EXIT } from "../run/receipt.js";
 import {
   FOREGROUND_SETTLE_MS,
+  INTERACTIVE_SETTLE_MS,
   NAVIGATE_TIMEOUT_MS,
   NETWORK_RESOURCE_BUFFER_BYTES,
   NETWORK_TOTAL_BUFFER_BYTES,
   READY_POLL_INTERVAL_MS,
   TEARDOWN_STEP_TIMEOUT_MS,
 } from "./constants.js";
+
+/**
+ * Failures that mean the wait can never succeed, as opposed to the ordinary
+ * mid-navigation context swap that means "ask again".
+ *
+ * Listed by code rather than by "is it a `CapabilityError`", because most of the
+ * errors a navigating page throws *are* typed and *are* worth waiting through.
+ * These four are the ones where the thing being asked no longer exists.
+ */
+export const UNRECOVERABLE_WAIT_CODES: ReadonlySet<string> = new Set([
+  "TAB_CLOSED",
+  "TAB_DETACHED",
+  "CDP_SOCKET_ERROR",
+  "CDP_CONNECTION_CLOSED",
+  "CDP_CONNECTION_DEAD",
+  "CDP_CLIENT_CLOSED",
+]);
+
+/** Whether a polling failure is one there is no point polling through. */
+export function isUnrecoverable(cause: unknown): boolean {
+  return (
+    cause instanceof CapabilityError && UNRECOVERABLE_WAIT_CODES.has(cause.code)
+  );
+}
+
+/**
+ * How a navigation finished waiting.
+ *
+ * `settledOn` is reported rather than swallowed because the two are not equally
+ * good news: `complete` is a page that finished, `interactive` is a page that
+ * parsed and then held a connection open forever. A capability that settles on
+ * `interactive` has a working page and a fact worth putting on its receipt.
+ */
+export type Navigation = {
+  settledOn: "complete" | "interactive";
+  readyState: string;
+  waitedMs: number;
+};
 
 /**
  * The slice of `CdpClient` the tab uses. Structural on purpose: the attach
@@ -192,8 +231,15 @@ export class WorkerTab {
    * consuming that event would mean `Page.enable` (D8). Evaluation failures while
    * polling are expected — the execution context is torn down and rebuilt mid
    * navigation — so they count as "not ready yet", never as an error.
+   *
+   * Settles on `complete`, or on `interactive` once it has held for
+   * `INTERACTIVE_SETTLE_MS` — LinkedIn's activity feed keeps a connection open and
+   * never fires the load event, and failing a capture whose bytes are already
+   * archived spends a metered page load to report nothing (D302). Which of the two
+   * it settled on is returned rather than hidden, so a caller can put it on a
+   * receipt.
    */
-  async navigate(url: string, timeoutMs = NAVIGATE_TIMEOUT_MS): Promise<void> {
+  async navigate(url: string, timeoutMs = NAVIGATE_TIMEOUT_MS): Promise<Navigation> {
     const r = await this.send<{ errorText?: string }>("Page.navigate", { url });
     if (r.errorText) {
       throw transient(
@@ -203,13 +249,42 @@ export class WorkerTab {
       );
     }
 
-    const deadline = Date.now() + timeoutMs;
+    const started = Date.now();
+    const deadline = started + timeoutMs;
+    let interactiveSince: number | null = null;
+
     while (Date.now() < deadline) {
+      let state: string | null = null;
       try {
-        if ((await this.evaluate<string>("document.readyState")) === "complete") return;
-      } catch {
-        /* context swapped underneath us mid-navigation; keep waiting */
+        state = await this.evaluate<string>("document.readyState");
+      } catch (cause) {
+        // A swapped execution context is expected mid-navigation and means "not
+        // ready yet". A dead tab or a dead socket is neither, and waiting out the
+        // deadline on one reports TAB_NAVIGATE_TIMEOUT for a failure that had
+        // nothing to do with the page — which is what happened on the permalink
+        // run `01KZKM4HC3V94H761M65KPCFM7` (D302).
+        if (isUnrecoverable(cause)) throw cause;
       }
+
+      if (state === "complete") {
+        return { settledOn: "complete", readyState: "complete", waitedMs: Date.now() - started };
+      }
+
+      if (state === "interactive") {
+        interactiveSince ??= Date.now();
+        if (Date.now() - interactiveSince >= INTERACTIVE_SETTLE_MS) {
+          return {
+            settledOn: "interactive",
+            readyState: "interactive",
+            waitedMs: Date.now() - started,
+          };
+        }
+      } else {
+        // Back to `loading` — a client-side navigation replaced the document, so
+        // the interactive clock starts again rather than counting a stale page.
+        interactiveSince = null;
+      }
+
       await delay(READY_POLL_INTERVAL_MS);
     }
     throw transient(
