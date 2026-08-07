@@ -106,6 +106,7 @@ export const CAPABILITY_SUB_CAPS: Readonly<Record<string, CapabilitySubCaps>> = 
   "profile.get": { pageLoadsPerDay: 200, searchPagesPerDay: 0, distinctProfilesPerDay: 90 },
   "company.get": { pageLoadsPerDay: 150, searchPagesPerDay: 0, distinctProfilesPerDay: 0 },
   "company.posts": { pageLoadsPerDay: 150, searchPagesPerDay: 0, distinctProfilesPerDay: 0 },
+  "company.people": { pageLoadsPerDay: 150, searchPagesPerDay: 0, distinctProfilesPerDay: 0 },
   // A probe is a measuring instrument, not a reader. Its whole job is a handful
   // of loads on one target, and its stated per-run ceiling is 6 (CONTEXT rule
   // 8) — so 12 is two full probe runs in a day and nothing more. Zeroes for the

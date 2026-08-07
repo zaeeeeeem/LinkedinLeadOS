@@ -126,3 +126,5 @@ export type CompanyPostInput = {
 };
 
 export type CompanyPostsUpsertResult = { rows: number };
+export type CompanyPersonInput = { company_urn: string; person_urn: string };
+export type CompanyPeopleUpsertResult = { rows: number };

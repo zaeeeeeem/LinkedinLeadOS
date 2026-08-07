@@ -7,6 +7,7 @@ export const TABLES = {
   personExperience: "person_experience",
   companies: "companies",
   companyPosts: "company_posts",
+  companyPeople: "company_people",
   parseDrift: "parse_drift",
 } as const;
 

@@ -907,6 +907,34 @@ constructed counts lost reactions/comments; an exclusive since comparison lost t
 and removed limit break parsed 2 rows. The fixture-absence run passed 9 synthetic tests with
 1 visible skip. No LinkedIn contact or browser launch occurred.
 
+**Task 24 measurement checkpoint.** Branch `task-24-company-people` inherits Tasks 22 and 23.
+The two named people bodies were promoted into the shared `fixtures/company.people/` library
+and its generated FIELD-MAP was read before parse code. The measured list is the
+`voyagerSearchDashClusters` cluster: eligibility requires a cluster item reference plus the
+selected `currentCompany` filter matching the resolved company id (D200). Cost is one page load
+and no separate search-page/profile-open unit (D201). Work remains fully offline; no browser was
+launched and LinkedIn was not contacted.
+
+**Task 24 implementation checkpoint.** The pure cluster parser, company/session scope guards,
+name/title filters, work-bounded limit, 256-body/200,000-node/20,000-character ceilings,
+pair-deduplicated `company_people` batch upsert, explicit 150/0/0 sub-cap, composition, README,
+and synthetic/gated-fixture tests now exist. Four mutations failed their named tests: removing
+company scope admitted the non-employee trap; removing session exclusion stored the session urn;
+removing pair dedupe sent two identical keys; disabling the limit break returned two rows. With
+`fixtures/company.people/` moved away, eight tests passed and the measured test skipped visibly.
+
+**Task 24 offline complete; live gate untouched.** `company.people` now resolves company
+identity before parsing, accepts only references from the measured subject-selected
+`currentCompany` cluster, excludes all session urns, returns bounded profile URLs, applies
+capture-data name/title filters, stops work at `--limit`, and atomically stores deduplicated
+association pairs without resending database-owned `discovered_at`. D200–D209, the explicit
+150/0/0 sub-cap, README/SQL, pure tests and gated 12-row fixture assertion are complete. Final
+verification: **1001/1001 tests across 54 files**, `tsc --noEmit` clean and `git diff --check`
+clean. The next step is the operator-supervised default-flags live gate; it must verify one
+metered people-page load, zero separate search/profile-open spend, real downstream-usable URLs,
+session/non-employee exclusion, deduplicated pair storage and preserved discovery timestamps.
+Zero LinkedIn contact; no browser was launched during Task 24.
+
 **Task 23 offline complete; live gate untouched.** `company.posts` now has its pure bounded
 Voyager parser, resolved-or-refused subject identity, four-of-eleven author filtering,
 two-hop counts, snowflake timestamps, inclusive `--since`, work-bounded `--limit`, atomic

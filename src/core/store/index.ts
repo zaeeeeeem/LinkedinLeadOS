@@ -27,6 +27,7 @@ export {
 } from "./persons.js";
 export { findCompanyByUrn, findCompanyByVanity, upsertCompany } from "./companies.js";
 export { upsertCompanyPosts } from "./company-posts.js";
+export { upsertCompanyPeople } from "./company-people.js";
 export type {
   CompanyInput,
   CompanyRow,
@@ -34,6 +35,8 @@ export type {
   CompanyPostInput,
   CompanyPostRow,
   CompanyPostsUpsertResult,
+  CompanyPersonInput,
+  CompanyPeopleUpsertResult,
   StoredCompany,
   ExperienceInput,
   PersonExperienceRow,

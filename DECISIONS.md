@@ -2618,3 +2618,85 @@ Without the guard `--limit` counts the same post twice, and the batch upsert fai
 outright: Postgres refuses an `ON CONFLICT` statement that touches one row a second
 time, so a company with more than one page of posts would never store at all. Verified
 by mutation — removing the guard fails the overlapping-pages test.
+
+## D200 — company people rows come only from the measured current-company search cluster (2026-08-09)
+
+The people tab's list is the `voyagerSearchDashClusters` response. A profile urn merely
+appearing in `included[]` is not membership evidence: the same response can carry suggestions,
+actions and the session user. A row is eligible only when its entity-result reference occurs
+in the search cluster and that response's filter metadata has `parameterName: currentCompany`
+with the resolved subject company id selected. This is a labeled Voyager boundary, not a DOM
+inference; removing it must admit the synthetic non-employee trap.
+
+## D201 — company.people costs one page load and no search-page unit (2026-08-09)
+
+Opening `/company/<vanity>/people/` is one reader page load. Although LinkedIn implements the
+tab with its generic search response schema, the capability does not initiate search pagination
+or forge a search request; the one UI-issued response belongs to that page load. Charging an
+additional `search_page` would count the same interaction twice. Its explicit daily sub-cap is
+therefore 150 page loads, 0 search pages and 0 profile opens; any separate search action fails
+the zero cap.
+
+## D202 — people identity is resolved-or-refused before association parsing (2026-08-09)
+
+`company.people` reuses `company.get`'s cross-body company identity proof. No association is
+projected until embedded company identity and Voyager company identity agree, and every person
+urn is checked against the captured session-identity set. An unresolved or session company
+refuses the whole write; a session person is excluded from rows.
+
+## D203 — cluster references, not loose profile urns, define person rows (2026-08-09)
+
+Rows are reached through `SearchItem.item.*entityResult` and resolved to the matching
+`EntityResultViewModel`. Loose profile stubs, lazy actions, member-distance records and any
+other profile-looking object in `included[]` are not rows. The stable person urn is parsed from
+the referenced entity-result urn; the profile URL comes from its labeled `navigationUrl`, with
+the urn as the `profile.get`-usable fallback.
+
+## D204 — name/title filters and limit bound parser work (2026-08-09)
+
+`--name` matches the result title and `--title` matches the primary subtitle,
+case-insensitively, over captured data only. The parser stops walking result references as soon
+as the accepted limit is reached. It does not forge filtered requests or parse every result and
+slice afterward.
+
+## D205 — company.people has explicit parser ceilings with typed drift (2026-08-09)
+
+The pure parser reads at most 256 capture bodies, walks at most 200,000 JSON nodes per body and
+retains at most 20,000 characters per projected field. Every crossed boundary emits a typed
+exit-5 drift warning, and each ceiling has a synthetic test.
+
+## D206 — company_people batches deduplicate the composite key (2026-08-09)
+
+Before the one PostgREST upsert, rows are deduplicated by `(company_urn, person_urn)` with first
+occurrence winning. This prevents Postgres from rejecting the entire `ON CONFLICT` statement
+when overlapping captures repeat a pair. The store test fails when the dedupe is removed.
+
+## D207 — discovered_at is database-owned and never resent (2026-08-09)
+
+The association upsert sends only `company_urn` and `person_urn`, conflicting on that pair.
+`discovered_at` is omitted on first discovery and rediscovery, so the database default creates
+it once and a later observation cannot overwrite it.
+
+## D208 — measured fixture tests skip visibly; contracts remain fixture-free (2026-08-09)
+
+The 12-person real-body assertion lives in `parse.fixture.test.ts` behind `existsSync`.
+Identity, stranger/session exclusion, filters, work limit and all bounds are synthetic in
+`parse.test.ts`. Moving the gitignored company.people fixture away leaves eight tests passing
+and one explicit skip.
+
+## D209 — company.people returns bounded profile URLs while storing only associations (2026-08-09)
+
+The result carries at most `--limit` normalized `/in/<vanity>` URLs or profile-urn fallbacks for
+downstream `profile.get`; the database receives only §7's association columns. Composition
+delegates one `/people/` page load with zero scrolls because the measured UI issued one 12-row
+cluster response; no pagination mechanism is invented before a live measurement proves one.
+
+## D200a (review) — an unmatched employee-scope filter is drift, not an empty company (2026-08-09)
+
+`company.people` scopes a search result to an employee by finding a `currentCompany`
+filter with the subject's id `selected: true`. If that filter's shape changes, every
+captured body is skipped and the capability returns exit 0 with zero rows — which reads
+exactly like a company that lists no employees.
+
+The parser now emits `PARSE_SCOPE_UNMATCHED` when no captured body matched the scope at
+all. Silence and emptiness must not be the same receipt. Verified by mutation.
