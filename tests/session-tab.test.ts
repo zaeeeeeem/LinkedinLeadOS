@@ -300,6 +300,50 @@ describe("WorkerTab.navigate", () => {
     });
   });
 
+  it("fails immediately on a dead tab instead of waiting out the deadline", async () => {
+    // The permalink run's real failure: the CDP socket died, every readyState
+    // poll threw, and the wait reported TAB_NAVIGATE_TIMEOUT 45s later for a
+    // problem that had nothing to do with the page.
+    // The tab has to die *after* `Page.navigate` is accepted, or the send itself
+    // refuses and the polling loop — the thing under test — is never entered.
+    const cdp: FakeCdp = new FakeCdp({
+      ...NAV,
+      "Page.navigate": () => {
+        setTimeout(
+          () => cdp.emit({ method: "Target.detachedFromTarget", params: { sessionId: "S1" } }),
+          0,
+        );
+        return {};
+      },
+    });
+    const tab = await WorkerTab.attach(cdp, "T1");
+
+    const started = Date.now();
+    await expect(tab.navigate("https://www.linkedin.com/in/x/", 30_000)).rejects.toMatchObject({
+      code: "TAB_DETACHED",
+    });
+    expect(Date.now() - started).toBeLessThan(5_000);
+  });
+
+  it("keeps waiting through an ordinary mid-navigation context swap", async () => {
+    // The other side of the same rule: a throwing evaluate that is *not* one of
+    // the unrecoverable codes must still be treated as "not ready yet".
+    let calls = 0;
+    const cdp = new FakeCdp({
+      ...NAV,
+      "Runtime.evaluate": () => {
+        calls += 1;
+        if (calls < 3) throw new Error("Cannot find context with specified id");
+        return { result: { value: "complete" } };
+      },
+    });
+    const tab = await WorkerTab.attach(cdp, "T1");
+
+    await expect(tab.navigate("https://www.linkedin.com/in/x/", 10_000)).resolves.toMatchObject({
+      settledOn: "complete",
+    });
+  });
+
   it("reports a navigation Chrome refused rather than waiting on it", async () => {
     const cdp = new FakeCdp({ ...ATTACH, "Page.navigate": () => ({ errorText: "net::ERR_ABORTED" }) });
     const tab = await WorkerTab.attach(cdp, "T1");
