@@ -128,3 +128,14 @@ export type CompanyPostInput = {
 export type CompanyPostsUpsertResult = { rows: number };
 export type CompanyPersonInput = { company_urn: string; person_urn: string };
 export type CompanyPeopleUpsertResult = { rows: number };
+
+export type JobRow = {
+  id: string; company_urn: string | null; title: string | null; location: string | null;
+  posted_at: string | null; workplace_type: string | null; description: string | null;
+  first_seen: string; last_seen: string;
+};
+export type JobInput = {
+  id: string; company_urn?: string | null; title?: string | null; location?: string | null;
+  posted_at?: string | null; workplace_type?: string | null; description?: string | null;
+};
+export type JobsUpsertResult = { rows: number };
