@@ -4,8 +4,27 @@
 **Spec:** §9 (`post.get` — post detail, optional `--reactors`, `--commenters`)
 **Decisions owned:** D250–D259
 
-> **Blocked until** Task 26's single-post fixture exists and any DOM-source decision is
-> recorded. *Source verdict from Task 26:* _to be filled in by Task 26._
+> **STILL BLOCKED 2026-08-09 — the permalink surface will not load.**
+> Two attempts on `https://www.linkedin.com/feed/update/urn:li:activity:7491197577439141888/`
+> (runs `01KZKM4HC3V94H761M65KPCFM7`, `01KZKMDFGDM48683YJ0P2S5NSM`) both died with the
+> CDP socket dropping ~2.5s after the document arrived, and both left a worker tab
+> orphaned. The document itself was seen (HTTP 200) but its body was never retrievable.
+> The three person-activity tabs on the same account, minutes apart, were all fine — so
+> this is specific to the permalink page, not to the session.
+>
+> The second attempt failed in 2.4s under the correct code (`CDP_SOCKET_ERROR`) rather
+> than after 45s under `TAB_NAVIGATE_TIMEOUT`, because D302 landed in between. That is
+> the diagnosis working, not the page working.
+>
+> **Before this task starts:** get one clean permalink capture. Worth trying first —
+> a `/posts/<slug>-activity-<id>-<hash>` url instead of `/feed/update/` (the probe
+> already watches both document spellings, D300), and a fresh Chrome with no other tabs
+> open.
+>
+> *Source verdict from Task 26:* **unknown for the permalink itself.** What is known is
+> that the person-activity feed carries post rows as labeled Voyager JSON with no DOM
+> exception (Task 27) — but a reactor or commenter list has only ever been visible on a
+> permalink, which is the surface that has not loaded.
 
 ## Objective
 

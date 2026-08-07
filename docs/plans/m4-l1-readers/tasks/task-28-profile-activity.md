@@ -4,8 +4,22 @@
 **Spec:** §9 (`profile.activity` — reactions and comments the person made)
 **Decisions owned:** D240–D249
 
-> **Blocked until** Task 26's activity fixture exists and any DOM-source decision is
-> recorded. *Source verdict from Task 26:* _to be filled in by Task 26._
+> **UNBLOCKED 2026-08-09.** Fixtures are on disk at `fixtures/profile.activity/`,
+> promoted from two runs — `01KZKM1E5AX4WJ91BKA8GRWSK4` (`/recent-activity/comments/`)
+> and `01KZKM2QPPR35QSW0WSA134EZD` (`/recent-activity/reactions/`), one page load each,
+> both exit 0.
+>
+> *Source verdict from Task 26:* **Voyager JSON; no DOM exception needed.** Both tabs
+> serve `voyagerFeedDashProfileUpdates` under a different `queryId` than the posts tab
+> — 996,258 bytes for comments, 917,745 for reactions. Same envelope, same identity
+> rule, same `posted_at` rule as Task 27 (derive from the activity urn:
+> `Number(BigInt(activityId) >> 22n)`); read Task 27's block for the detail rather than
+> re-deriving it.
+>
+> One warning fired on the comments tab and not the posts tab —
+> `POSTED_AT_RELATIVE_ONLY`, "every time rendered on this page is relative; no absolute
+> timestamp is in the DOM". That is the same finding Task 27 resolves with the urn, and
+> it is why the rule is derived rather than read.
 >
 > **Storage note:** §7 has **no table for a person's outbound reactions/comments** —
 > `person_posts` holds authored posts, not activity-on-others. Task 26 measures whether
