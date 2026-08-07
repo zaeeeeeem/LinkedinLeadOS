@@ -5,6 +5,32 @@ Updated at every task commit. Trust this over CLAUDE.md's phase line.
 **The active plan is `docs/plans/m1-m3/`** (outcome-driven, one file per task; see D12).
 The 2026-08-07 plan file is superseded — do not execute from it.
 
+**Task 25 in progress; source gate passed offline.** The promoter now preserves initial
+HTML documents that contain parseable structured-data islands separately from DOM snapshots,
+with a regression test; both jobs-tab artifacts are in `fixtures/company.jobs/` and its
+generated FIELD-MAP was read. D210 records outcome (a): outside every `meta.microSchema`
+subtree, the document has 9 subject-scoped `LISTED` JobPosting value records, plus 10
+unscoped navigation stubs across 17 ids. D211 fixes §7 `jobs.id` as the decimal posting id.
+Parser/store TDD is next. Zero LinkedIn contact; no browser launched.
+
+**Task 25 implementation checkpoint.** `company.jobs` now has a pure bounded embedded-JSON
+parser, subject-company scope, numeric id canonicalization, measured list-field projection,
+one-load composition, identifier-free receipt, explicit 150/0/0 sub-cap, atomic id-deduplicated
+`jobs` storage, README/SQL, synthetic tests and a visibly gated 9-row fixture assertion.
+D210–D219 are recorded. Focused verification is 37/37 tests and `tsc --noEmit` clean;
+required mutation checks and the full suite remain. Zero LinkedIn contact; no browser launched.
+
+**Task 25 offline complete; live gate untouched.** Source outcome (a) is recorded with
+measured evidence in D210, and D210–D219 are complete. Final verification is **1016/1016
+tests across 58 files**, `tsc --noEmit` clean, and `git diff --check` clean. With all of
+`fixtures/` moved away, the company.jobs slice reported **11 passed, 1 skipped**. Mutation
+verification failed the named tests for non-subject-company exclusion, canonical numeric job
+id, pre-upsert batch dedupe, and `--limit` work stopping. The next action is the
+operator-supervised default-flags live gate, which must verify one metered jobs-tab load,
+embedded-JSON source, subject-only numeric-id rows, independent Supabase values/counts,
+preserved first_seen with bumped last_seen, archive evidence, and 1/0/0 ledger spend.
+Zero LinkedIn contact; no browser launched during Task 25.
+
 ## Built
 Task 1 — project scaffold and receipt contract (commits 1394d12, c2bea6f).
 Reviewed 2026-08-08: `npx tsc --noEmit` clean, 4/4 tests pass.

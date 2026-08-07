@@ -2700,3 +2700,98 @@ exactly like a company that lists no employees.
 
 The parser now emits `PARSE_SCOPE_UNMATCHED` when no captured body matched the scope at
 all. Silence and emptiness must not be the same receipt. Verified by mutation.
+## D210 — `company.jobs` reads labeled JobPosting values from the initial document (2026-08-09)
+
+The archived `/company/wisprflow/jobs/` document contains 17 decoded Big Pipe islands.
+After excluding every `$.meta.microSchema` subtree, 9 objects are actual
+`com.linkedin.voyager.dash.jobs.JobPosting` values: each carries `entityUrn`, `title`,
+`companyDetails`, `*location`, `listedAt`, `jobState`, `description`, and `numApplies`.
+All 9 are `LISTED`, all 9 resolve their company reference to the subject company, and all
+9 location references resolve. This is captured embedded Voyager JSON under D117, so
+`company.jobs` needs no DOM exception and must not read the same page's DOM snapshot.
+
+The document also contains 10 lighter objects with `entityUrn`, `trackingUrn`, `title`,
+and `repostedJob`. Those are navigation stubs, not company-scoped JobPosting values. The
+`trackingUrn` numeric id agrees with the fsd urn on every stub, but a stub has neither
+company scope nor posting fields and therefore never becomes a row.
+
+## D211 — the canonical `jobs.id` is the numeric posting id (2026-08-09)
+
+Both `urn:li:fsd_jobPosting:<id>` and `urn:li:jobPosting:<id>` are wrappers around the
+same numeric posting id where both occur. The 17-vs-10 count is a difference in object
+sets (9 full records, 10 stubs, 2 ids overlap), not competing identity systems.
+`company.jobs` strips only an exact recognized job urn to decimal digits and stores those
+digits in §7 `jobs.id`; Task 31 can therefore enrich the same row. No urn is written into
+the id column and no unrelated digit string is accepted as identity.
+
+## D212 — a jobs-tab row is scoped by its typed company reference (2026-08-09)
+
+Only a value record whose `companyDetails.jobCompany.*company` normalizes to the resolved
+subject company can become a row. Title text, document position, and membership in the same
+island are not scope. This excludes unscoped navigation stubs and any recommended or otherwise
+embedded posting from another company.
+
+## D213 — company.jobs stores the measured list fields and omits the rest (2026-08-09)
+
+The 9 measured subject records carry title, a resolvable `*location`, `listedAt`, and full
+`description.text`, so those fields are stored. They carry no workplace type, so
+`workplace_type` is omitted rather than guessed; Task 31 may enrich it later on the same id.
+A missing measured field emits typed exit-5 drift and stays absent — no urn, id, or neighboring
+display string is substituted into a differently typed column.
+
+## D214 — company.jobs has explicit body, node, and field bounds (2026-08-09)
+
+The parser inspects at most 128 capture bodies and 150,000 decoded nodes per root, and stores
+at most 20,000 characters per string field. Every crossed bound produces a typed exit-5
+`PARSE_INPUT_TRUNCATED` or `PARSE_FIELD_TRUNCATED` warning, and every bound is crossed by a
+synthetic test.
+
+## D215 — one jobs-tab load is a reader page load, not a search page (2026-08-09)
+
+The UI route looks like a listing but the measured action is an ordinary company tab load:
+it spends no search credit and opens no profile. One scroll pass reached the measured end and
+no pagination request appeared, so the capability charges 1 page load, 0 search pages, and
+0 profile opens with a 150/0/0 daily sub-cap. `--limit` stops accepted-record parse work; it
+cannot make the single fixed document load cheaper and does not pretend to.
+
+## D216 — jobs are deduplicated before an ordered batch upsert (2026-08-09)
+
+The store keeps the last input for each canonical id before issuing one `onConflict: id`
+batch. Undefined fields are omitted so later Task 31 values survive a list capture that said
+nothing about them. `first_seen` is never sent; one run timestamp is appended as `last_seen`
+after every parser-owned field.
+
+## D217 — unmatched company scope is observable drift, not an empty success (2026-08-09)
+
+If JobPosting value records exist but none carries the resolved subject-company reference,
+the parser emits `PARSE_SCOPE_UNMATCHED` with exit-5 drift semantics. A genuinely empty surface
+and a broken scoping path therefore do not produce the same receipt.
+
+## D218 — structured initial documents are first-class promoted fixtures (2026-08-09)
+
+The fixture promoter previously classified every non-JSON network body as `not_json`, including
+an initial HTML document whose Big Pipe islands are the D117 structured source. It now promotes
+such a document byte-for-byte as `*-document.html`, maps only values returned by
+`embeddedJsonOf`, and keeps a separate dedupe namespace from the rendered DOM snapshot. HTML
+without parseable structured islands remains rejected. The company.jobs fixture test is gated
+by `existsSync`; all contract and bound tests are synthetic.
+
+## D219 — company.jobs receipts remain bounded and identifier-free (2026-08-09)
+
+The receipt reports counts, source kind, storage counts, warnings, and a verification query;
+it returns neither job ids nor the company urn. `--no-store` still captures and parses because
+it is a storage switch, not a budget bypass. Drift persistence follows the established partial
+write contract: if it fails after jobs land, the error carries the already-stored row count.
+
+## D210a (review) — zero jobs has two causes and they do not share a receipt (2026-08-09)
+
+`company.jobs` selects postings by `entityUrn` being a job urn AND the record carrying
+`listedAt`. If LinkedIn renames or restructures that field, nothing is selected and the
+capability returns exit 0 with zero rows — indistinguishable from a company with no
+openings.
+
+The parser now separates the two: job urns present in the document but no record
+matching the expected posting shape emits `PARSE_SCOPE_UNMATCHED` on `job_posting_shape`;
+no job urn anywhere stays silent, because that genuinely is an empty company. This is
+D200a applied one layer in. Verified by mutation, and by a companion test proving the
+empty-company case emits nothing.
