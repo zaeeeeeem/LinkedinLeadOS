@@ -22,6 +22,7 @@ import { RawArchive } from "../src/core/archive/raw.js";
 import { isPrivateEndpoint, personUrnsIn, promoteFixtures } from "../src/core/fixtures/promote.js";
 import type { PromoteSubject } from "../src/core/fixtures/promote.js";
 import { defaultRunsDir } from "../src/core/run/paths.js";
+import { repoRoot } from "../src/core/run/root.js";
 
 type Options = {
   run: string | null;
@@ -147,7 +148,9 @@ async function main(): Promise<void> {
   const archiveDir = join(o.runsDir, runId, "raw");
   if (!existsSync(archiveDir)) usage(`run ${runId} has no raw/ directory at ${archiveDir}`);
 
-  const fixturesDir = o.fixturesDir ?? resolve(process.cwd(), "fixtures", o.capability);
+  // Repo root, not cwd: the fixture library is gitignored and shared, so promoting
+  // from a worktree has to land in the one library every other checkout reads (D301).
+  const fixturesDir = o.fixturesDir ?? resolve(repoRoot(), "fixtures", o.capability);
 
   const subject = subjectOf(o.runsDir, runId, o.subject);
   const sessionUrns = await sessionUrnsOf(archiveDir);

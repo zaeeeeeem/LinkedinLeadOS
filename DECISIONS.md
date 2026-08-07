@@ -2315,3 +2315,41 @@ formats it, and never reads these strings.
 
 Numbering note: as D180–D183, this belongs to Task 21 and lands out of range.
 **Task 22's reserved range becomes D185–D189.**
+
+## D301 (out-of-range, infrastructure) — shared state is anchored to the repository root, never to the cwd (2026-08-09)
+
+Three parser tasks — 22, 27 and 31 — each reported that the surface fixture they
+depend on did not exist. All three were wrong in the same way, and the cause was
+not in any of them.
+
+`fixtures/` and `runs/` are gitignored at the repo root, deliberately: they hold
+captured LinkedIn bytes. Tasks execute in linked git worktrees. `defaultRunsDir()`
+and `promote-fixtures.ts` both resolved those directories against
+`process.cwd()`, and the profile fixture test helper resolved its own directory
+against `import.meta.url`. All three therefore pointed at the *worktree's* copy,
+which is always empty, because nothing ever promotes into a worktree.
+
+Two consequences, and the second is the serious one:
+
+1. A promoted fixture sitting in the main checkout is invisible from every
+   worktree, and a fixture suite that finds no files skips silently — which reads
+   exactly like "the probe was never run". That is the false blocker.
+2. **Every worktree got its own budget ledger.** The §8 daily caps are enforced by
+   counting lines in `runs/budget.ndjson`. A per-worktree ledger multiplies the
+   real cap by the number of worktrees open, without a flag, without a warning,
+   and without any line in a receipt saying so. The rule is that the ledger cannot
+   be bypassed by a flag; it must not be bypassable by a `cd` either.
+
+`src/core/run/root.ts` resolves the main checkout from git's own linkage rather
+than guessing: a linked worktree's `.git` is a file naming its gitdir, that gitdir
+holds `commondir` pointing at the shared `.git`, and that `.git`'s parent is the
+main checkout. An ordinary checkout stops at the first `.git` directory. Outside
+any repository it falls back to the starting directory, so an unpacked copy still
+runs with the old behaviour — which is correct when there are no worktrees to
+disagree.
+
+`LINKEDIN_OS_REPO_ROOT` overrides it for tests. `LINKEDIN_OS_RUNS_DIR` still
+overrides the archive location on top of that, unchanged.
+
+Numbering note: this is infrastructure discovered while unblocking three tasks at
+once, so it belongs to none of their ranges. D300 is held by Task 26.
