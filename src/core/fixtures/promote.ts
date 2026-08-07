@@ -6,6 +6,7 @@ import { buildFieldMap, renderFieldMap } from "./fieldmap.js";
 import type { FieldMap, FieldProbe } from "./fieldmap.js";
 import { buildDomFieldMap, renderDomFieldMap } from "./dommap.js";
 import { isDomSnapshotEntry } from "../../capabilities/profile.capture/snapshot.js";
+import { embeddedJsonOf } from "./sweep.js";
 
 /** One promoted body, as `index.json` records it. */
 export type FixtureEntry = {
@@ -26,6 +27,9 @@ export type FixtureEntry = {
   /** True for the rendered-DOM snapshot — the content fixture (D123). It is
    *  html, not JSON, and it gets the DOM field map rather than the JSON one. */
   dom_snapshot?: boolean;
+  /** True for an initial HTML document whose Big Pipe islands are the structured
+   * network-body source allowed by D117. Its markup is never mapped or parsed. */
+  embedded_document?: boolean;
 };
 
 export type FixtureIndex = {
@@ -205,8 +209,9 @@ export async function promoteFixtures(input: PromoteInput): Promise<PromoteResul
   // shape; a DOM snapshot cannot be — its shape hash is `NON_JSON_SHAPE`, the
   // same value the document response carries, so sharing one set would let
   // whichever landed first suppress the other (the D118 mistake, one layer on).
-  const known = new Set(index.fixtures.filter((f) => f.dom_snapshot !== true).map((f) => f.shape_hash));
+  const known = new Set(index.fixtures.filter((f) => f.dom_snapshot !== true && f.embedded_document !== true).map((f) => f.shape_hash));
   const knownSnapshots = new Set(index.fixtures.filter((f) => f.dom_snapshot === true).map((f) => f.file));
+  const knownDocuments = new Set(index.fixtures.filter((f) => f.embedded_document === true).map((f) => f.file));
 
   const promoted: FixtureEntry[] = [];
   const unreadable: PromoteResult["unreadable"] = [];
@@ -279,6 +284,27 @@ export async function promoteFixtures(input: PromoteInput): Promise<PromoteResul
         profile_ish: true,
         subject_match: input.subject ? namesSubject(body, input.subject) : true,
         dom_snapshot: true,
+      });
+      continue;
+    }
+
+    // Initial HTML documents are captured network bodies too. Promote them only
+    // when they contain parseable structured-data islands; an HTML error page
+    // remains `not_json`. The document has its own dedupe namespace because all
+    // non-JSON bodies share one shape hash, and its markup is never the source.
+    const embedded = embeddedJsonOf(body);
+    if (embedded.length > 0) {
+      const file = `${entry.shapeHash}-document.html`;
+      if (knownDocuments.has(file)) { skipped.duplicate_shape++; continue; }
+      try { await writeFile(join(input.fixturesDir, file), body, "utf8"); }
+      catch (cause) { throw failed(`writing ${file}`, cause); }
+      knownDocuments.add(file);
+      promoted.push({
+        file, shape_hash: entry.shapeHash, path: pathOf(entry.url), query_id: null,
+        status: entry.status, bytes: entry.bytes, source_run: input.sourceRun,
+        promoted_at: now().toISOString(), profile_ish: isRelevant(body),
+        subject_match: input.subject ? namesSubject(body, input.subject) : true,
+        embedded_document: true,
       });
       continue;
     }
@@ -378,7 +404,11 @@ export async function promoteFixtures(input: PromoteInput): Promise<PromoteResul
     let map: FieldMap | null = null;
     let note: string | undefined;
     try {
-      map = buildFieldMap(JSON.parse(await readFile(join(input.fixturesDir, f.file), "utf8")), input.probes, {
+      const body = await readFile(join(input.fixturesDir, f.file), "utf8");
+      const root = f.embedded_document === true
+        ? { islands: embeddedJsonOf(body).map(({ prefix, value }) => ({ prefix, value })) }
+        : JSON.parse(body);
+      map = buildFieldMap(root, input.probes, {
         ...(input.sessionUrns === undefined ? {} : { selfValues: input.sessionUrns }),
       });
     } catch (cause) {

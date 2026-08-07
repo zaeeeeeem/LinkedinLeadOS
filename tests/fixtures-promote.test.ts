@@ -331,12 +331,12 @@ describe("promoteFixtures — the DOM snapshot (D123)", () => {
     expect(md).toContain("holds other people — never read as the subject");
   });
 
-  it("does not let the snapshot and the document response suppress each other", async () => {
+  it("promotes a structured initial document separately from the DOM snapshot", async () => {
     // Both are non-JSON, so both hash to the same NON_JSON_SHAPE. Sharing one
     // dedupe set would let whichever landed first claim the slot — the D118
     // mistake, one layer on.
     await new RawArchive(archiveDir).archive({
-      body: "<html>the navigation response for jane-doe</html>",
+      body: '<html>jane-doe<code id="bpr-guid-1">{&quot;included&quot;:[{&quot;entityUrn&quot;:&quot;urn:li:fsd_company:42&quot;,&quot;title&quot;:&quot;Engineer&quot;}]}</code></html>',
       url: "https://www.linkedin.com/in/jane-doe/",
       status: 200,
     });
@@ -344,7 +344,11 @@ describe("promoteFixtures — the DOM snapshot (D123)", () => {
     const result = await run({ subject: { vanity: "jane-doe" }, all: true });
 
     const snapshots = result.promoted.filter((f) => f.dom_snapshot === true);
+    const documents = result.promoted.filter((f) => f.embedded_document === true);
     expect(snapshots).toHaveLength(1);
+    expect(documents).toHaveLength(1);
+    expect(documents[0]!.file).toMatch(/-document\.html$/);
+    expect(readFileSync(result.fieldMapPath, "utf8")).toContain("$.islands[].value.included[].title");
     expect(result.skipped.duplicate_shape).toBe(0);
   });
 
