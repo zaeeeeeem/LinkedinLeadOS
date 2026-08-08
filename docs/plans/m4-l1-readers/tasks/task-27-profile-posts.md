@@ -4,32 +4,45 @@
 composition), Task 14 · **Spec:** §7 person_posts, §9 (`--limit`, `--since`)
 **Decisions owned:** D230–D239
 
-> **Blocked, and here is exactly on what (Task 26, 2026-08-09, D229).** Task 26 shipped its
-> offline half — the `activity.capture` probe, the measurement instruments, 107 tests. It has
-> **not** run live, so `fixtures/` holds nothing for this surface and there is no
-> `FIELD-MAP.md`. The source verdict below is blank because writing one from expectation is
-> the artefact D152 exists to prevent.
+> **UNBLOCKED 2026-08-09.** The posts fixture is on disk at `fixtures/profile.posts/`,
+> promoted from run `01KZKKZZJ91XX4KX2Z3772QRHH` (`/in/tankots/recent-activity/all/`,
+> 1 page load, exit 0). Read `fixtures/profile.posts/FIELD-MAP.md` before writing any
+> parse code.
 >
-> To unblock, in order:
-> 1. Operator runs the supervised probe (commands in `STATE.md`, "Next").
-> 2. `npm run fixtures:promote -- --run=<runId> --capability=<this capability> --surface=activity`
->    (D226 — `--surface` selects relevance, probes and DOM map together).
-> 3. Read `fixtures/<capability>/FIELD-MAP.md`, fill the verdict below, and — **if the
->    content is DOM-only** — get the operator's decision extending `CLAUDE.md`'s DOM-source
->    exception to this surface, recorded in `DECISIONS.md` (M4 CONTEXT rule 7). The
->    exception is the profile reader and nothing else; it is never inherited.
+> **Source verdict: Voyager JSON. No DOM exception is needed for this surface.**
+> A person's own posts arrive in `voyagerFeedDashProfileUpdates`
+> (`6707f4b83c44b7e8.json`, 611,559 bytes, `data`/`meta`/`included` envelope), keyed by
+> `profileUrn`. Labeled paths the field map confirms:
 >
-> **What Task 26 already built that this task uses, and must not re-implement:**
-> `normalizeActivityUrl` (surfaces + refusals), `ACTIVITY_PATTERNS` / `isActivityIsh`
-> (D220), `ACTIVITY_PROBES` and the `timeshape` classifiers (D224),
-> `buildActivityDomMap` (D225 — an *instrument*: measure with it, do not lift it into a
-> parser), and `activity.capture` itself for the page load.
+> | §7 column | path in the captured body |
+> |---|---|
+> | `urn` | `$.included[].urn` — `urn:li:activity:<id>` (also `metadata.backendUrn`) |
+> | `person_urn` | `$.included[].actor.name.attributesV2[].detailData.*profileFullName` — `urn:li:fsd_profile:<id>` |
+> | `text` | under `$.included[].commentary` / `content`; the `$.meta.microSchema.*` hits are schema declarations, not values — do not read them |
+> | `reactions` / `comments` | `socialDetail` counts; see the map's `reactions_count` / `comments_count` sections |
 >
-> *Source verdict per field:* _blank until the probe runs._
-> *`posted_at` rule:* _blank until the probe runs — see the `POSTED_AT_RELATIVE_ONLY`
-> warning and the `posted_at_epoch` / `posted_at_iso` / `posted_at_relative` probes. If no
-> source carries an absolute time, this is a `[DECISION NEEDED]`, not a conversion any of
-> Tasks 27-29 may invent._
+> **`posted_at` rule: derive it from the post urn. Do not use the run clock.**
+> The body carries **no absolute timestamp for a post**. The only epoch-ms values are
+> image-CDN `expiresAt` fields, and the rendered time is relative
+> (`$.included[].actor.subDescription.text` = `"2d •   "`, `"2w • Edited •   "`).
+>
+> LinkedIn activity ids are snowflakes: the creation time is the top 42 bits.
+>
+> ```ts
+> const postedAt = new Date(Number(BigInt(activityId) >> 22n)); // epoch ms
+> ```
+>
+> Verified against the promoted fixture: all 11 distinct rendered labels agree with the
+> derived time, in order (`1d` → 2026-08-07T17:34:26Z, `2d` → 2026-08-06T18:24:42Z,
+> `1w` → 2026-07-28T16:13:05Z, `1mo` → 2026-06-25T06:44:36Z). LinkedIn's own label is the
+> coarse one — `"3d"` for a 4-day-old post — which is exactly why the urn is the source
+> and the label is not. Pin this with a test over the fixture; a `posted_at` derived from
+> the run clock is the lossy conversion D152 exists to prevent.
+>
+> **Repost / stranger trap:** the run inventoried 56 distinct person urns and 29 distinct
+> activity urns on one subject's page. `author_urn` is the subject-vs-stranger boundary —
+> check every one against the subject's own urn before storing, and cover it with the
+> interleaved-repost test this task already requires.
 
 ## Objective
 
