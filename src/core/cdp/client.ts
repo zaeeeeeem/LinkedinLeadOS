@@ -55,6 +55,22 @@ function transient(code: string, message: string, evidence?: string): Capability
 }
 
 /**
+ * Best-effort cause for a socket `error` event. The shape differs by runtime —
+ * Node's global WebSocket carries `error`, some carry `message` — so this reads
+ * whatever is there and never throws while classifying a failure.
+ */
+function causeOf(ev: unknown): string | undefined {
+  const e = ev as { error?: unknown; message?: unknown } | null;
+  const raw = e?.error ?? e?.message;
+  if (raw === undefined || raw === null) return undefined;
+  if (raw instanceof Error) {
+    const cause = (raw as Error & { cause?: unknown }).cause;
+    return cause === undefined ? `${raw.name}: ${raw.message}` : `${raw.name}: ${raw.message} (cause: ${String(cause)})`;
+  }
+  return String(raw);
+}
+
+/**
  * The exception to D15's "everything is transient": a client we closed ourselves
  * is permanently gone. `retryable` is what callers actually branch on, so leaving
  * it true here would put a back-off loop into a spin against a condition that can
@@ -124,8 +140,14 @@ export class CdpClient {
     // transport whose death detection rests on that is one release from silence.
     // `#die` is first-cause-wins, so the pair never double-reports.
     ws.addEventListener("message", (ev) => this.#onMessage(ev));
-    ws.addEventListener("error", () =>
-      this.#die(transient("CDP_SOCKET_ERROR", `CDP connection to ${url} errored`)),
+    ws.addEventListener("error", (ev) =>
+      // The cause, not just the fact. The listener used to drop the event, which
+      // left `CDP_SOCKET_ERROR` as a bare "it errored" — D15 says the raw CDP
+      // error is kept as evidence, and for the one failure that has resisted
+      // four live attempts (D308) that missing string is the whole diagnosis.
+      this.#die(
+        transient("CDP_SOCKET_ERROR", `CDP connection to ${url} errored`, causeOf(ev)),
+      ),
     );
     ws.addEventListener("close", () =>
       this.#die(transient("CDP_CONNECTION_CLOSED", `CDP connection to ${url} closed`)),

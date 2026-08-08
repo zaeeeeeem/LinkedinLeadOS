@@ -2929,3 +2929,45 @@ they have open.
 
 **Task 29 therefore remains blocked**, now with two fewer candidate explanations and a
 narrower target: the body fetch for this one document type.
+
+## D309 — The permalink failure is UTF-8 validation in Node's WebSocket, not LinkedIn (2026-08-09)
+
+**Root cause, measured, after four live failures.** The post permalink page is fine. Chrome
+is fine. The operator loaded the page by hand while watching this run and it rendered
+normally, and `/json/version` answers after every failure. What dies is *our CDP socket*, and
+the reason is in our own transport.
+
+`CdpClient` uses Node's **global** `WebSocket` (undici). Undici performs strict UTF-8
+validation on inbound text frames and **fails the entire connection** when a frame is not
+valid UTF-8 — it does not drop the frame, it kills the socket. `Network.getResponseBody`
+relays the document body as a text frame, and this post's document body is not valid UTF-8,
+so fetching it destroys the browser-level connection.
+
+The socket `error` listener was discarding the event, which is why four runs produced no
+cause. It now records one (D15 always said the raw CDP error is kept as evidence). With that
+in place the live run reported `TypeError: ` — a TypeError with an empty message.
+
+Reproduced offline, no LinkedIn involved:
+
+| frame | global `WebSocket` |
+|---|---|
+| valid UTF-8 with emoji | delivered |
+| `0xED 0xA0 0x80` (lone surrogate) | `TypeError: ""` |
+| `0xC3 0x28` (bad continuation) | `TypeError: ""` |
+
+That empty-message `TypeError` is a byte-for-byte match with the live evidence.
+
+Frame size is **not** the cause and is formally excluded: 1, 5, 10, 20, 50 and 100 MB
+messages all round-trip. Browser state is **not** the cause: attempt four ran on a Chrome
+launched seconds earlier holding 11 targets.
+
+**The fix, verified offline:** the `ws` package with `skipUTF8Validation: true` delivers the
+same frame intact and the payload still parses as JSON. `ws` default validation fails it with
+`Invalid WebSocket frame: invalid UTF-8 sequence` — same defect, clearer message.
+
+Not yet implemented: `ws` is currently a devDependency, and promoting it to a runtime
+dependency swaps the transport under every capability. That is the operator's call, recorded
+here rather than taken unilaterally.
+
+**Scope of the bug is wider than Task 29.** Any capability fetching any body with invalid
+UTF-8 loses its connection mid-run. Task 29 is where it was first cornered, not where it ends.
