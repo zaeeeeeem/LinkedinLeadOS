@@ -2874,3 +2874,26 @@ pass over LinkedIn.
 
 `profile.activity` therefore writes no database rows, and Task 28's deliverable is
 complete without one.
+
+## D307 — A capture releases its watches; watch registration is scoped to one capture (2026-08-09)
+
+Found by the Task 28 live gate on 2026-08-09, not by any fixture. `profile.activity` opens
+the comments tab and then the reactions tab through `activity.capture`, and both share one
+`NetworkTap`. Watch names are unique within a tap — registering a duplicate is fatal
+`TAP_DUPLICATE_PATTERN` by design (D-tap: replacing silently would redefine what an already
+waiting `waitFor` is waiting for). `activity.capture` registered its patterns and never
+released them, so the second capture died exit 1 *after the first had already spent a page
+load*.
+
+`tap.watch` has always returned an unsubscribe; nothing called it. It is now called, in the
+same `finally` that drains, and deliberately **after** the drain: releasing a watch stops
+bodies being fetched for it, so releasing earlier would drop exactly the late responses that
+raw-first (D2) requires. Captures already taken are untouched — `unwatch` reads no archive.
+
+The general rule this sets: **watch registration is scoped to one capture, not to a session.**
+A capability that delegates to a capture more than once may now do so freely.
+
+Why no fixture caught it: every offline test constructs a fresh tap per run, so the collision
+needs two real captures over one session. The regression test injects the tap through
+`makeTap` and asserts `watching` is empty after the run; it fails when the release line is
+removed (verified).

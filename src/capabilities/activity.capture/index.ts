@@ -128,7 +128,12 @@ export const capability = defineCapability({
       // and the document that answers is at a path the target never named.
       ...activityDocumentPatterns(target),
     ];
-    for (const pattern of patterns) tap.watch(pattern);
+    // Registered, and released again in the `finally` below. A capability that
+    // delegates to this capture more than once on the same session — `profile.activity`
+    // opens the comments tab and then the reactions tab — shares one tap, and a watch
+    // name is unique within it (`TAP_DUPLICATE_PATTERN`). Leaving them registered made
+    // the second capture fail fatally after the first had already spent its page load.
+    const releaseWatches = patterns.map((pattern) => tap.watch(pattern));
     const since = tap.cursor;
 
     // Spent before the navigation, not after: a crash mid-load must leave the
@@ -226,6 +231,10 @@ export const capability = defineCapability({
       // Raw-first is not conditional (D2). Every body already on the wire is
       // archived before this function returns, on the throwing paths too.
       await tap.drain();
+      // Only after the drain: releasing a watch stops bodies being fetched for it,
+      // so dropping them earlier would lose exactly the late responses D2 requires.
+      // Captures already taken are unaffected — `unwatch` touches no archive.
+      for (const release of releaseWatches) release();
     }
 
     const captures = tap.captures();

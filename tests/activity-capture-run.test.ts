@@ -21,6 +21,7 @@ import { MAX_URNS_PER_FAMILY } from "../src/capabilities/activity.capture/patter
 import { DEFAULT_FLAGS } from "../src/cli/flags.js";
 import { execute } from "../src/cli/run.js";
 import type { AnyCapability, SessionLike, TabLike, UniversalFlags } from "../src/cli/types.js";
+import { NetworkTap } from "../src/core/tap/network-tap.js";
 import type { TapTransport } from "../src/core/tap/network-tap.js";
 
 // ── compile-time: this capability is the first place these modules meet ──────
@@ -388,6 +389,40 @@ describe("activity.capture — the happy path", () => {
     expect(session.closed).toBe(true);
     expect(session.tab.closed).toBe(true);
     expect((await inspectLease(paths.leasePath)).state).toBe("free");
+  });
+
+  it("releases its watches, so a second capture on the same tap is not a duplicate", async () => {
+    // `profile.activity` opens the comments tab and then the reactions tab through
+    // this capability, sharing one tap. Watch names are unique within a tap, so a
+    // capture that leaves its patterns registered makes the second call throw
+    // TAP_DUPLICATE_PATTERN — fatal, and only after the first has spent a page load.
+    // Measured live on 2026-08-09 before this fix; no fixture could reach it.
+    let tap: NetworkTap | null = null;
+    const session = new FakeSession();
+    session.page.responses = [{ url: PREDICTED_GQL, body: FEED_BODY }, { url: ME_URL, body: ME_BODY }];
+    const cursor = fakeCursor();
+    const { receipt } = await execute({
+      def: activityCapture as unknown as AnyCapability,
+      rawArgs: { url: ACTIVITY_URL, scrolls: 2, layoutTimeoutMs: 50 },
+      flags: { ...DEFAULT_FLAGS },
+      ...paths,
+      deps: {
+        openSession: async () => session,
+        makeCursor: () => cursor as unknown as HumanCursor,
+        makeTap: (o) => {
+          tap = new NetworkTap({
+            cdp: o.session.client, sessionId: o.tab.sessionId, archive: o.archive, events: o.events,
+          });
+          return tap;
+        },
+      },
+    });
+
+    expect(receipt.ok).toBe(true);
+    // Nothing left registered: the next capture on this tap can claim every name.
+    expect((tap as unknown as NetworkTap).watching).toEqual([]);
+    // And the bodies the run did capture survive the release.
+    expect((tap as unknown as NetworkTap).captures()).toHaveLength(2);
   });
 
   it("spends one page load and one profile open, on profile.capture's own dedupe key", async () => {
