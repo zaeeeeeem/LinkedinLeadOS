@@ -2643,3 +2643,34 @@ Recommendation: option 1. It is the precedent that already exists, the snapshot
 is already archived raw, and the job card carries `data-testid` attributes
 (`expandable-text-box` on the description) that are stabler anchors than flight
 row indices.
+
+## D305 (out-of-range) — the DOM-source exception is extended to the job surface (2026-08-09, operator-approved)
+
+D304 measured that `/jobs/view/<id>` carries no labeled job field anywhere: the
+description crosses the network only as an RSC flight tree, and `listedAt`,
+`workplaceTypes`, `formattedLocation` and the company urn appear in no captured
+body at all. The two options were a DOM-source exception or positional reads of
+the flight tree.
+
+**The operator approved the DOM-source exception for the job surface.**
+
+It inherits the profile reader's shape exactly, and the shape is the safety
+argument — an exception is not permission to read pages loosely:
+
+- The source is an **`outerHTML` snapshot**, captured after layout settles,
+  archived raw like any body, and **parsed offline**. Never a live `innerHTML`
+  read, never the RSC flight tree by position (D121 stands unchanged).
+- Every row read this way is **tagged DOM-sourced**, so nothing downstream
+  mistakes it for a labeled API field.
+- Scope is anchored on `data-testid` attributes rather than container position or
+  class names — LinkedIn's classes are hashed per build (`_5e09f4d5`) and change
+  without notice. The description sits under `data-testid="expandable-text-box"`.
+- Identity is still **resolved or refused**: the posting's id comes from the
+  normalized url and is cross-checked against `urn:li:jobPosting:<id>` in the
+  document. A snapshot whose id does not agree stores nothing rather than storing
+  content under an invented key.
+
+**The exception is the job surface and nothing else.** Every other capability,
+and every other kind of field, still takes data only from captured network
+bodies. This does not generalize to a surface that merely *looks* similar; the
+next surface needs its own measurement and its own decision.
