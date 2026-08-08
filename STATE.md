@@ -1190,3 +1190,28 @@ archive-only: no `person_activity` table, no migration, no write path (D306, tak
 next free number because D240–D249 are spent). The capability is offline-complete —
 1,104 tests passed, 13 store integration tests skipped for absent Supabase env vars,
 typecheck clean. Only the two-load supervised live gate remains.
+
+Task 27 — `profile.posts` (**live gate passed**, 2026-08-09). Run `01KZKVER7T71P0GYQA9NHZ4RE6`
+against `https://www.linkedin.com/in/tankots/recent-activity/all/`: exit 0, 1 page load,
+20 examined / 14 usable / 6 skipped, 14 rows upserted into `person_posts`. Verified by query —
+all 14 rows carry non-null `reactions`, `comments` and `text`, spanning 2026-06-12 to
+2026-08-07. That is the review round's null-counts defect proven fixed against live data.
+Warnings were the expected three: `FEED_NOT_EXHAUSTED` (limit 20, zero scroll passes),
+`PATTERN_MISMATCH` (3), and `SESSION_IDENTITY_UNAVAILABLE` — no `/voyager/api/me` body was
+captured on this load, so the D119 trap is **unmeasured on this run**. Task 27 is complete.
+
+Task 28 — `profile.activity` (**live gate passed on the second attempt**, 2026-08-09).
+The first attempt, run `01KZKVHN75FJCKMNRQ23DC1QPR`, failed fatally with
+`TAP_DUPLICATE_PATTERN` after spending one page load: the reactions capture could not
+register watches the comments capture had left on the shared tap. Fixed under D307. Re-run
+`01KZKVQN8BDFD5J2558NVF63VR`: exit 0, 2 page loads, 40 examined / 40 usable / 0 skipped,
+**20 comments and 20 reactions**. Independently counted the archived bodies' `*elements`
+arrays — 20 and 20, matching the receipt exactly, which is this task's stated acceptance
+criterion. Nothing was written to the database, per D306. `POSTED_AT_RELATIVE_ONLY` fired on
+the comments tab as Task 26 predicted, and `SESSION_IDENTITY_UNAVAILABLE` fired on both tabs
+for the same reason as Task 27. Task 28 is complete.
+
+**Open, carried into Task 29:** `SESSION_IDENTITY_UNAVAILABLE` fired on all three activity
+loads. The session-identity trap (D119) is real code and is exercised offline, but no live
+activity run has yet captured a `/voyager/api/me` body to check against, so it remains
+unproven live on this surface.
