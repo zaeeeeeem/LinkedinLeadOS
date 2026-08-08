@@ -1153,3 +1153,21 @@ Task 27 — `profile.posts` (review fixes verified; live gate pending operator, 
 skipped because Supabase environment variables are absent. Typecheck and `git diff --check`
 are clean. The operator-supervised metered live gate remains the only pending acceptance step;
 no LinkedIn page was loaded.
+
+Task 28 — `profile.activity` (in progress, checkpoint 1, 2026-08-09). Governing docs,
+Task 26's promoted comments/reactions field map, Task 27's parser/composition, and the shared
+capture, budget, root and post projection modules have been read. The actor-vs-target boundary
+and archive-only storage contract are recorded in D240-D242; parser tests are next. No live
+page was loaded.
+
+Task 28 — `profile.activity` (in progress, checkpoint 2, 2026-08-09). The pure comments and
+reactions parser, shared Task 27 post projection, two-tab capture composition, fixed-size
+archive-only receipt and README are implemented TDD. The focused suite passes 15 tests and
+typecheck is clean; the two required mutation checks and full offline suite are next. No live
+page was loaded.
+
+Task 28 — `profile.activity` (implementation complete; live gate pending operator, checkpoint 3,
+2026-08-09). Delivered the pure Voyager comments/reactions parser and archive-only two-tab
+reader. Named mutation tests kill actor/target conflation and removal of session-actor exclusion.
+The full offline suite passes 1,098 tests with 13 store-integration skips; typecheck, registry
+discovery and diff hygiene are clean. No LinkedIn page was loaded.

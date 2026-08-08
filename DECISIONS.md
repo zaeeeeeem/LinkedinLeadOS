@@ -2761,3 +2761,77 @@ Malformed feed references, activity ids, and non-activity backend urns are per-i
 non-string refs never enter the entity map, an unusable backend falls back to the update entity
 urn, and an invalid snowflake increments `unresolved` without discarding other rows. Since-filtered
 rows are counted as skipped so receipt counts account for every examined item.
+
+## D240 — `profile.activity` keeps the activity actor separate from the target author (2026-08-09)
+
+The acting subject is read from each referenced update's
+`header.text.attributesV2[].detailData.*profileFullName`. The target content author is read
+separately from `actor.name.attributesV2[].detailData.*profileFullName`; it is never used as
+the activity actor or as the subject identity. This follows the two labeled edges in the
+promoted comments and reactions fixtures and prevents engagement with another person's post
+from being attributed to that post's author.
+
+## D241 — `profile.activity` is archive-only with fixed-size receipt counts pending a schema decision (2026-08-09)
+
+Spec section 7 has no table for a person's outbound comments or reactions, and
+`person_posts` is reserved for authored posts. The capability therefore performs no store
+write: it reports bounded counts by activity kind plus an archive-reparse hint. Adding a
+`person_activity` table remains an operator decision and cannot be implied by the existing
+post tables.
+
+## D242 — Comments and reactions are parsed as two explicit feed envelopes (2026-08-09)
+
+The parser accepts only `feedDashProfileUpdatesByMemberComments` and
+`feedDashProfileUpdatesByMemberReactions`, assigning the activity kind from the envelope that
+LinkedIn's UI requested. It does not infer reaction versus comment from prose or recursively
+search `included[]`, and it ignores `meta.microSchema` declarations entirely.
+
+## D243 — `--limit` is a per-tab work bound (2026-08-09)
+
+`profile.activity` reads two independently paged surfaces, so `--limit=N` permits at most N
+referenced comments items and N referenced reactions items, for a total bound of 2N. Each tab
+gets the same Task 27 conversion from item limit to scroll passes. Filtering by actor or
+inclusive `--since` happens after examination and never replenishes either tab's allowance.
+
+## D244 — The reader delegates two complete `activity.capture` runs (2026-08-09)
+
+One comments capture and one reactions capture retain the proven raw-first, navigation,
+pacing, challenge and ledger composition. The outer cost is two page loads and one distinct
+profile open; the ledger's profile reference dedupes the second tab while both page loads and
+the Task 20 sub-cap remain charged. A subject refused after the first capture prevents the
+second page load rather than spending it for unusable output.
+
+## D245 — Activity target fields reuse Task 27's post graph projection (2026-08-09)
+
+Task 27 now exports the pure included-entity graph index and target-post projector it already
+used internally. `profile.activity` composes those functions for the target urn, text,
+snowflake timestamp, and social counts, then adds activity kind, actor urn and target-author
+urn. This keeps `ugcPost`/`share` social-detail resolution and malformed-snowflake behavior in
+one implementation rather than allowing the two readers to drift.
+
+## D246 — Session identity is checked twice, at subject and item actor boundaries (2026-08-09)
+
+The composition refuses a viewee subject left in the session identity set before the second
+load. The pure parser independently excludes any item whose header actor is session-owned
+before testing subject equality. The second check is intentional defense in depth for
+archived reparse and is mutation-pinned independently of composition.
+
+## D247 — Promoted activity fixtures are optional to a fresh clone, not to this worktree (2026-08-09)
+
+Fixture tests resolve `fixtures/profile.activity` through `repoRoot()` and guard all required
+files with `existsSync`. A checkout without the gitignored promoted library reports the suite
+as skipped rather than throwing `ENOENT`; this worktree has the fixtures, so all field and
+mutation assertions execute rather than skip.
+
+## D248 — The activity receipt exposes counts and an archive hint, never activity rows (2026-08-09)
+
+The receipt reports usable comments and reactions separately, total work accounting, source,
+and a fixed reparse instruction. Actor urns, target urns, post text, and captured URLs remain
+in the raw archive and parser result only; none reaches stdout or structured logs. This keeps
+the receipt fixed-size while retaining enough information to choose and later execute storage.
+
+## D249 — Task 28 stops before the two-load live gate (2026-08-09)
+
+Offline fixtures, named mutation failures, the full suite, typecheck and registry discovery
+are the implementation gate. The real-profile comments/reactions run is operator-supervised
+and remains deliberately unspent; no Task 28 development command opens LinkedIn.

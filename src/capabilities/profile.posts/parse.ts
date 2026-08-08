@@ -1,4 +1,4 @@
-import type { OwnedPostProjection } from "../../core/store/posts.js";
+import type { OwnedPostProjection, PostProjection } from "../../core/store/posts.js";
 
 type Json = Record<string, unknown>;
 const ACTIVITY = /^urn:li:activity:(\d+)$/;
@@ -27,8 +27,10 @@ export function activityPostedAt(urn: string): Date {
   return date;
 }
 
-function actorUrn(update: Json): string | null {
-  const actor = object(update["actor"]);
+export function feedPostAuthorUrn(update: unknown): string | null {
+  const updateObject = object(update);
+  if (updateObject === null) return null;
+  const actor = object(updateObject["actor"]);
   const name = object(actor?.["name"]);
   const attrs = Array.isArray(name?.["attributesV2"]) ? name["attributesV2"] : [];
   for (const attr of attrs) {
@@ -66,6 +68,41 @@ function socialCountKey(update: Json, activity: string): string {
     : /urn:li:(?:activity|ugcPost|share):\d+/.exec(detail)?.[0] ?? activity;
 }
 
+export type FeedPostGraph = {
+  byEntity: ReadonlyMap<string, Json>;
+  counts: ReadonlyMap<string, Json>;
+};
+
+export function indexFeedPostGraph(includedValues: readonly unknown[]): FeedPostGraph {
+  const included = includedValues.map(object).filter((x): x is Json => x !== null);
+  const byEntity = new Map<string, Json>();
+  const counts = new Map<string, Json>();
+  for (const entity of included) {
+    const key = stringAt(entity["entityUrn"]);
+    if (key !== null) byEntity.set(key, entity);
+    const countKey = countEntityActivity(entity);
+    if (countKey !== null && typeof entity["numLikes"] === "number") counts.set(countKey, entity);
+  }
+  return { byEntity, counts };
+}
+
+export function projectFeedPost(updateValue: unknown, graph: FeedPostGraph): PostProjection | null {
+  const update = object(updateValue);
+  if (update === null) return null;
+  const urn = activityUrn(object(update["metadata"])?.["backendUrn"]) ?? activityUrn(update["entityUrn"]);
+  if (urn === null) return null;
+  let posted_at: string;
+  try { posted_at = activityPostedAt(urn).toISOString(); } catch { return null; }
+  const social = graph.counts.get(socialCountKey(update, urn));
+  return {
+    urn,
+    text: postText(update),
+    posted_at,
+    reactions: typeof social?.["numLikes"] === "number" ? social["numLikes"] as number : null,
+    comments: typeof social?.["numComments"] === "number" ? social["numComments"] as number : null,
+  };
+}
+
 export type ParseProfilePostsOptions = { subjectUrn: string; since?: string; limit?: number };
 export type ParseProfilePostsResult = {
   rows: OwnedPostProjection<"person_urn">[];
@@ -81,19 +118,7 @@ export function parseProfilePosts(body: string, options: ParseProfilePostsOption
   const data = object(object(root?.["data"])?.["data"]);
   const feed = object(data?.["feedDashProfileUpdatesByMemberShareFeed"]);
   const refs = Array.isArray(feed?.["*elements"]) ? feed["*elements"] : [];
-  const included = Array.isArray(root?.["included"])
-    ? root["included"].map(object).filter((x): x is Json => x !== null)
-    : [];
-  const byEntity = new Map<string, Json>();
-  for (const entity of included) {
-    const key = stringAt(entity["entityUrn"]);
-    if (key !== null) byEntity.set(key, entity);
-  }
-  const counts = new Map<string, Json>();
-  for (const entity of included) {
-    const urn = countEntityActivity(entity);
-    if (urn !== null && typeof entity["numLikes"] === "number") counts.set(urn, entity);
-  }
+  const graph = indexFeedPostGraph(Array.isArray(root?.["included"]) ? root["included"] : []);
   const workLimit = options.limit ?? refs.length;
   const selected = refs.slice(0, Math.max(0, workLimit));
   const sinceMs = options.since === undefined ? Number.NEGATIVE_INFINITY : new Date(options.since).getTime();
@@ -104,32 +129,20 @@ export function parseProfilePosts(body: string, options: ParseProfilePostsOption
   for (const ref of selected) {
     const key = stringAt(ref);
     if (key === null) { unresolved += 1; continue; }
-    const update = byEntity.get(key);
+    const update = graph.byEntity.get(key);
     if (update === undefined) { unresolved += 1; continue; }
-    const author = actorUrn(update);
+    const author = feedPostAuthorUrn(update);
     if (author !== options.subjectUrn) { excludedAuthors += 1; continue; }
     // Task 26 labels this identity both on included activity entities' `urn`
     // and on the resolved update's `metadata.backendUrn`; the latter is the
     // direct edge for every feed item, including items without a duplicate
     // standalone activity entity in this response.
-    const urn = activityUrn(object(update["metadata"])?.["backendUrn"]) ?? activityUrn(update["entityUrn"]);
-    if (urn === null) { unresolved += 1; continue; }
-    let posted_at: string;
-    try {
-      posted_at = activityPostedAt(urn).toISOString();
-    } catch {
-      unresolved += 1;
-      continue;
-    }
-    if (new Date(posted_at).getTime() < sinceMs) { filteredSince += 1; continue; }
-    const social = counts.get(socialCountKey(update, urn));
+    const post = projectFeedPost(update, graph);
+    if (post === null) { unresolved += 1; continue; }
+    if (new Date(post.posted_at).getTime() < sinceMs) { filteredSince += 1; continue; }
     rows.push({
-      urn,
+      ...post,
       person_urn: options.subjectUrn,
-      text: postText(update),
-      posted_at,
-      reactions: typeof social?.["numLikes"] === "number" ? social["numLikes"] as number : null,
-      comments: typeof social?.["numComments"] === "number" ? social["numComments"] as number : null,
     });
   }
   return { rows, examined: selected.length, totalFeedItems: refs.length, excludedAuthors, unresolved, filteredSince };
