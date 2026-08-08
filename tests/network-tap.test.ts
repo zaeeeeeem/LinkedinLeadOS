@@ -217,6 +217,53 @@ describe("NetworkTap capture", () => {
     expect(await (archive as RawArchive).readText(onDisk[0]!)).toBe(text);
   });
 
+  // D310: `skipUTF8Validation` keeps the connection alive through a body that is
+  // not valid UTF-8, but the string Chrome hands back has already had the bad
+  // bytes replaced with U+FFFD. Raw-first (D2) then holds a body that is not
+  // byte-exact, and the only unacceptable version of that is a silent one.
+  it("flags a body that decoded lossily, and never flags a clean one", async () => {
+    const { cdp, tap, archive } = build();
+
+    cdp.bodies.set("R1", () => ({ body: `{"name":"caf�"}`, base64Encoded: false }));
+    cdp.emit("Network.responseReceived", {
+      requestId: "R1",
+      response: { url: "https://x/salesApiProfiles/1", status: 200 },
+    });
+    cdp.emit("Network.loadingFinished", { requestId: "R1" });
+    await tap.drain();
+
+    cdp.respond("R2", "https://x/salesApiProfiles/2", '{"name":"café 🦷"}');
+    await tap.drain();
+
+    const [lossy, clean] = tap.captures();
+    expect(lossy!.lossyUtf8).toBe(true);
+    expect(clean!.lossyUtf8).toBeUndefined();
+
+    // It survives to disk: a parser drift chased months later must be able to
+    // tell "LinkedIn changed" from "we lost bytes reading it".
+    const onDisk = await (archive as RawArchive).list();
+    expect(onDisk[0]!.lossyUtf8).toBe(true);
+    expect(onDisk[1]!.lossyUtf8).toBeUndefined();
+  });
+
+  it("does not flag a base64 body, whose bytes are exact by construction", async () => {
+    const { cdp, tap } = build();
+    // A body that legitimately contains U+FFFD: base64 carries the bytes
+    // verbatim, so nothing was lost and nothing should be flagged.
+    const text = `{"glyph":"�"}`;
+
+    cdp.bodies.set("R1", () => ({ body: Buffer.from(text, "utf8").toString("base64"), base64Encoded: true }));
+    cdp.emit("Network.responseReceived", {
+      requestId: "R1",
+      response: { url: "https://x/salesApiProfiles/1", status: 200 },
+    });
+    cdp.emit("Network.loadingFinished", { requestId: "R1" });
+    await tap.drain();
+
+    expect(tap.captures()[0]!.body).toBe(text);
+    expect(tap.captures()[0]!.lossyUtf8).toBeUndefined();
+  });
+
   it("attributes a response to every pattern that matches it", async () => {
     const { cdp, tap } = build();
     tap.watch({ name: "any-sales-api", match: /sales-api/ });

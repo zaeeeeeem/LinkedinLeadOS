@@ -1,10 +1,27 @@
-import { describe, it, expect, afterEach } from "vitest";
+import { describe, it, expect, afterEach, vi } from "vitest";
 import { createServer } from "node:http";
 import type { AddressInfo } from "node:net";
 import type { Duplex } from "node:stream";
 import { WebSocketServer, type WebSocket as WsSocket } from "ws";
 import { CdpClient } from "../src/core/cdp/client.js";
 import { CapabilityError, EXIT } from "../src/core/run/receipt.js";
+
+/**
+ * Every client socket `CdpClient` has opened, newest last — the only way to
+ * reach the socket from outside, since the client owns it and never exposes it.
+ */
+const { built } = vi.hoisted(() => ({ built: [] as WsSocket[] }));
+
+vi.mock("ws", async () => {
+  const actual = await vi.importActual<typeof import("ws")>("ws");
+  class Recording extends actual.WebSocket {
+    constructor(...args: ConstructorParameters<typeof actual.WebSocket>) {
+      super(...args);
+      built.push(this as unknown as WsSocket);
+    }
+  }
+  return { ...actual, default: Recording, WebSocket: Recording };
+});
 
 type Incoming = { id?: number; method: string; params?: unknown; sessionId?: string };
 
@@ -379,32 +396,23 @@ describe("CdpClient socket errors", () => {
     const fake = await fakeCdp(() => {
       /* never answers */
     });
-    // Capture the socket the client builds so the test can raise a bare `error`.
-    // Node happens to emit `close` after `error` today; the point of this test is
-    // that the client does not depend on that.
-    const real = globalThis.WebSocket;
-    let socket: WebSocket | undefined;
-    class Recording extends real {
-      constructor(url: string | URL, protocols?: string | string[]) {
-        super(url, protocols);
-        socket = this as unknown as WebSocket;
-      }
-    }
-    globalThis.WebSocket = Recording as unknown as typeof WebSocket;
-    let cdp: CdpClient;
-    try {
-      cdp = await CdpClient.connect(fake.url);
-    } finally {
-      globalThis.WebSocket = real;
-    }
+    // The socket the client built, so the test can raise a bare `error` on it.
+    // `ws` happens to emit `close` after `error` today; the point of this test
+    // is that the client does not depend on that.
+    const cdp = await CdpClient.connect(fake.url);
+    const socket = built.at(-1);
+    expect(socket).toBeDefined();
 
     const inflight = cdp.send("Never.answered", {}, undefined, 10_000).catch((e: unknown) => e);
     await new Promise((r) => setTimeout(r, 30));
-    socket?.dispatchEvent(new Event("error"));
+    socket?.emit("error", new Error("socket blew up"));
 
     const e = asCapabilityError(await inflight);
     expect(e.code).toBe("CDP_SOCKET_ERROR");
     expect(e.retryable).toBe(true);
+    // D15/D309: the cause is kept, not just the fact. Four live failures went
+    // undiagnosed because this string was thrown away.
+    expect(e.evidence).toContain("socket blew up");
     expect(cdp.dead).toBe(true);
   });
 });
@@ -436,6 +444,79 @@ describe("CdpClient undispatchable frames", () => {
     // The frame body may be captured LinkedIn data; it never reaches a log line.
     expect(String(problems[0])).not.toContain(secret);
     expect(String(problems[0])).toContain("could not be parsed");
+    cdp.close();
+  });
+});
+
+/**
+ * D309: a text frame whose bytes are not valid UTF-8 must not cost us the
+ * connection. `Network.getResponseBody` relays a document body as a text frame,
+ * and some LinkedIn documents are not valid UTF-8 — under Node's global
+ * WebSocket that killed the whole socket mid-run, on every capability, not just
+ * the one where it was first cornered.
+ */
+describe("CdpClient invalid UTF-8 frames", () => {
+  /** A reply frame whose `body` string carries `bad` verbatim, bytes and all. */
+  const replyCarrying = (id: number, bad: number[]): Buffer =>
+    Buffer.concat([
+      Buffer.from(`{"id":${id},"result":{"body":"x`, "utf8"),
+      Buffer.from(bad),
+      Buffer.from(`x"}}`, "utf8"),
+    ]);
+
+  const cases: Array<[string, number[]]> = [
+    ["a lone surrogate", [0xed, 0xa0, 0x80]],
+    ["a bad continuation byte", [0xc3, 0x28]],
+  ];
+
+  for (const [label, bad] of cases) {
+    it(`survives ${label} in a text frame and still dispatches the reply`, async () => {
+      const fake = await fakeCdp((msg, sock) => {
+        // `binary: false` is the point: this goes out as a *text* frame holding
+        // bytes that are not valid UTF-8, exactly as Chrome relays such a body.
+        sock.send(replyCarrying(msg.id as number, bad), { binary: false });
+      });
+      const cdp = await CdpClient.connect(fake.url);
+      const problems: unknown[] = [];
+      cdp.onListenerError((e) => problems.push(e));
+
+      const result = await cdp.send<{ body: string }>("Network.getResponseBody", {}, undefined, 1_000);
+      expect(typeof result.body).toBe("string");
+      expect(problems).toEqual([]);
+      expect(cdp.dead).toBe(false);
+
+      // The connection is not merely un-dead: it still works afterwards.
+      await cdp.send("Network.getResponseBody", {}, undefined, 1_000);
+      expect(fake.seen).toHaveLength(2);
+      cdp.close();
+    });
+  }
+
+  it("delivers valid multi-byte UTF-8 unchanged", async () => {
+    const marker = "café — 日本語 🎯";
+    const fake = await fakeCdp((msg, sock) =>
+      sock.send(JSON.stringify({ id: msg.id, result: { body: marker } })),
+    );
+    const cdp = await CdpClient.connect(fake.url);
+
+    const result = await cdp.send<{ body: string }>("Network.getResponseBody");
+    expect(result.body).toBe(marker);
+    cdp.close();
+  });
+
+  it("round-trips a frame far larger than a document body", async () => {
+    // Guards the explicit payload ceiling: a snapshot or a body is measured in
+    // hundreds of KB, and a transport that silently caps below that would fail
+    // exactly on the largest, most valuable pages.
+    const big = "a".repeat(5 * 1024 * 1024);
+    const fake = await fakeCdp((msg, sock) =>
+      sock.send(JSON.stringify({ id: msg.id, result: { body: big } })),
+    );
+    const cdp = await CdpClient.connect(fake.url);
+
+    const result = await cdp.send<{ body: string }>("Network.getResponseBody", {}, undefined, 10_000);
+    expect(result.body).toHaveLength(big.length);
+    expect(cdp.dead).toBe(false);
     cdp.close();
   });
 });

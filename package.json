@@ -26,6 +26,7 @@
     "@supabase/supabase-js": "^2.112.2",
     "cheerio": "^1.2.0",
     "ulid": "^3.0.2",
+    "ws": "^8.21.3",
     "zod": "^4.4.3"
   },
   "devDependencies": {
@@ -33,7 +34,6 @@
     "@types/ws": "^8.18.1",
     "tsx": "^4.23.11",
     "typescript": "^5.9.3",
-    "vitest": "^4.1.10",
-    "ws": "^8.21.3"
+    "vitest": "^4.1.10"
   }
 }

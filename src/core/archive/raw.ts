@@ -21,6 +21,9 @@ export type CaptureInput = {
   pattern?: string;
   contentType?: string;
   capturedAt?: string;
+  /** The body did not survive a UTF-8 decode byte-exact (D310). Carried onto
+   *  the sidecar so the loss is visible to whoever re-reads this capture. */
+  lossyUtf8?: true;
 };
 
 /** A capture that landed, but not intact. Never a failure — see `archive()`. */
@@ -46,6 +49,9 @@ export type ArchivedCapture = {
   contentType?: string;
   capturedAt: string;
   bytes: number;
+  /** The archived bytes are a lossy UTF-8 decode of what LinkedIn sent, not the
+   *  exact response (D310). Absent means byte-exact. */
+  lossyUtf8?: true;
   /** Present only when the capture landed degraded — the body is on disk and
    *  readable, but something beside it did not. Callers put this on the
    *  receipt's `warnings`; it is never a reason to stop. */
@@ -63,6 +69,7 @@ type Meta = {
   contentType?: string;
   capturedAt: string;
   bytes: number;
+  lossyUtf8?: true;
 };
 
 function archiveError(code: string, op: string, cause: unknown): CapabilityError {
@@ -172,6 +179,7 @@ export class RawArchive {
       ...(input.contentType !== undefined ? { contentType: input.contentType } : {}),
       capturedAt,
       bytes: bytes.length,
+      ...(input.lossyUtf8 ? { lossyUtf8: true as const } : {}),
     };
     let warning: CaptureWarning | undefined;
     try {
@@ -204,6 +212,7 @@ export class RawArchive {
       contentType: input.contentType,
       capturedAt,
       bytes: bytes.length,
+      ...(input.lossyUtf8 ? { lossyUtf8: true as const } : {}),
       ...(warning ? { warning } : {}),
     };
   }
@@ -237,6 +246,7 @@ export class RawArchive {
         contentType: meta?.contentType,
         capturedAt: meta?.capturedAt ?? "",
         bytes: meta?.bytes ?? 0,
+        ...(meta?.lossyUtf8 ? { lossyUtf8: true as const } : {}),
       });
     }
 
