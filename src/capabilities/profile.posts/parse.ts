@@ -7,6 +7,10 @@ function object(value: unknown): Json | null {
   return value !== null && typeof value === "object" && !Array.isArray(value) ? value as Json : null;
 }
 
+export function parseJsonObject(body: string): Json | null {
+  try { return object(JSON.parse(body)); } catch { return null; }
+}
+
 function stringAt(value: unknown): string | null {
   return typeof value === "string" ? value : null;
 }
@@ -114,7 +118,7 @@ export type ParseProfilePostsResult = {
 };
 
 export function parseProfilePosts(body: string, options: ParseProfilePostsOptions): ParseProfilePostsResult {
-  const root = object(JSON.parse(body));
+  const root = parseJsonObject(body);
   const data = object(object(root?.["data"])?.["data"]);
   const feed = object(data?.["feedDashProfileUpdatesByMemberShareFeed"]);
   const refs = Array.isArray(feed?.["*elements"]) ? feed["*elements"] : [];

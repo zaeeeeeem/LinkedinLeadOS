@@ -4,7 +4,7 @@ import { CapabilityError, EXIT } from "../../core/run/receipt.js";
 import { capability as activityCapture } from "../activity.capture/index.js";
 import { looksLikePostPermalink, normalizeActivityUrl } from "../activity.capture/url.js";
 import { sessionUrnsOf } from "../profile.capture/identity.js";
-import { capturesFromCursor, resolvePostsSubject } from "../profile.posts/index.js";
+import { capturesFromCursor, resolvePostsSubject, scrollPassesForLimit } from "../profile.posts/index.js";
 import { parseProfileActivity } from "./parse.js";
 
 const args = z.object({
@@ -15,10 +15,6 @@ const args = z.object({
 type Args = z.infer<typeof args>;
 type Context = CapabilityContext<Args, true>;
 type Surface = "comments" | "reactions";
-
-export function scrollPassesForActivityLimit(limit: number): number {
-  return Math.min(12, Math.max(0, Math.ceil(limit / 20) - 1));
-}
 
 type CaptureResult = {
   bodies: string[];
@@ -74,7 +70,7 @@ export function createProfileActivityCapability(deps: ProfileActivityDeps = defa
     run: async (ctx) => {
       const target = normalizeActivityUrl(ctx.args.url);
       if (target.personRef === undefined || target.vanity === undefined || target.surface === "post") throw invalidTarget();
-      const scrolls = scrollPassesForActivityLimit(ctx.args.limit);
+      const scrolls = scrollPassesForLimit(ctx.args.limit);
       const commentsCapture = await deps.capture(ctx, { url: target.vanity, surface: "comments", scrolls });
       const subjectUrn = resolvePostsSubject(commentsCapture.bodies, commentsCapture.sessionUrns);
       if (subjectUrn === null) throw unresolved();
@@ -86,12 +82,16 @@ export function createProfileActivityCapability(deps: ProfileActivityDeps = defa
       let excluded = 0;
       let unresolvedRows = 0;
       let filteredSince = 0;
-      let commentCount = 0;
-      let reactionCount = 0;
-      for (const capture of [commentsCapture, reactionsCapture]) {
+      let duplicates = 0;
+      const commentsByUrn = new Map<string, true>();
+      const reactionsByUrn = new Map<string, true>();
+      for (const [surface, capture] of [["comments", commentsCapture], ["reactions", reactionsCapture]] as const) {
         let remaining = ctx.args.limit;
         for (const body of capture.bodies) {
-          if (remaining === 0 || !body.includes("feedDashProfileUpdatesByMember")) continue;
+          const envelope = surface === "comments"
+            ? "feedDashProfileUpdatesByMemberComments"
+            : "feedDashProfileUpdatesByMemberReactions";
+          if (remaining === 0 || !body.includes(envelope)) continue;
           const parsed = parseProfileActivity(body, {
             subjectUrn,
             sessionUrns,
@@ -103,10 +103,15 @@ export function createProfileActivityCapability(deps: ProfileActivityDeps = defa
           excluded += parsed.excludedActors + parsed.excludedSessionActors;
           unresolvedRows += parsed.unresolved;
           filteredSince += parsed.filteredSince;
-          commentCount += parsed.rows.filter((row) => row.kind === "comment").length;
-          reactionCount += parsed.rows.filter((row) => row.kind === "reaction").length;
+          for (const row of parsed.rows) {
+            const rows = row.kind === "comment" ? commentsByUrn : reactionsByUrn;
+            if (rows.has(row.urn)) duplicates += 1;
+            else rows.set(row.urn, true);
+          }
         }
       }
+      const commentCount = commentsByUrn.size;
+      const reactionCount = reactionsByUrn.size;
       const usable = commentCount + reactionCount;
       ctx.run.log("parse.ok", {
         phase: "profile.activity",
@@ -117,13 +122,14 @@ export function createProfileActivityCapability(deps: ProfileActivityDeps = defa
           requested: ctx.args.limit * 2,
           captured: examined,
           usable,
-          skipped: excluded + unresolvedRows + filteredSince,
+          skipped: excluded + unresolvedRows + filteredSince + duplicates,
         },
         warnings: [...(commentsCapture.result?.warnings ?? []), ...(reactionsCapture.result?.warnings ?? [])],
         data: {
           source: "voyager-json",
           activity: { comments: commentCount, reactions: reactionCount },
           work: { limit_per_surface: ctx.args.limit, examined, scrolls_per_surface: scrolls },
+          since_field: "target_post.posted_at",
           storage: { mode: "archive-only" },
           from_archive: true,
           archive_hint: "Reparse the raw bodies in this run archive after the profile.activity storage decision lands.",

@@ -9,6 +9,11 @@ const fixture = readFileSync(fixturePath, "utf8");
 const subject = "urn:li:fsd_profile:ACoAABJLCOABl3WHDMGiReUZpWQ432xXbddzpUA";
 
 describe("profile.posts fixture parser", () => {
+  it("degrades a non-JSON body to zero parsed work", () => {
+    expect(parseProfilePosts("<html>feedDashProfileUpdatesByMemberShareFeed</html>", { subjectUrn: subject }))
+      .toMatchObject({ examined: 0, totalFeedItems: 0, rows: [] });
+  });
+
   it("reads value-bearing included nodes, never microSchema declarations", () => {
     const parsed = parseProfilePosts(fixture, { subjectUrn: subject });
     expect(parsed.rows.length).toBeGreaterThan(0);

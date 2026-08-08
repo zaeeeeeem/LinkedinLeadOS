@@ -26,7 +26,9 @@ derived `posted_at`, and reaction/comment totals resolved through the social-det
 
 The cost is two page loads and one distinct profile open: one comments tab and one reactions tab.
 `--limit` defaults to 20 per tab and bounds both scroll passes and referenced items examined;
-`--since` is inclusive on the snowflake-derived target-post timestamp and does not replenish the
+`--since` is inclusive on the snowflake-derived **target post publication timestamp**, not the
+time the subject commented or reacted (the payload carries no absolute event timestamp). The
+receipt names this as `since_field: target_post.posted_at`; filtering does not replenish the
 work allowance. Both loads are delegated to `activity.capture`, so the ledger, Task 20 sub-cap,
 challenge gates, human pacing, and raw-first archive remain in force.
 

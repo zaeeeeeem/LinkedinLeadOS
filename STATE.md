@@ -1171,3 +1171,16 @@ Task 28 — `profile.activity` (implementation complete; live gate pending opera
 reader. Named mutation tests kill actor/target conflation and removal of session-actor exclusion.
 The full offline suite passes 1,098 tests with 13 store-integration skips; typecheck, registry
 discovery and diff hygiene are clean. No LinkedIn page was loaded.
+
+Task 28 — `profile.activity` (review fixes in progress, checkpoint 4, 2026-08-09). Tightened
+per-tab envelope selection, added cross-body unique counting, anchored actor resolution to the
+subject across all header attributes, classified null actors as unresolved, and made both feed
+parsers tolerate non-JSON captures. The focused suite passes 22 tests and typecheck is clean;
+mutation checks and the full offline suite are next. No LinkedIn page was loaded.
+
+Task 28 — `profile.activity` (review fixes verified; live gate pending operator, checkpoint 5,
+2026-08-09). Exact per-tab envelopes and unique cross-body counts now protect the receipt;
+subject-anchored header scanning and safe non-JSON parsing protect identity and capture drift.
+The two review mutations are killed by named tests. The full offline suite passes 1,104 tests
+with 13 store-integration skips; typecheck, registry discovery and diff hygiene are clean. No
+LinkedIn page was loaded.

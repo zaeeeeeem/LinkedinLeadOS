@@ -1,5 +1,5 @@
 import type { PostProjection } from "../../core/store/posts.js";
-import { feedPostAuthorUrn, indexFeedPostGraph, projectFeedPost } from "../profile.posts/parse.js";
+import { feedPostAuthorUrn, indexFeedPostGraph, parseJsonObject, projectFeedPost } from "../profile.posts/parse.js";
 
 type Json = Record<string, unknown>;
 
@@ -11,19 +11,20 @@ function stringAt(value: unknown): string | null {
   return typeof value === "string" ? value : null;
 }
 
-function profileUrnFromAttributedText(value: unknown): string | null {
+function profileUrnsFromAttributedText(value: unknown): string[] {
   const text = object(value);
   const attrs = Array.isArray(text?.["attributesV2"]) ? text["attributesV2"] : [];
+  const urns: string[] = [];
   for (const attr of attrs) {
     const detail = object(object(attr)?.["detailData"]);
     const urn = stringAt(detail?.["*profileFullName"]);
-    if (urn?.startsWith("urn:li:fsd_profile:") === true) return urn;
+    if (urn?.startsWith("urn:li:fsd_profile:") === true) urns.push(urn);
   }
-  return null;
+  return urns;
 }
 
-function activityActorUrn(update: Json): string | null {
-  return profileUrnFromAttributedText(object(update["header"])?.["text"]);
+function activityActorUrns(update: Json): string[] {
+  return profileUrnsFromAttributedText(object(update["header"])?.["text"]);
 }
 
 export type ActivityKind = "comment" | "reaction";
@@ -51,12 +52,15 @@ export type ParseProfileActivityResult = {
 };
 
 export function parseProfileActivity(body: string, options: ParseProfileActivityOptions): ParseProfileActivityResult {
-  const root = object(JSON.parse(body));
+  const root = parseJsonObject(body);
   const data = object(object(root?.["data"])?.["data"]);
   const comments = object(data?.["feedDashProfileUpdatesByMemberComments"]);
   const reactions = object(data?.["feedDashProfileUpdatesByMemberReactions"]);
   const feed = comments ?? reactions;
   const kind: ActivityKind | null = comments !== null ? "comment" : reactions !== null ? "reaction" : null;
+  if (kind === null || feed === null) {
+    return { rows: [], examined: 0, totalFeedItems: 0, excludedActors: 0, excludedSessionActors: 0, unresolved: 0, filteredSince: 0 };
+  }
   const refs = Array.isArray(feed?.["*elements"]) ? feed["*elements"] : [];
   const graph = indexFeedPostGraph(Array.isArray(root?.["included"]) ? root["included"] : []);
   const selected = refs.slice(0, Math.max(0, options.limit ?? refs.length));
@@ -71,10 +75,12 @@ export function parseProfileActivity(body: string, options: ParseProfileActivity
   for (const ref of selected) {
     const key = stringAt(ref);
     const update = key === null ? undefined : graph.byEntity.get(key);
-    if (update === undefined || kind === null) { unresolved += 1; continue; }
-    const actor = activityActorUrn(update);
-    if (actor !== null && sessions.has(actor)) { excludedSessionActors += 1; continue; }
-    if (actor !== options.subjectUrn) { excludedActors += 1; continue; }
+    if (update === undefined) { unresolved += 1; continue; }
+    const actorUrns = activityActorUrns(update);
+    if (actorUrns.length === 0) { unresolved += 1; continue; }
+    if (!actorUrns.includes(options.subjectUrn)) { excludedActors += 1; continue; }
+    const actor = options.subjectUrn;
+    if (sessions.has(actor)) { excludedSessionActors += 1; continue; }
     const targetAuthor = feedPostAuthorUrn(update);
     const post = projectFeedPost(update, graph);
     if (targetAuthor === null || post === null) { unresolved += 1; continue; }

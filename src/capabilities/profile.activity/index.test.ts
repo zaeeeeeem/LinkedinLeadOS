@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
-import { createProfileActivityCapability, scrollPassesForActivityLimit } from "./index.js";
+import { createProfileActivityCapability } from "./index.js";
+import { scrollPassesForLimit } from "../profile.posts/index.js";
 
 const subject = "urn:li:fsd_profile:subject";
 const identity = JSON.stringify({ included: [{ "*vieweeProfile": subject }] });
@@ -33,8 +34,8 @@ describe("profile.activity composition", () => {
   });
 
   it("captures both tabs with work bounded from --limit and performs no store write", async () => {
-    expect(scrollPassesForActivityLimit(20)).toBe(0);
-    expect(scrollPassesForActivityLimit(21)).toBe(1);
+    expect(scrollPassesForLimit(20)).toBe(0);
+    expect(scrollPassesForLimit(21)).toBe(1);
     const capture = vi.fn(async (_ctx, args: { surface: "comments" | "reactions" }) => ({
       bodies: [identity, activityBody(args.surface === "comments" ? "Comments" : "Reactions", 7491197577439141888n)],
       sessionUrns: [],
@@ -65,5 +66,27 @@ describe("profile.activity composition", () => {
     const receipt = await cap.run(context({ url: "subject", limit: 1, since: "2030-01-01T00:00:00.000Z" }));
     expect(receipt.counts).toMatchObject({ requested: 2, captured: 2, usable: 0, skipped: 2 });
     expect(receipt.data).toMatchObject({ activity: { comments: 0, reactions: 0 }, from_archive: true });
+  });
+
+  it("ignores ShareFeed bodies without draining either tab's allowance", async () => {
+    const shareFeed = activityBody("Comments", 7491197577439141888n)
+      .replaceAll("feedDashProfileUpdatesByMemberComments", "feedDashProfileUpdatesByMemberShareFeed");
+    const capture = vi.fn(async (_ctx, args: { surface: "comments" | "reactions" }) => ({
+      bodies: [identity, shareFeed, activityBody(args.surface === "comments" ? "Comments" : "Reactions", 7491197577439141888n)],
+      sessionUrns: [],
+    }));
+    const receipt = await createProfileActivityCapability({ capture }).run(context({ url: "subject", limit: 1 }));
+    expect(receipt.counts).toMatchObject({ captured: 2, usable: 2, skipped: 0 });
+    expect(receipt.data).toMatchObject({ activity: { comments: 1, reactions: 1 } });
+  });
+
+  it("dedupes repeated boundary items across captured bodies", async () => {
+    const capture = vi.fn(async (_ctx, args: { surface: "comments" | "reactions" }) => {
+      const body = activityBody(args.surface === "comments" ? "Comments" : "Reactions", 7491197577439141888n);
+      return { bodies: [identity, body, body], sessionUrns: [] };
+    });
+    const receipt = await createProfileActivityCapability({ capture }).run(context({ url: "subject", limit: 2 }));
+    expect(receipt.counts).toMatchObject({ captured: 4, usable: 2, skipped: 2 });
+    expect(receipt.data).toMatchObject({ activity: { comments: 1, reactions: 1 } });
   });
 });

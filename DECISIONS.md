@@ -2835,3 +2835,22 @@ the receipt fixed-size while retaining enough information to choose and later ex
 Offline fixtures, named mutation failures, the full suite, typecheck and registry discovery
 are the implementation gate. The real-profile comments/reactions run is operator-supervised
 and remains deliberately unspent; no Task 28 development command opens LinkedIn.
+
+### Task 28 review follow-up — exact envelopes, unique counts, and anchored actors (2026-08-09)
+
+The composition admits only the comments envelope on the comments capture and the reactions
+envelope on the reactions capture. The pure parser independently returns zero examined work
+for any other envelope, so an unrelated body cannot consume a tab's allowance. Non-JSON
+bodies likewise return zero work in the shared post parser rather than leaking a raw
+`SyntaxError` out of either reader.
+
+Receipt counts are unique by activity kind plus target activity urn across all captured bodies.
+Repeated pagination-boundary rows still consume examined work, and are accounted as skipped,
+but do not inflate usable comments or reactions. The actor resolver scans every attributed
+profile urn in the header for the already-proven subject rather than trusting attribute order;
+a header with no resolvable actor is parse drift (`unresolved`), not a stranger exclusion.
+
+`--since` remains the settled snowflake comparison but is now labeled in every receipt as
+`target_post.posted_at`. The archive has no absolute comment/reaction event time, so renaming
+the flag would not create the missing timestamp and would diverge from the other activity
+readers without improving accuracy.

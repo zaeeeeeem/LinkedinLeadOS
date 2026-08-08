@@ -57,8 +57,7 @@ describe.skipIf(!fixturesPresent)("profile.activity promoted fixtures", () => {
       expect(row.comments).toEqual(expect.any(Number));
       expect(row.text === null || typeof row.text === "string").toBe(true);
     }
-    expect([...comments.rows, ...reactions.rows].some((row) => row.text !== null)).toBe(true);
-    expect([...comments.rows, ...reactions.rows].some((row) => row.text === "string")).toBe(false);
+    expect([...comments.rows, ...reactions.rows].some((row) => typeof row.text === "string")).toBe(true);
   });
 
   it("applies inclusive --since and an examination work bound", () => {
@@ -74,5 +73,36 @@ describe.skipIf(!fixturesPresent)("profile.activity promoted fixtures", () => {
       subjectUrn: f.subjectUrn, sessionUrns: [], limit: 1,
       since: new Date(Date.parse(boundary) + 1).toISOString(),
     }).rows).toHaveLength(0);
+  });
+
+  it("finds the subject actor anywhere in header attributes", () => {
+    const f = fixtures();
+    const body = JSON.parse(f.comments) as { data: { data: { feedDashProfileUpdatesByMemberComments: { "*elements": string[] } } }; included: Record<string, unknown>[] };
+    const ref = body.data.data.feedDashProfileUpdatesByMemberComments["*elements"][0]!;
+    const update = body.included.find((x) => x.entityUrn === ref)!;
+    const text = (update.header as { text: { attributesV2: unknown[] } }).text;
+    text.attributesV2.unshift({ detailData: { "*profileFullName": "urn:li:fsd_profile:other" } });
+    const parsed = parseProfileActivity(JSON.stringify(body), { subjectUrn: f.subjectUrn, sessionUrns: [], limit: 1 });
+    expect(parsed.rows).toHaveLength(1);
+    expect(parsed.rows[0]!.actor_urn).toBe(f.subjectUrn);
+  });
+
+  it("counts a missing actor as unresolved rather than another person's activity", () => {
+    const f = fixtures();
+    const body = JSON.parse(f.comments) as { data: { data: { feedDashProfileUpdatesByMemberComments: { "*elements": string[] } } }; included: Record<string, unknown>[] };
+    const ref = body.data.data.feedDashProfileUpdatesByMemberComments["*elements"][0]!;
+    const update = body.included.find((x) => x.entityUrn === ref)!;
+    delete update.header;
+    const parsed = parseProfileActivity(JSON.stringify(body), { subjectUrn: f.subjectUrn, sessionUrns: [], limit: 1 });
+    expect(parsed).toMatchObject({ examined: 1, unresolved: 1, excludedActors: 0 });
+  });
+
+  it("does no work for unrelated envelopes or non-JSON bodies", () => {
+    const f = fixtures();
+    const shareFeed = f.comments.replaceAll("feedDashProfileUpdatesByMemberComments", "feedDashProfileUpdatesByMemberShareFeed");
+    expect(parseProfileActivity(shareFeed, { subjectUrn: f.subjectUrn, sessionUrns: [] }))
+      .toMatchObject({ examined: 0, totalFeedItems: 0, rows: [] });
+    expect(parseProfileActivity("<html>feedDashProfileUpdatesByMemberComments</html>", { subjectUrn: f.subjectUrn, sessionUrns: [] }))
+      .toMatchObject({ examined: 0, totalFeedItems: 0, rows: [] });
   });
 });
