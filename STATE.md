@@ -1120,3 +1120,36 @@ the browser.
 
 **Leftover:** none. The live M3 gate and cache check both exited 0, `runs/tab.lock` is absent,
 and the automation Chrome remains available on port 9223.
+Task 27 — `profile.posts` (in progress, checkpoint 1, 2026-08-09). Governing docs, the
+Task 26 field map, shared fixtures, `profile.get` composition, activity capture, store and
+budget surfaces have been read. The fixture is correctly resolved from the main checkout
+through `repoRoot()` (D301); parser tests are the next checkpoint. No live page was loaded.
+
+Task 27 — `profile.posts` (in progress, checkpoint 2, 2026-08-09). Offline parser and
+composition are implemented TDD against the promoted 611,559-byte Voyager fixture. The
+shared post projection/write path is factored for person/company owners; author exclusion,
+snowflake time, inclusive since, subject refusal and limit-to-scroll/examination bounds are
+pinned. Full-suite and type verification are next. No live page was loaded.
+
+Task 27 — `profile.posts` (implementation complete; live gate pending operator, checkpoint 3,
+2026-08-09). Delivered README, pure Voyager parser, exact subject/stranger boundary,
+snowflake `posted_at`, inclusive `--since`, work-bounded `--limit`, delegated raw-first capture,
+and the shared person/company post projection with batch `person_posts` upsert. Mutation checks
+proved the repost equality, since comparator and limit slice are each killed by their named
+test. Typecheck is clean; the full offline suite is 1,084 passed / 13 skipped, with the 13 store
+integration checks skipped because Supabase env vars are absent. Stopped before the metered live
+gate as instructed; no LinkedIn page was loaded.
+
+Task 27 — `profile.posts` (review fixes complete; live gate pending operator, checkpoint 4,
+2026-08-09). Fixed the first-capture cursor boundary and joined social counts through
+`*socialDetail`, eliminating null reaction/comment counts on all 14 retained fixture rows.
+Also fixed backend-urn fallback, per-row malformed-snowflake degradation, null entity-map keys,
+post-permalink preflight refusal, since-filter receipt accounting, and post-table constants.
+Six new regressions bring the focused suite to 16 passing; typecheck is clean. Full-suite
+verification is next. No LinkedIn page was loaded.
+
+Task 27 — `profile.posts` (review fixes verified; live gate pending operator, checkpoint 5,
+2026-08-09). Full offline suite passes: 1,090 tests passed and 13 store-integration tests
+skipped because Supabase environment variables are absent. Typecheck and `git diff --check`
+are clean. The operator-supervised metered live gate remains the only pending acceptance step;
+no LinkedIn page was loaded.

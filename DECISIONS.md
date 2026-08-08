@@ -2674,3 +2674,90 @@ argument — an exception is not permission to read pages loosely:
 and every other kind of field, still takes data only from captured network
 bodies. This does not generalize to a surface that merely *looks* similar; the
 next surface needs its own measurement and its own decision.
+## D230 — `profile.posts` parses only the feed's referenced update graph (2026-08-09)
+
+The parser starts at `data.data.feedDashProfileUpdatesByMemberShareFeed.*elements`, resolves
+those references against `included[]`, and reads value fields only from the resolved update
+and count entities. It never recursively searches the response and never reads `meta`, so a
+microSchema declaration such as `{type:"string"}` cannot become a post body. The feed order
+is retained because it is the only measured ordering contract in the Task 26 body.
+
+## D231 — The subject urn is an input to the offline post parser (2026-08-09)
+
+Author identity comes only from the resolved update's
+`actor.name.attributesV2[].detailData.*profileFullName`. The parser accepts the already
+resolved subject urn and retains a row only on exact agreement. Subject resolution remains
+the capability composition's responsibility; the parser does not infer a subject from the
+most frequent actor, the first card, or any session identity.
+
+## D232 — Activity snowflakes are the sole post clock (2026-08-09)
+
+`posted_at` is `new Date(Number(BigInt(activityId) >> 22n))`, where `activityId` is taken
+from `urn:li:activity:<id>`. Relative labels and CDN `expiresAt` values are ignored. This is
+the Task 26 verdict, recorded here as the implementation boundary rather than re-derived.
+
+## D233 — `--limit` caps referenced feed items examined and scroll work (2026-08-09)
+
+The default and one captured Voyager page are both 20 items. The reader converts the requested
+limit to zero scroll passes through 20 items, then one additional pass per next 20, capped by
+the activity capture's existing 12-pass safety ceiling. Independently, it stops resolving feed
+references once exactly `limit` items have been examined across captured bodies. Filtering
+strangers or `--since` happens after that work debit, so neither can turn a small limit into an
+unbounded crawl.
+
+## D234 — Subject resolution uses the captured viewee identity, without forcing a person row (2026-08-09)
+
+The reader takes subject candidates only from the captured profile-components body's
+`included[].*vieweeProfile`, removes every urn in `sessionUrnsOf`, and proceeds only with one
+remaining `urn:li:fsd_profile` value. It does not require a `persons` row because the schema has
+no foreign key (D94), and it does not infer identity from author frequency. Zero, multiple, or
+session-owned candidates store nothing and return parse drift.
+
+## D235 — The shared post projection owns both post-table upserts (2026-08-09)
+
+`src/core/store/posts.ts` defines the common activity row and a generic owner key for
+`person_urn` or `company_urn`. One batch upsert path selects `person_posts` or `company_posts`,
+keys on `urn`, and stamps `last_seen`; Task 23 can reuse it without duplicating row projection
+or write semantics.
+
+## D236 — `--since` is inclusive on the snowflake-derived stored instant (2026-08-09)
+
+A row whose derived `posted_at` equals `--since` is retained; only an older row is filtered.
+The comparison uses the same ISO instant written to `person_posts`, not capture time or the
+rendered relative label. Filtering does not replenish `--limit` work.
+
+## D237 — `profile.posts` delegates the complete live capture composition (2026-08-09)
+
+The reader invokes `activity.capture.run` with the caller's context and reads only bodies the
+shared tap archived during that invocation. It adds no navigation, request, tap watch, budget
+spend, challenge gate, or raw archive path of its own. Consequently every load remains metered
+under the outer `profile.posts` RunBudget and raw-first behavior holds on failures too.
+
+## D238 — Post subject ambiguity is parse drift and stores zero rows (2026-08-09)
+
+Zero or multiple non-session viewee urns, or a viewee that is only the logged-in account, is
+`PROFILE_POSTS_SUBJECT_UNRESOLVED` / exit 5 / `HALT_AND_NOTIFY`. This is not retryable: retrying
+the same shape cannot make an ambiguous identity trustworthy. The refusal happens before the
+single batch write.
+
+## D239 — Task 27 stops before its operator-supervised live gate (2026-08-09)
+
+Offline fixture, composition, shared-store, registry/full-suite and type verification are the
+implementation gate. The real-profile gate is deliberately left unspent for the operator, as
+the task requires; no development command in Task 27 opens LinkedIn.
+
+### Task 27 review follow-up — capture boundary and social-count graph (2026-08-09)
+
+The tap cursor is the next capture index: a response archived after a saved cursor may have
+`seq === cursor`, so `profile.posts` selects `seq >= cursor`. This makes D237 exact and prevents
+the first subject-identity or feed body from disappearing.
+
+Count entities are joined through each update's `*socialDetail` urn, preserving whether the
+social activity is keyed by `activity`, `ugcPost`, or `share`; activity ids are never rewritten
+into ugcPost ids. A missing detail falls back to the activity urn. The promoted fixture now
+proves all 14 retained subject rows have both reaction and comment counts.
+
+Malformed feed references, activity ids, and non-activity backend urns are per-item parse misses:
+non-string refs never enter the entity map, an unusable backend falls back to the update entity
+urn, and an invalid snowflake increments `unresolved` without discarding other rows. Since-filtered
+rows are counted as skipped so receipt counts account for every examined item.

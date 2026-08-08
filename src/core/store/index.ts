@@ -25,6 +25,11 @@ export {
   upsertPerson,
   type StoreOpts,
 } from "./persons.js";
+export {
+  upsertPostRows,
+  type OwnedPostProjection,
+  type PostProjection,
+} from "./posts.js";
 export type {
   ExperienceInput,
   PersonExperienceRow,
