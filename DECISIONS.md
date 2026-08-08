@@ -2897,3 +2897,35 @@ Why no fixture caught it: every offline test constructs a fresh tap per run, so 
 needs two real captures over one session. The regression test injects the tap through
 `makeTap` and asserts `watching` is empty after the run; it fails when the release line is
 removed (verified).
+
+## D308 — The post permalink still will not load, and the URL-spelling hypothesis is dead (2026-08-09)
+
+Task 29's task file named one thing to try before starting: the `/posts/<slug>-activity-<id>-<hash>`
+spelling instead of `/feed/update/`, on the theory that the two document paths behave
+differently (D300 already watches both). **Tried and disproven.**
+
+Run `01KZKVYA4JH3TXN1W26CN3RY4A` used the real permalink for the *same post* the two earlier
+attempts used — activity `7491197577439141888`, harvested out of Task 27's own live archive,
+so the slug and hash are LinkedIn's own, not constructed. It failed identically to runs
+`01KZKM4HC3V94H761M65KPCFM7` and `01KZKMDFGDM48683YJ0P2S5NSM`: `CDP_SOCKET_ERROR`, exit 6,
+2,402ms. Three failures, two URL spellings, one behaviour.
+
+The event trace localises it. The document response arrives, then `capture.miss` fires on the
+`activity-document` pattern — the body is not retrievable — and the *browser-level* socket
+errors immediately after. The failure is in fetching that document's body, not in navigation
+and not in the page rendering.
+
+**A second hypothesis is also dead: CDP frame size.** The client uses Node's global
+`WebSocket`, and a 100 MB message over a local socket round-trips fine — measured at 1 MB,
+5 MB, 10 MB, 20 MB, 50 MB and 100 MB, all OK. A large `Network.getResponseBody` result is
+not what kills the connection.
+
+What is *not* yet excluded: browser state. The automation Chrome is holding 9 pages, 27
+iframes and 60 workers, including 8 LinkedIn tabs left open by earlier probe runs. Chrome
+itself survives every failure — `/json/version` answers normally afterwards — so this is the
+socket dropping, not a crash. The task file's other suggestion, a fresh Chrome with no other
+tabs, is the one variable still untested, and it needs the operator: it discards whatever
+they have open.
+
+**Task 29 therefore remains blocked**, now with two fewer candidate explanations and a
+narrower target: the body fetch for this one document type.
