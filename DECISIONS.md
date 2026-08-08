@@ -3006,3 +3006,77 @@ point is that a parser drift chased months from now can tell "LinkedIn changed t
 bytes, but it requires `Fetch.enable` — request interception on the one account we have. The
 detection surface is not worth an edge case in a handful of documents, when the alternative is
 knowing precisely which captures were affected.
+
+## D311 — Correction to D309: the transport fix is right, its stated cause is not proven (2026-08-09)
+
+The `ws` swap (D310) works — the permalink captured cleanly on the first attempt after it,
+run `01KZKXSGNE4XRQMJRK241YQS6Q`, exit 0, 26 captures, 0 misses, after four consecutive
+failures. That result stands and is not in question.
+
+**What does not stand is D309's specific claim that this post's document body is not valid
+UTF-8.** Measured on the body now archived:
+
+- **Zero** U+FFFD replacement characters in all 4,750,447 bytes. Had the bytes been invalid,
+  `Buffer.toString("utf8")` under `skipUTF8Validation` would have produced one per bad
+  sequence. It produced none.
+- The obvious follow-up theory — valid UTF-8 with a multi-byte character straddling a frame
+  boundary, which RFC 6455 permits — is **also disproven**. A hand-built server that splits
+  `🎉` across a text frame and its continuation is handled correctly by the global
+  `WebSocket`: message delivered intact.
+
+So what is established is narrower than D309 said, and should be read as the real finding:
+the global `WebSocket` fails the *connection* with an empty-message `TypeError` on some frame
+in this exchange; invalid UTF-8 in a single frame reproduces that exact signature offline; and
+`ws` with validation off survives where it did not. The precise trigger in the live exchange
+is **not** identified. It may not even be the document body — the socket death was only
+correlated with that fetch.
+
+**Consequence for D310's `lossyUtf8` tagging:** on the one capture we now have, nothing is
+lossy. The flag is harmless and correctly conservative, but it should not be read as evidence
+that LinkedIn serves malformed bodies. No archived body has yet been shown to be lossy.
+
+Left open deliberately rather than closed with a tidy story. The fix is proven; the mechanism
+is not, and writing it down as proven would be the kind of thing that costs an account later.
+
+## D312 — `post.get` reads the DOM snapshot; this needs a third exception (2026-08-09)
+
+**Source verdict for Task 29, measured on run `01KZKXSGNE4XRQMJRK241YQS6Q`.**
+
+The permalink carries **no labeled JSON for the post**. Measured in the 4,750,447-byte
+document response and all 26 captured bodies:
+
+- `bpr-guid` embedded data islands: **0**. D117's "embedded structured data in the initial
+  document" route does not exist on this surface.
+- `socialActivityCounts`: **0** occurrences. No reaction or comment counts as labeled fields.
+- No `urn:li:ugcPost` anywhere in the document.
+- The `gql-social-reactions`, `gql-social-comments`, `gql-social-detail` and
+  `gql-social-activity-counts` watches all recorded **0 hits**. Those panels are not fetched
+  on a cold load; they need interaction we have not designed yet.
+
+What *is* there is the rendered DOM, and it is anchored the way D305's job reader is:
+
+- `data-testid="ReactionFacepileCollection-urn:li:activity:7491197577439141888"` — the
+  subject's identity, in a `data-testid`, resolvable-or-refusable against the requested urn.
+- `data-testid="…-commentList…FeedType_FEED_DETAIL"` — the comment list scope.
+- 15 `expandable-text-box` nodes (post body and comment bodies), 56 `urn:li:comment:` urns in
+  the snapshot and 900 in the document.
+- `card_ref_scope_resolved: false` — the `/in/<vanity>` card-ref identity rule (D127) does
+  **not** carry over here, exactly as on the activity surface.
+
+**[DECISION NEEDED] — this would be the third DOM-source exception**, after the profile reader
+(D123/D130) and the job reader (D305). CLAUDE.md currently says "those two exceptions are the
+profile reader and the job reader, and nothing else". Task 29 cannot be written without either
+amending that sentence or abandoning `post.get`. The operator decides; this entry does not
+grant the exception.
+
+If granted, the shape is already settled by precedent and should not be re-derived: `outerHTML`
+snapshot, archived raw, parsed **offline**, every row tagged DOM-sourced, scope anchored on
+`data-testid` rather than container position or hashed classes, identity resolved-or-refused
+against `urn:li:activity:<id>`.
+
+**`--reactors` / `--commenters` are a separate and harder question** and should not ride along
+with the above. Those lists are not on the page at load; they require opening a panel, which
+is interaction, and the standing rule is that we never forge a request the UI did not issue.
+Task 29's file already scopes them to "people the panel actually loaded". Recommend splitting:
+post detail first under the exception above, reactor/commenter lists as their own measured
+task.
