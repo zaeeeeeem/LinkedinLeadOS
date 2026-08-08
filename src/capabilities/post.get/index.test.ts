@@ -34,9 +34,9 @@ function context(args: Record<string, unknown>, html = snapshotHtml()) {
   return {
     args: {
       comments: false,
-      "comments-limit": DEFAULT_COMMENTS_LIMIT,
+      commentsLimit: DEFAULT_COMMENTS_LIMIT,
       reactions: false,
-      "reactions-limit": DEFAULT_REACTIONS_LIMIT,
+      reactionsLimit: DEFAULT_REACTIONS_LIMIT,
       ...args,
     },
     flags: { noStore: false },
@@ -85,7 +85,7 @@ describe("post.get composition", () => {
 
   it("reads comments only when asked, and states plainly that the read is partial", async () => {
     const cap = createPostGetCapability({ capture: capture() as never });
-    const receipt = await cap.run(context({ url: PERMALINK, comments: true, "comments-limit": 2 }));
+    const receipt = await cap.run(context({ url: PERMALINK, comments: true, commentsLimit: 2 }));
     const data = receipt.data as { read: { comments: number; comments_complete: boolean } };
     expect(data.read.comments).toBe(2);
     expect(data.read.comments_complete).toBe(false);
@@ -98,9 +98,9 @@ describe("post.get composition", () => {
 
   it("reads reactions only when asked", async () => {
     const cap = createPostGetCapability({ capture: capture() as never });
-    const off = await cap.run(context({ url: PERMALINK, comments: true, "comments-limit": 1 }));
+    const off = await cap.run(context({ url: PERMALINK, comments: true, commentsLimit: 1 }));
     expect((off.data as { read: { reactions: number } }).read.reactions).toBe(0);
-    const on = await cap.run(context({ url: PERMALINK, reactions: true, "reactions-limit": 1 }));
+    const on = await cap.run(context({ url: PERMALINK, reactions: true, reactionsLimit: 1 }));
     expect((on.data as { read: { reactions: number } }).read.reactions).toBe(1);
   });
 

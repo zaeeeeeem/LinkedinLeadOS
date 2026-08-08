@@ -1299,3 +1299,13 @@ has its own budget sub-cap asserting zero profile opens and zero search pages.
 **Not done: the live gate.** No LinkedIn page was loaded for this task — the capability has
 never run against a live permalink, only against the archived snapshot from run
 `01KZKXSGNE4XRQMJRK241YQS6Q`.
+
+Task 29 review follow-up — CLI reachability, 2026-08-10. Fixed a class of defect rather than
+two instances: capability schema keys must be camelCase or the flag is unreachable, because
+`parseArgv` camel-cases before a `.strict()` schema sees the key (D316). `post.get`'s
+`--comments-limit` / `--reactions-limit` and `log.runs`'s `--include-queries` were all
+unusable; all three now work. `tests/cli-schema-keys.test.ts` enforces it across the whole
+registry and round-trips real argv, so the next occurrence fails at authoring time. Two tests
+that hand-built kebab keys — the pattern that hid the bug — were corrected to the spelling the
+CLI actually produces. Post totals are now scoped outside comment rows (D317). Full suite
+**1,146 passed, 0 skipped**; typecheck clean.

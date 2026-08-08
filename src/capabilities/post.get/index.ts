@@ -20,15 +20,23 @@ import { parsePost, type ParsePostResult } from "./parse.js";
 export const DEFAULT_COMMENTS_LIMIT = 10;
 export const DEFAULT_REACTIONS_LIMIT = 10;
 
+/**
+ * Schema keys are **camelCase**, because `parseArgv` camel-cases every flag name
+ * before the schema ever sees it (`flags.ts`'s `camel`). A `"comments-limit"` key
+ * on a `.strict()` object is unreachable: the CLI spelling stays
+ * `--comments-limit`, but what arrives is `commentsLimit`, and strict mode
+ * rejects it as unrecognized. Pinned for the whole registry in
+ * `tests/cli-schema-keys.test.ts`.
+ */
 const args = z
   .object({
     url: z.string().min(1),
     /** Read the comments the page rendered. Off by default (D313). */
     comments: z.coerce.boolean().default(false),
-    "comments-limit": z.coerce.number().int().min(1).max(200).default(DEFAULT_COMMENTS_LIMIT),
+    commentsLimit: z.coerce.number().int().min(1).max(200).default(DEFAULT_COMMENTS_LIMIT),
     /** Read the reaction facepile the page rendered. Off by default (D313). */
     reactions: z.coerce.boolean().default(false),
-    "reactions-limit": z.coerce.number().int().min(1).max(200).default(DEFAULT_REACTIONS_LIMIT),
+    reactionsLimit: z.coerce.number().int().min(1).max(200).default(DEFAULT_REACTIONS_LIMIT),
   })
   .strict();
 
@@ -129,8 +137,8 @@ export function createPostGetCapability(deps: PostGetDeps = defaultDeps) {
       const parsed = parsePost(html, {
         expectedUrn: target.postUrn,
         sessionVanities: captured.sessionVanities,
-        ...(ctx.args.comments ? { comments: { limit: ctx.args["comments-limit"] } } : {}),
-        ...(ctx.args.reactions ? { reactions: { limit: ctx.args["reactions-limit"] } } : {}),
+        ...(ctx.args.comments ? { comments: { limit: ctx.args.commentsLimit } } : {}),
+        ...(ctx.args.reactions ? { reactions: { limit: ctx.args.reactionsLimit } } : {}),
       });
       if (!parsed.ok || parsed.post === null) throw identityRefused(parsed, snapshotPath);
 

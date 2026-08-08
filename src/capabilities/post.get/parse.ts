@@ -111,9 +111,19 @@ export function countFromLabel(text: string, noun: RegExp): number | null {
   return Number.isFinite(n) ? n : null;
 }
 
-/** The first element whose entire text is `<number> <noun>`. */
-function totalFrom($: cheerio.CheerioAPI, noun: RegExp): number | null {
+/**
+ * The first element whose entire text is `<number> <noun>` — **outside the
+ * comment rows**.
+ *
+ * The scope guard is not decoration. A comment renders its own reaction count
+ * ("8 reactions"), so an unscoped search returns whichever appears first in the
+ * document. It is correct on today's fixture only because the post's totals bar
+ * happens to render above the comment list, which is a layout accident and not
+ * a promise.
+ */
+function totalFrom($: cheerio.CheerioAPI, noun: RegExp, outside: (el: AnyNode) => boolean): number | null {
   for (const el of $("*").get()) {
+    if (!outside(el)) continue;
     const $el = $(el);
     if ($el.children().length > 0) continue; // leaf text only
     const n = countFromLabel($el.text(), noun);
@@ -215,9 +225,9 @@ export function parsePost(html: string, options: ParsePostOptions): ParsePostRes
   }
 
   // ── totals ─────────────────────────────────────────────────────────────────
-  const reactions_total = totalFrom($, /reactions?/);
-  const comments_total = totalFrom($, /comments?/);
-  const reposts_total = totalFrom($, /reposts?/);
+  const reactions_total = totalFrom($, /reactions?/, outsideComments);
+  const comments_total = totalFrom($, /comments?/, outsideComments);
+  const reposts_total = totalFrom($, /reposts?/, outsideComments);
 
   // ── comments, only when asked for (D313) ───────────────────────────────────
   const comments: Sourced<ParsedComment>[] = [];

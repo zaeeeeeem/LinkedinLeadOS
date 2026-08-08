@@ -3162,3 +3162,41 @@ README is one refactor from gone.
 
 Mutation-verified: removing the session-vanity exclusion, the comment-limit slice, or the
 identity-mismatch refusal each fails its own named test.
+
+## D316 — Capability schema keys are camelCase, and the registry enforces it (2026-08-10)
+
+**A defect that shipped twice before anything caught it.** `parseArgv` camel-cases every flag
+name before a schema ever sees it, and every capability schema is `.strict()`. So a key written
+`"comments-limit"` is **unreachable**: the CLI accepts `--comments-limit`, hands the schema
+`commentsLimit`, and strict mode rejects it as an unrecognized key. The flag simply does not
+work, and nothing in the suite noticed.
+
+Two instances, both fixed here: `log.runs`'s `include-queries` (pre-existing, and documented in
+its own README as though it worked) and `post.get`'s `comments-limit` / `reactions-limit`.
+
+**Why the suite missed it, which is the more important half.** Capability tests build argument
+objects by hand — `rawArgs: { "include-queries": "true" }` — so every one of them asserted
+against a shape the CLI cannot produce. `cap list` made it worse rather than better: the
+manifest prints schema keys verbatim, so it advertised the broken spelling as the contract.
+A capability could be green in tests, green in `cap list`, and unusable.
+
+**The guard: `tests/cli-schema-keys.test.ts`.** It walks the whole registry and requires
+`camel(key) === key` for every schema key of every capability, then round-trips real argv
+through the real `parseArgv` into the real schema for both capabilities that had the bug. A new
+capability with a kebab-case key now fails on the day it is written rather than the day someone
+first types the flag. Mutation-verified: restoring either kebab key fails two of its three
+tests.
+
+CLI spelling is unchanged and stays kebab — `--comments-limit` is what an operator types. Only
+the schema key had to move.
+
+## D317 — The post's totals are scoped outside the comment rows (2026-08-10)
+
+`totalFrom` took the first leaf element whose whole text is `<n> <noun>`, anywhere in the
+document. Comments render their own reaction counts ("8 reactions"), so the search could return
+a comment's number as the post's. It read correctly on the fixture only because the post's
+totals bar happens to render above the comment list — a layout accident, not a promise.
+
+The existing `outsideComments` predicate — the same identity-based exclusion the author
+resolution already uses — is now applied to all three totals. Zero cost, and it removes a
+silent-wrong-number path rather than a loud one.

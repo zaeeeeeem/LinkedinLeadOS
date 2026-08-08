@@ -17,7 +17,7 @@ export const capability = defineCapability({
     since: z.string().default("24h"),
     /** Include this query's own runs, and every earlier one. Off by default:
      *  they are newest-first and would crowd out the runs being debugged. */
-    "include-queries": z.coerce.boolean().default(false),
+    includeQueries: z.coerce.boolean().default(false),
   }).strict(),
   needsBrowser: false,
   cost: () => ZERO_COST,
@@ -26,7 +26,7 @@ export const capability = defineCapability({
     const runsDir = dirname(run.dir);
     const { runs, truncated, dropped } = listRuns(runsDir, {
       sinceMs,
-      includeQueries: args["include-queries"],
+      includeQueries: args.includeQueries,
     });
 
     return {
