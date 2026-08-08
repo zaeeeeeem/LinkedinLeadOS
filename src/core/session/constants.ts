@@ -23,6 +23,22 @@ export const NAVIGATE_TIMEOUT_MS = 45_000;
  *  is forbidden (D8) — so readiness is polled rather than awaited. */
 export const READY_POLL_INTERVAL_MS = 100;
 
+/**
+ * How long `document.readyState === "interactive"` has to hold before a navigation
+ * is accepted as settled without ever reaching `complete`.
+ *
+ * `complete` requires the window load event, and a page that keeps a subresource or
+ * a long-poll open never fires it. LinkedIn's person-activity feed is one: on a
+ * measured load the document arrived at +2s and every request had quiesced by +10s,
+ * yet `readyState` was still `interactive` at the 45s deadline, so the whole capture
+ * failed transient after the data had already been archived (D302).
+ *
+ * `interactive` means DOMContentLoaded — the document is parsed and scripts run — and
+ * every reader confirms its own render afterwards, so this is a fallback, not a
+ * shortcut. `complete` still wins the instant it arrives.
+ */
+export const INTERACTIVE_SETTLE_MS = 10_000;
+
 /** Time for a visibility change to land in the page before re-reading it. */
 export const FOREGROUND_SETTLE_MS = 150;
 

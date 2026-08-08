@@ -15,6 +15,7 @@ import { documentPattern } from "../src/capabilities/profile.capture/patterns.js
 import { documentPatternName } from "../src/capabilities/company.probe/patterns.js";
 import { companySubPageUrl, normalizeCompanyUrl } from "../src/capabilities/company.probe/url.js";
 import { SNAPSHOT_EXPRESSION, isDomSnapshotEntry } from "../src/capabilities/profile.capture/snapshot.js";
+import type { Navigation } from "../src/core/session/tab.js";
 import { PROBE_EXPRESSION } from "../src/core/challenge/detect.js";
 import type { ChallengeProbe } from "../src/core/challenge/detect.js";
 import { RawArchive } from "../src/core/archive/raw.js";
@@ -177,13 +178,14 @@ class FakeTab implements TabLike {
     }
     return "complete" as T;
   }
-  async navigate(url: string): Promise<void> {
+  async navigate(url: string): Promise<Navigation> {
     if (this.navFailsOn !== null && url.includes(this.navFailsOn)) {
       this.navigated.push(url);
       throw new Error(`navigation refused for ${url}`);
     }
     this.navigated.push(url);
     setTimeout(() => this.page.emitFor(this.sessionId, url), 0);
+    return { settledOn: "complete", readyState: "complete", waitedMs: 0 };
   }
   async currentUrl(): Promise<string> {
     return this.current;

@@ -2537,3 +2537,34 @@ sets are bounded the same way — they were the one structure in that file that 
 page. A no-op `isPostPermalink` branch was removed from the promote script: `normalizeProfileUrl`
 already refuses a permalink and the catch already returns null, so the branch changed nothing
 and its comment claimed a protection that was never running.
+
+## D302 (out-of-range, infrastructure) — a navigation settles on `interactive` when `complete` never comes (2026-08-09)
+
+`WorkerTab.navigate` waited for `document.readyState === "complete"` and failed
+`TAB_NAVIGATE_TIMEOUT` after 45s otherwise. The person-activity feed never reaches
+it. On the measured run (`01KZKG24MBMNJ93YA4AWCCM4CV`,
+`/in/<vanity>/recent-activity/all/`) the document response arrived at +2s at
+1,467,847 bytes, every request had quiesced by +10s, and `readyState` was still
+`interactive` when the deadline fired at 46.5s.
+
+`complete` is the window load event, and a page holding a connection open — which
+LinkedIn's realtime stream does — never fires it. So the wait was measuring
+LinkedIn's connection lifetime, not whether the page was usable.
+
+The cost of that is specific and bad: the capture had **already archived 37 bodies
+including the 611KB `voyagerFeedDashProfileUpdates` response**, and still exited
+transient with no receipt, no DOM snapshot and no promotable fixture — after
+spending a metered page load. A page load that produced the data and reported
+failure is the worst outcome available under §8.
+
+Now `complete` still wins the instant it arrives, and `interactive` is accepted
+once it has held for `INTERACTIVE_SETTLE_MS` (10s). `interactive` is
+DOMContentLoaded: the document is parsed and scripts run, and every reader
+confirms its own render afterwards, so this is a bounded fallback rather than a
+shortcut past the render check. A drop back to `loading` — a client-side
+navigation replacing the document — restarts the clock, so a stale page is never
+credited with the wait.
+
+`navigate` returns a `Navigation` (`settledOn`, `readyState`, `waitedMs`) instead
+of `void`. Which of the two it settled on is a fact about the page worth putting
+on a receipt, not one to swallow.

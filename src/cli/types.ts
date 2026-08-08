@@ -2,7 +2,7 @@ import type { z } from "zod";
 import type { RunContext } from "../core/run/context.js";
 import type { Counts, Stored, Warning } from "../core/run/receipt.js";
 import type { ChromeEndpoint } from "../core/chrome/launcher.js";
-import type { ForegroundResult, ForegroundState } from "../core/session/tab.js";
+import type { ForegroundResult, ForegroundState, Navigation } from "../core/session/tab.js";
 import type { NetworkTap, TapTransport } from "../core/tap/network-tap.js";
 import type { HumanCursor } from "../core/input/cursor.js";
 import type { RawArchive } from "../core/archive/raw.js";
@@ -50,7 +50,7 @@ export type TabLike = {
   readonly sessionId: string;
   send<T = unknown>(method: string, params?: Record<string, unknown>, timeoutMs?: number): Promise<T>;
   evaluate<T = unknown>(expression: string, timeoutMs?: number): Promise<T>;
-  navigate(url: string, timeoutMs?: number): Promise<void>;
+  navigate(url: string, timeoutMs?: number): Promise<Navigation>;
   currentUrl(): Promise<string>;
   screenshot(path: string): Promise<string>;
   foregroundState(): Promise<ForegroundState | null>;

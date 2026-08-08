@@ -23,6 +23,7 @@ import { DEFAULT_FLAGS } from "../src/cli/flags.js";
 import { execute } from "../src/cli/run.js";
 import type { AnyCapability, SessionLike, TabLike, UniversalFlags } from "../src/cli/types.js";
 import type { TapTransport } from "../src/core/tap/network-tap.js";
+import type { Navigation } from "../src/core/session/tab.js";
 
 const FUTURE = Math.floor(Date.now() / 1000) + 86_400;
 const PROFILE_URL = "https://www.linkedin.com/in/jane-doe/";
@@ -175,11 +176,12 @@ class FakeTab implements TabLike {
     }
     return "complete" as T;
   }
-  async navigate(url: string): Promise<void> {
+  async navigate(url: string): Promise<Navigation> {
     this.navigated.push(url);
     this.page.navigated = true;
     // Real navigation answers asynchronously; so does this.
     setTimeout(() => this.page.emitAll(this.sessionId), 0);
+    return { settledOn: "complete", readyState: "complete", waitedMs: 0 };
   }
   async currentUrl(): Promise<string> {
     return this.navigated.at(-1) ?? "about:blank";
