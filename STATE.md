@@ -1252,3 +1252,25 @@ re-attempted, so Task 29 is not yet unblocked — that needs one operator-superv
 **Note on branch state.** This sits on `main`, which is behind the M4 task branches
 (`task-22`…`task-30`, `plan-m4-l1-readers`). Each of those carries the same latent transport bug
 and should be rebased onto this before its next live run.
+
+Task 29 — `post.get` (**capture unblocked; source verdict recorded; still needs one operator
+decision**, 2026-08-09). After merging main's CDP transport fix (D310) into this branch, the
+permalink captured on the first attempt: run `01KZKXSGNE4XRQMJRK241YQS6Q`, exit 0, 1 page
+load, 26 captures, 0 misses, including the 4,750,447-byte document that had killed the socket
+four times. Fixtures promoted to `fixtures/post.get/` (DOM snapshot + FIELD-MAP.md); the
+document body itself is skipped by the promoter as `not_json`, which costs nothing here
+because it carries no embedded JSON at all.
+
+Source verdict (D312): the surface has **no labeled JSON for the post** — zero `bpr-guid`
+islands, zero `socialActivityCounts`, and zero hits on all four social watches. The data is
+in the rendered DOM, anchored on `data-testid`, exactly like D305's job surface. Writing
+`post.get` therefore requires a **third DOM-source exception**, which CLAUDE.md does not
+currently permit — that is the operator's call and is the one thing still blocking the task.
+`--reactors` / `--commenters` are recommended to split into their own task; those panels are
+not fetched on a cold load.
+
+D311 corrects D309: the transport fix is proven, its stated cause is not. The captured body
+has zero U+FFFD, and the fragment-boundary theory is disproven too.
+
+Branch state: `task-26-activity-surface-probe` carries Tasks 27, 28, the tap fix (D307) and
+main's transport fix. Full suite 1,124 passed, 0 skipped; typecheck clean.
