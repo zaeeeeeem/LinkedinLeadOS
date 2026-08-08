@@ -7,6 +7,7 @@ import { capability as activityCapture, feedShortfall } from "../src/capabilitie
 import { VIEWPORT_EXPRESSION } from "../src/capabilities/profile.capture/read.js";
 import { SNAPSHOT_EXPRESSION, isDomSnapshotEntry } from "../src/capabilities/profile.capture/snapshot.js";
 import { RawArchive } from "../src/core/archive/raw.js";
+import type { Navigation } from "../src/core/session/tab.js";
 import type { ReadCursor } from "../src/capabilities/profile.capture/read.js";
 import { PROBE_EXPRESSION } from "../src/core/challenge/detect.js";
 import type { ChallengeProbe } from "../src/core/challenge/detect.js";
@@ -188,10 +189,11 @@ class FakeTab implements TabLike {
     }
     return "complete" as T;
   }
-  async navigate(url: string): Promise<void> {
+  async navigate(url: string): Promise<Navigation> {
     this.navigated.push(url);
     this.page.navigated = true;
     setTimeout(() => this.page.emitAll(this.sessionId), 0);
+    return { settledOn: "complete", readyState: "complete", waitedMs: 0 };
   }
   async currentUrl(): Promise<string> {
     return this.navigated.at(-1) ?? "about:blank";
