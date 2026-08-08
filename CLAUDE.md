@@ -93,8 +93,22 @@ drafting) · L5 orchestration (campaigns, sequences, schedulers) · MCP surface 
   `data-testid` rather than container position or LinkedIn's per-build hashed classes,
   and identity resolved-or-refused against `urn:li:jobPosting:<id>` in the document.
 
-  **Those two exceptions are the profile reader and the job reader, and nothing else.**
-  Every other capability, and every
+  **There is a third exception: the post reader (D313).** `/posts/<slug>-activity-<id>-<hash>`
+  carries **no labeled post field anywhere** — no `bpr-guid` data island, no
+  `socialActivityCounts`, no `ugcPost` urn, and zero hits on all four social watches on a cold
+  load (measured, D312). It takes the same shape as the two before it: an `outerHTML` snapshot,
+  archived raw, parsed **offline**, every row tagged DOM-sourced, scope anchored on
+  `data-testid`, and identity resolved-or-refused against `urn:li:activity:<id>`.
+
+  The post exception **covers the post's own fields, its comments and its reactions** — and it
+  is granted with a spending condition that is part of the rule, not an implementation detail:
+  **comments and reactions are opt-in and bounded.** A default `post.get` reads the post only.
+  Nothing may loop "load more" to exhaust a comment thread, and a partial read is always
+  flagged as partial rather than reported as the whole. Reactions rank below comments and are
+  never fetched unless asked for by name. See D313.
+
+  **Those three exceptions are the profile reader, the job reader and the post reader, and
+  nothing else.** Every other capability, and every
   other kind of field, still takes data only from captured network bodies. DOM reads for
   navigation, pagination state, challenge detection and render confirmation are unchanged and
   always allowed everywhere.

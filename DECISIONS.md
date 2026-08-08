@@ -3080,3 +3080,39 @@ is interaction, and the standing rule is that we never forge a request the UI di
 Task 29's file already scopes them to "people the panel actually loaded". Recommend splitting:
 post detail first under the exception above, reactor/commenter lists as their own measured
 task.
+
+## D313 — The post reader gets the third DOM exception, and it is opt-in and bounded (2026-08-10)
+
+**Granted by the operator**, superseding D312's open question. `post.get` may read the rendered
+DOM for the post's own fields, its comments and its reactions. CLAUDE.md's "two exceptions"
+sentence is amended to three in the same commit.
+
+The exception is granted **with conditions attached to spend, not to correctness**, and the
+conditions are the operator's words: comments are not necessary by default, we must not send
+the request again and again to get the whole thread, and reactions rank below comments. So:
+
+1. **A default `post.get` reads the post only.** No comments, no reactions, no panel opened.
+2. **Comments are opt-in and bounded** — `--comments` with `--comments-limit` (default 10).
+   Whatever is rendered on the cold load is what gets read.
+3. **Reactions are opt-in and bounded, and rank below comments** — `--reactions` with
+   `--reactions-limit` (default 10). Never fetched unless named.
+4. **Nothing loops "load more".** The reader takes one bounded pass over what is present. Any
+   growth in the thread is a later, explicitly-requested run — never an implicit one.
+5. **A partial read is always flagged as partial.** When the page states a comment or reaction
+   total higher than the number of rows read, the receipt carries `COMMENTS_PARTIAL` /
+   `REACTIONS_PARTIAL` naming both numbers. Silence would let a caller mistake the first ten
+   comments for the thread, which is the specific failure the operator called out.
+
+Why the bound is a rule and not a default: exhausting a comment thread means repeated
+interaction with the page, and every one of those is spend against a single irreplaceable
+account for data the operator has said is low value. The cheap read is the point.
+
+Shape is inherited from D123/D130 and D305 and is not re-derived: `outerHTML` snapshot,
+archived raw, parsed offline, every row tagged DOM-sourced, scope anchored on `data-testid`
+rather than container position or LinkedIn's per-build hashed classes, identity
+resolved-or-refused against `urn:li:activity:<id>`.
+
+**Still out of scope: `--reactors` / `--commenters` as people-lists.** D312 recommended
+splitting them and that stands. Reading the reactions *count* and the reaction rows rendered
+on the page is inside this exception; opening a panel to enumerate every reactor is
+interaction, is unmeasured, and stays its own task.
