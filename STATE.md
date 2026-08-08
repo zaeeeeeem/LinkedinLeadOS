@@ -1184,3 +1184,9 @@ subject-anchored header scanning and safe non-JSON parsing protect identity and 
 The two review mutations are killed by named tests. The full offline suite passes 1,104 tests
 with 13 store-integration skips; typecheck, registry discovery and diff hygiene are clean. No
 LinkedIn page was loaded.
+
+Task 28 — `profile.activity` (storage decision landed, 2026-08-09). The operator chose
+archive-only: no `person_activity` table, no migration, no write path (D306, taking the
+next free number because D240–D249 are spent). The capability is offline-complete —
+1,104 tests passed, 13 store integration tests skipped for absent Supabase env vars,
+typecheck clean. Only the two-load supervised live gate remains.

@@ -2854,3 +2854,23 @@ a header with no resolvable actor is parse drift (`unresolved`), not a stranger 
 `target_post.posted_at`. The archive has no absolute comment/reaction event time, so renaming
 the flag would not create the missing timestamp and would diverge from the other activity
 readers without improving accuracy.
+
+## D306 — Person activity stays archive-only; no `person_activity` table (2026-08-09)
+
+Task 28's range D240–D249 is spent, so this takes the next free number (D18's rule, as
+D130 and D185 did before it).
+
+Task 28 ended with an open storage question: add a `person_activity` table via migration,
+or keep outbound reactions and comments as receipt counts plus the raw archive. **The
+operator chose archive-only.** Spec §7 defines no table for activity-on-others, the value
+of this capability is the engagement signal rather than the rows, and forty fixture rows
+are not enough to design columns from.
+
+The choice is deliberately reversible and costs no re-scrape to reverse: every captured
+body is archived under D2, the receipt already carries `storage: { mode: "archive-only" }`
+and an `archive_hint` naming offline reparse, and the parser is pure. If a table is wanted
+later, it is a migration plus a reparse of bodies already on disk — not another metered
+pass over LinkedIn.
+
+`profile.activity` therefore writes no database rows, and Task 28's deliverable is
+complete without one.
