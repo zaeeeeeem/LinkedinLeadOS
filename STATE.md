@@ -1215,3 +1215,11 @@ for the same reason as Task 27. Task 28 is complete.
 loads. The session-identity trap (D119) is real code and is exercised offline, but no live
 activity run has yet captured a `/voyager/api/me` body to check against, so it remains
 unproven live on this surface.
+
+Task 29 — `post.get` (**still blocked**, 2026-08-09). The permalink probe named in the task
+file was run and failed: same post, LinkedIn's own `/posts/` spelling, identical
+`CDP_SOCKET_ERROR` at 2.4s (run `01KZKVYA4JH3TXN1W26CN3RY4A`). Three failures across two URL
+spellings. Two hypotheses are now disproven and written up in D308 — the URL spelling, and
+CDP frame size (100 MB messages round-trip fine). The failure is localised to fetching the
+document's *body*; Chrome survives every attempt. The one untested variable is a fresh Chrome
+with no other tabs, which needs the operator because it discards their open tabs.
