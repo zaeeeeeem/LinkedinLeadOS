@@ -96,8 +96,24 @@ export type LayoutResult = {
 export type ReadResult = {
   passes: number;
   notches: number;
-  /** Absolute pixels dispatched, summed over every pass. */
+  /**
+   * Absolute pixels dispatched, summed over every pass — **distance travelled,
+   * not distance covered.** A back-pass adds to it. Use it to describe effort;
+   * never to answer "did we reach the bottom", which is `travelled`.
+   */
   scrolled: number;
+  /**
+   * Where the scroller ended up, in pixels from the top. This is the number
+   * that says how far down the page actually got: `scrolled` counts a pass down
+   * and the pass back up as 1200px of progress on a 900px page.
+   */
+  travelled: number;
+  /**
+   * How far there was left to go, **as last measured** — the page is
+   * re-measured between passes because a lazy feed grows as it renders. `null`
+   * when the page could not be measured at all.
+   */
+  scrollable: number | null;
   /** Total time paused between and after the passes. */
   pausedMs: number;
   viewport: Viewport | null;
@@ -220,6 +236,20 @@ function isViewport(v: unknown): v is Viewport {
  * by an empty shell. It never throws — a page that cannot be measured returns
  * `settled: false` and the caller decides, because the page load is already spent.
  */
+/**
+ * One viewport measurement. `null` when the page cannot be read — during a
+ * navigation the execution context is torn down and rebuilt, and that means
+ * "not yet", never "broken".
+ */
+export async function measureViewport(tab: ReadTab): Promise<Viewport | null> {
+  try {
+    const probe = await tab.evaluate<unknown>(VIEWPORT_EXPRESSION);
+    return isViewport(probe) ? probe : null;
+  } catch {
+    return null;
+  }
+}
+
 export async function waitForLayout(
   tab: ReadTab,
   o: { timeoutMs?: number; pollMs?: number; sleep?: (ms: number) => Promise<void> } = {},
@@ -237,15 +267,7 @@ export async function waitForLayout(
   let polls = 0;
 
   for (;;) {
-    let measured: Viewport | null = null;
-    try {
-      const probe = await tab.evaluate<unknown>(VIEWPORT_EXPRESSION);
-      if (isViewport(probe)) measured = probe;
-    } catch {
-      // The execution context is torn down and rebuilt during navigation, so a
-      // failed read here means "not yet", never "broken".
-      measured = null;
-    }
+    const measured = await measureViewport(tab);
     polls++;
 
     if (measured !== null) {
@@ -298,16 +320,29 @@ export async function readLikeAHuman(o: {
       ...(o.layoutTimeoutMs === undefined ? {} : { timeoutMs: o.layoutTimeoutMs }),
       ...(o.sleep === undefined ? {} : { sleep: o.sleep }),
     }));
-  const viewport = layout.viewport;
+  let viewport = layout.viewport;
 
   const width = viewport?.width ?? FALLBACK_VIEWPORT.width;
   const height = viewport?.height ?? FALLBACK_VIEWPORT.height;
   const passes = o.passes ?? randInt(rng, SCROLL_PASSES_MIN, SCROLL_PASSES_MAX);
 
-  // Never wheel further than the document actually is: past the bottom the
-  // events land on nothing, which is both useless and a shape no reader makes.
-  const visible = viewport ? viewport.scrollerHeight : height;
-  const scrollable = viewport ? Math.max(0, viewport.scrollHeight - visible) : Infinity;
+  /**
+   * How far there is left to go, from the *latest* measurement.
+   *
+   * Measured per pass rather than once, because a lazily-rendered page grows as
+   * it is read: an activity feed measures one screenful before anything has
+   * rendered, and a budget taken from that measurement stops the reader at the
+   * height the page had before it had any content. On a profile — finite, and
+   * mostly rendered by the time layout settles — this made no difference, which
+   * is why it survived until a feed surface needed it.
+   *
+   * `Infinity` when the page cannot be measured at all: the fallback is to keep
+   * scrolling, exactly as before, rather than to stop.
+   */
+  const extentOf = (v: Viewport | null): number =>
+    v === null ? Infinity : Math.max(0, v.scrollHeight - v.scrollerHeight);
+
+  let scrollable = extentOf(viewport);
 
   let notches = 0;
   let scrolled = 0;
@@ -338,11 +373,29 @@ export async function readLikeAHuman(o: {
     o.onPass?.({ index: i, deltaY, result });
 
     pausedMs += await o.cursor.pause(SCROLL_PAUSE_MS_MIN, SCROLL_PAUSE_MS_MAX);
+
+    // After the pause, so whatever the last pass triggered has had its chance
+    // to render. A failed read leaves the previous measurement standing rather
+    // than collapsing the budget to zero mid-read.
+    const remeasured = await measureViewport(o.tab);
+    if (remeasured !== null) {
+      viewport = remeasured;
+      scrollable = extentOf(remeasured);
+    }
   }
 
   // The dwell happens whether or not anything scrolled — a one-screen profile
   // still gets looked at.
   pausedMs += await o.cursor.pause(DWELL_MS_MIN, DWELL_MS_MAX);
 
-  return { passes: done, notches, scrolled, pausedMs, viewport, layout };
+  return {
+    passes: done,
+    notches,
+    scrolled,
+    travelled,
+    scrollable: Number.isFinite(scrollable) ? scrollable : null,
+    pausedMs,
+    viewport,
+    layout,
+  };
 }

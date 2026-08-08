@@ -1,4 +1,4 @@
-import { isLinkedInApiUrl, type TieredPattern } from "../profile.capture/patterns.js";
+import { documentPattern, isLinkedInApiUrl, type TieredPattern } from "../profile.capture/patterns.js";
 
 /**
  * The endpoints a `/in/<vanity>/recent-activity/…` page or a post permalink is
@@ -126,4 +126,40 @@ export function urnInventory(text: string): UrnInventory {
  */
 export function sessionUrnHits(text: string, sessionUrns: readonly string[]): number {
   return sessionUrns.filter((urn) => urn !== "" && text.includes(urn)).length;
+}
+
+/** The document watches for one activity target. */
+export const ACTIVITY_DOCUMENT_NAME = "activity-document";
+export const ACTIVITY_DOCUMENT_CANONICAL_NAME = "activity-document-canonical";
+
+/** `/posts/<slug>` and `/feed/update/<urn>/` are the same post, and LinkedIn
+ *  redirects the first to the second. */
+const POSTS_PERMALINK = /^https:\/\/[a-z0-9.-]*linkedin\.com\/posts\//i;
+
+/**
+ * The document responses to watch for one target — one watch, or two.
+ *
+ * A `/posts/<slug>` permalink commonly 302s to `/feed/update/<urn>/`, so the
+ * document that actually answers is at a path the target url never named. The
+ * broad net cannot cover the gap: it matches API paths, and this is a page. One
+ * pattern would therefore capture no document at all on exactly the surface
+ * where a server-rendered payload is most likely (D116/D117), and the probe
+ * would report "nothing was server-rendered" about a body it never watched for.
+ *
+ * Both are `specific`, so neither shows up as an endpoint nobody predicted.
+ */
+export function activityDocumentPatterns(target: {
+  url: string;
+  postUrn?: string | undefined;
+}): TieredPattern[] {
+  const patterns = [documentPattern(target.url, ACTIVITY_DOCUMENT_NAME)];
+  if (target.postUrn !== undefined && POSTS_PERMALINK.test(target.url)) {
+    patterns.push(
+      documentPattern(
+        `https://www.linkedin.com/feed/update/${target.postUrn}/`,
+        ACTIVITY_DOCUMENT_CANONICAL_NAME,
+      ),
+    );
+  }
+  return patterns;
 }

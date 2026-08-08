@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   ACTIVITY_PATTERNS,
   BROAD_PATTERN_NAME,
+  activityDocumentPatterns,
   MAX_URNS_PER_FAMILY,
   isActivityIsh,
   sessionUrnHits,
@@ -150,5 +151,51 @@ describe("sessionUrnHits", () => {
     // An empty urn is a substring of every body; counting it would report every
     // page as the operator's.
     expect(sessionUrnHits('{"a":1}', [""])).toBe(0);
+  });
+});
+
+describe("activityDocumentPatterns", () => {
+  const POSTS = "https://www.linkedin.com/posts/jane-doe_hiring-activity-7123456789012345678-Ab1c";
+  const CANONICAL = "https://www.linkedin.com/feed/update/urn:li:activity:7123456789012345678/";
+
+  function matchers(target: { url: string; postUrn?: string }) {
+    return activityDocumentPatterns(target).map((p) => ({
+      name: p.name,
+      hit: (url: string) => (p.match as (u: string) => boolean)(url),
+    }));
+  }
+
+  it("watches the canonical permalink too, because /posts/ redirects to it", () => {
+    // The broad net matches API paths and this is a page, so a missed document
+    // is a document nobody captured — on the one surface where a server-rendered
+    // payload is most likely (D116/D117). One pattern would have reported
+    // "nothing was server-rendered" about a body it never watched for.
+    const both = matchers({ url: POSTS, postUrn: "urn:li:activity:7123456789012345678" });
+    expect(both).toHaveLength(2);
+    expect(both.some((m) => m.hit(POSTS))).toBe(true);
+    expect(both.some((m) => m.hit(CANONICAL))).toBe(true);
+  });
+
+  it("names the two watches apart — the tap keys watches by name", () => {
+    const names = matchers({ url: POSTS, postUrn: "urn:li:activity:7123456789012345678" })
+      .map((m) => m.name);
+    expect(new Set(names).size).toBe(2);
+  });
+
+  it("watches one document when the target is already the canonical form", () => {
+    const one = matchers({ url: CANONICAL, postUrn: "urn:li:activity:7123456789012345678" });
+    expect(one).toHaveLength(1);
+    expect(one[0]!.hit(CANONICAL)).toBe(true);
+  });
+
+  it("watches one document on a person surface", () => {
+    const one = matchers({ url: "https://www.linkedin.com/in/jane-doe/recent-activity/all/" });
+    expect(one).toHaveLength(1);
+  });
+
+  it("does not match another post", () => {
+    const both = matchers({ url: POSTS, postUrn: "urn:li:activity:7123456789012345678" });
+    const other = "https://www.linkedin.com/feed/update/urn:li:activity:9999999999999999999/";
+    expect(both.some((m) => m.hit(other))).toBe(false);
   });
 });

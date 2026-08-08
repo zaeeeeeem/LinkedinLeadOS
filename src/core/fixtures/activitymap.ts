@@ -32,6 +32,13 @@ export const MAX_TIME_LEAVES = 60;
 export const MAX_SAMPLE_CHARS = 120;
 /** Elements walked before the map declares itself a prefix of the page. */
 export const MAX_ELEMENTS = 200_000;
+/**
+ * Distinct urns retained per family, for the families tally. It is only ever
+ * read as a count, but the set that produces it is the one structure here that
+ * would otherwise grow with the page — and the page is a megabyte we do not
+ * control.
+ */
+export const MAX_URNS_PER_FAMILY = 2_000;
 
 /** A urn family, without the id. `urn:li:activity:123` gives `urn:li:activity`. */
 export function urnFamilyOf(urn: string): string {
@@ -93,6 +100,9 @@ export type ActivityDomMap = {
     elements: boolean;
     urnAttributes: boolean;
     timeLeaves: boolean;
+    /** Families whose distinct set hit `MAX_URNS_PER_FAMILY`; their `distinct`
+     *  is a floor, not a count. */
+    families: string[];
   };
 };
 
@@ -142,6 +152,7 @@ export function buildActivityDomMap(
   let elementsTruncated = false;
   let urnAttributesTruncated = false;
   let timeLeavesTruncated = false;
+  const familiesTruncated = new Set<string>();
 
   const noteUrn = (urn: string): string => {
     const family = urnFamilyOf(urn);
@@ -150,7 +161,8 @@ export function buildActivityDomMap(
       set = new Set<string>();
       families.set(family, set);
     }
-    set.add(urn);
+    if (set.size < MAX_URNS_PER_FAMILY) set.add(urn);
+    else if (!set.has(urn)) familiesTruncated.add(family);
     if (sessionUrns.has(urn)) sessionSeen.add(urn);
     return family;
   };
@@ -220,6 +232,7 @@ export function buildActivityDomMap(
       elements: elementsTruncated,
       urnAttributes: urnAttributesTruncated,
       timeLeaves: timeLeavesTruncated,
+      families: [...familiesTruncated],
     },
   };
 }
@@ -314,7 +327,10 @@ export function renderActivityDomMap(o: {
   lines.push("");
   lines.push("| family | distinct |");
   lines.push("|---|---|");
-  for (const f of map.families) lines.push(`| \`${f.family}\` | ${f.distinct} |`);
+  for (const f of map.families) {
+    const capped = map.truncated.families.includes(f.family) ? " (at least)" : "";
+    lines.push(`| \`${f.family}\` | ${f.distinct}${capped} |`);
+  }
   lines.push("");
   if (map.truncated.elements) {
     lines.push(`_the walk stopped at ${MAX_ELEMENTS} elements; this map describes a prefix of the page._`);

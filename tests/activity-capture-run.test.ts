@@ -3,7 +3,7 @@ import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
-import { capability as activityCapture } from "../src/capabilities/activity.capture/index.js";
+import { capability as activityCapture, feedShortfall } from "../src/capabilities/activity.capture/index.js";
 import { VIEWPORT_EXPRESSION } from "../src/capabilities/profile.capture/read.js";
 import { SNAPSHOT_EXPRESSION, isDomSnapshotEntry } from "../src/capabilities/profile.capture/snapshot.js";
 import { RawArchive } from "../src/core/archive/raw.js";
@@ -16,6 +16,7 @@ import { EXIT } from "../src/core/run/receipt.js";
 import { inspectLease } from "../src/core/lease/tab-lease.js";
 import type { SpendRecord } from "../src/core/budget/ledger.js";
 import { subCapsFor } from "../src/core/budget/constants.js";
+import { MAX_URNS_PER_FAMILY } from "../src/capabilities/activity.capture/patterns.js";
 import { DEFAULT_FLAGS } from "../src/cli/flags.js";
 import { execute } from "../src/cli/run.js";
 import type { AnyCapability, SessionLike, TabLike, UniversalFlags } from "../src/cli/types.js";
@@ -149,6 +150,10 @@ class FakeTab implements TabLike {
     }],
     scrollerCandidates: 1,
   };
+  /** One measurement per `VIEWPORT_EXPRESSION` call, for staging a page that
+   *  renders as it is read. The last entry stands for every call after it. */
+  viewportSequence: unknown[] | null = null;
+  private viewportCalls = 0;
   snapshot: unknown = {
     html: FEED_HTML,
     url: ACTIVITY_URL,
@@ -172,7 +177,11 @@ class FakeTab implements TabLike {
       if (answer instanceof Error) throw answer;
       return { url: ACTIVITY_URL, text: "", captcha: false, ...answer } as T;
     }
-    if (expression === VIEWPORT_EXPRESSION) return this.viewport as T;
+    if (expression === VIEWPORT_EXPRESSION) {
+      if (this.viewportSequence === null) return this.viewport as T;
+      const i = Math.min(this.viewportCalls++, this.viewportSequence.length - 1);
+      return this.viewportSequence[i] as T;
+    }
     if (expression === SNAPSHOT_EXPRESSION) {
       if (this.snapshot instanceof Error) throw this.snapshot;
       return this.snapshot as T;
@@ -316,6 +325,16 @@ async function archived(runId: string): Promise<{ network: string[]; snapshots: 
   };
 }
 
+/** A feed viewport of a given height. 900px visible, like the others here. */
+function feedViewport(scrollHeight: number): Record<string, unknown> {
+  return {
+    width: 1440, height: 900, scrollHeight,
+    innerScroller: true, scrollerHeight: 900, documentScrollHeight: 900,
+    scroller: { tag: "div", id: null, role: "feed", componentkey: null, scrollHeight, clientHeight: 900 },
+    scrollers: [], scrollerCandidates: 1,
+  };
+}
+
 type ProbeData = {
   target: { surface: string; url: string; ref: string };
   probe: {
@@ -323,6 +342,8 @@ type ProbeData = {
     bodies_inventoried: number;
     bodies_not_inventoried: number;
     body_urns_distinct: Record<string, number>;
+    body_urns_total: Record<string, number>;
+    body_urns_truncated: string[];
     body_session_urn_hits: number;
     dom: null | {
       card_ref_scope_resolved: boolean;
@@ -334,7 +355,12 @@ type ProbeData = {
     };
   };
   capture: { activity_ish: number; unmatched_activity_ish: number };
-  reading: { scrolled_px: number; scrollable_px: number | null; viewport: Record<string, unknown> };
+  reading: {
+    scrolled_px: number;
+    travelled_px: number;
+    scrollable_px: number | null;
+    viewport: Record<string, unknown>;
+  };
 };
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -690,5 +716,126 @@ describe("activity.capture — the gates", () => {
     expect(ledgerLines()).toEqual([]);
     // Released on the refusing path too.
     expect((await inspectLease(paths.leasePath)).state).toBe("free");
+  });
+});
+
+describe("activity.capture — the feed's real extent", () => {
+  it("measures the feed as it grows, not as it started", async () => {
+    // A feed renders as it is read. Measured once, the budget is the height the
+    // page had before any cards existed, and the archive is a prefix by
+    // construction — with no pagination request ever issued.
+    // Three leading measurements at 3,000 so the layout settles there, then the
+    // cards render. The old code took its budget from the settled height.
+    const { outcome } = invoke({
+      args: { scrolls: 3 },
+      tune: (s) => {
+        s.tab.viewportSequence = [3_000, 3_000, 3_000, 12_000, 24_000, 40_000, 40_000]
+          .map(feedViewport);
+      },
+    });
+    const { receipt } = await outcome;
+    if (!receipt.ok) throw new Error("expected ok");
+    const reading = (receipt.data as ProbeData).reading;
+
+    // The last measurement, not the settled one: 40,000 - 900 rather than 2,100.
+    // (That the reader then keeps going past the old budget is pinned
+    // deterministically in profile-capture-read.test.ts, where `rng` is
+    // injectable; here the real one decides the magnitudes.)
+    expect(reading.scrollable_px).toBe(39_100);
+    expect(reading.travelled_px).toBeGreaterThan(0);
+    expect(reading.travelled_px).toBeLessThanOrEqual(reading.scrollable_px!);
+  });
+
+  it("reports where it ended up separately from how far it travelled", async () => {
+    const { outcome } = invoke({
+      args: { scrolls: 2 },
+      tune: (s) => { s.tab.viewport = feedViewport(40_000); },
+    });
+    const { receipt } = await outcome;
+    if (!receipt.ok) throw new Error("expected ok");
+    const reading = (receipt.data as ProbeData).reading;
+
+    // `scrolled` is distance dispatched and counts a back-pass as progress;
+    // `travelled` is position. Position can never exceed distance, and — since
+    // `readLikeAHuman` takes a pass back up a quarter of the time — a two-pass
+    // read can legitimately end back at 0, which is the whole reason these are
+    // two numbers. The difference itself is pinned by `feedShortfall` above,
+    // where the sequence can be chosen rather than rolled.
+    expect(reading.travelled_px).toBeLessThanOrEqual(reading.scrolled_px);
+    expect(reading.travelled_px).toBeGreaterThanOrEqual(0);
+    expect(reading.scrolled_px).toBeGreaterThan(0);
+  });
+
+  it("computes the shortfall from position, and ignores distance travelled", () => {
+    // The case the capability cannot stage: `readLikeAHuman` decides a
+    // back-pass with its own rng, so an end-to-end test can never force
+    // `scrolled` and `travelled` apart. 600 down, 300 up, 300 down on a 900px
+    // page is 1200px dispatched at position 600 — read as progress, the feed
+    // looks finished 300px short.
+    expect(feedShortfall({ travelled: 600, scrollable: 900 })).toBe(300);
+    // Past the bottom (a wheel overshoot) is read, not negative.
+    expect(feedShortfall({ travelled: 1_200, scrollable: 900 })).toBe(0);
+    expect(feedShortfall({ travelled: 900, scrollable: 900 })).toBe(0);
+    // An unmeasurable page raises nothing rather than claiming a shortfall.
+    expect(feedShortfall({ travelled: 0, scrollable: null })).toBe(0);
+    expect(feedShortfall(null)).toBe(0);
+  });
+
+  it("puts that shortfall on the warning", async () => {
+    const { outcome } = invoke({
+      args: { scrolls: 1 },
+      tune: (s) => { s.tab.viewport = feedViewport(40_000); },
+    });
+    const { receipt } = await outcome;
+    if (!receipt.ok) throw new Error("expected ok");
+    const reading = (receipt.data as ProbeData).reading;
+    const warning = receipt.warnings.find((w) => w.code === "FEED_NOT_EXHAUSTED")!;
+
+    expect(warning).toBeDefined();
+    expect(warning.n).toBe(reading.scrollable_px! - reading.travelled_px);
+    expect(warning.field).toContain("ended at");
+  });
+});
+
+describe("activity.capture — the urn inventory", () => {
+  it("counts one author across several bodies once", async () => {
+    // The receipt's distinct counts are read as "how many people were on this
+    // page". Summed per body, one author in ten feed bodies counted ten.
+    const oneAuthor = (activityId: string) =>
+      JSON.stringify({ data: { elements: [{ entityUrn: `urn:li:activity:${activityId}`, actor: { urn: SUBJECT_URN } }] } });
+    const { outcome } = invoke({
+      responses: [
+        { url: PREDICTED_GQL, body: oneAuthor("1") },
+        { url: UNPREDICTED_GQL, body: oneAuthor("2") },
+        { url: ME_URL, body: ME_BODY },
+      ],
+    });
+    const { receipt } = await outcome;
+    if (!receipt.ok) throw new Error("expected ok");
+    const probe = (receipt.data as ProbeData).probe;
+
+    expect(probe.bodies_inventoried).toBe(2);
+    expect(probe.body_urns_distinct["person"]).toBe(1);
+    expect(probe.body_urns_distinct["activity"]).toBe(2);
+    // Occurrences are reported alongside, so "one person, twice" is legible.
+    expect(probe.body_urns_total["person"]).toBe(2);
+  });
+
+  it("says when a family's distinct set hit its cap", async () => {
+    const many = JSON.stringify({
+      urns: Array.from({ length: MAX_URNS_PER_FAMILY + 10 }, (_, i) => `urn:li:activity:${i}`),
+    });
+    const { outcome } = invoke({
+      responses: [{ url: PREDICTED_GQL, body: many }, { url: ME_URL, body: ME_BODY }],
+    });
+    const { receipt } = await outcome;
+    if (!receipt.ok) throw new Error("expected ok");
+    const probe = (receipt.data as ProbeData).probe;
+
+    // Under-reporting silently here is the same failure `bodies_not_inventoried`
+    // exists to prevent, one layer down.
+    expect(probe.body_urns_distinct["activity"]).toBe(MAX_URNS_PER_FAMILY);
+    expect(probe.body_urns_total["activity"]).toBe(MAX_URNS_PER_FAMILY + 10);
+    expect(probe.body_urns_truncated).toContain("activity");
   });
 });

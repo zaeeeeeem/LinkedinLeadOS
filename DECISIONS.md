@@ -2471,6 +2471,32 @@ short capture and a short feed produce the same receipt. That is the silent-loss
 review has already caught here (the tap's forgotten-versus-never-arrived case) applied to a
 page that is unbounded by construction.
 
+**Revised the same day, after review, on both halves of the arithmetic. As first written
+this warning was near-silent exactly when the capture was short.**
+
+*The extent was measured once, before any scrolling.* `readLikeAHuman` took its scroll
+budget from the viewport measured at layout-settle. A feed renders as it is read, so that
+number is the height the page had before it had any cards: the reader stopped at the first
+screenful-set and never issued whatever request the rest of the feed would have triggered —
+the archive was a prefix *by construction*, and the fixture Tasks 27–29 receive would never
+have shown how the feed pages. It now re-measures after every pass and keeps the latest
+extent, with a failed re-measure leaving the previous one standing rather than collapsing
+the budget mid-read. On a profile page — finite, and mostly rendered by the time layout
+settles — this made no difference, which is why it survived to a feed surface.
+
+*The shortfall was computed from distance travelled, not position.* `ReadResult.scrolled`
+sums `Math.abs` over every pass and `readLikeAHuman` deliberately goes back up a quarter of
+the time, so 600px down, 300 up, 300 down is 1200px of `scrolled` at position 600 — and on
+a 900px page the warning fell silent from halfway down. `ReadResult` now carries
+`travelled` (position) and `scrollable` (the last measured extent) alongside `scrolled`
+(effort), and the check is the pure `feedShortfall`, which reads only the first two.
+
+*Why `feedShortfall` is a function.* The capability cannot inject an rng into
+`readLikeAHuman`, so no end-to-end test can force `scrolled` and `travelled` apart — the
+original tests passed against the bug because the fake cursor never scrolled backwards. A
+pure function can be handed the sequence directly. The property is now pinned where it is
+decidable rather than where it happens to run.
+
 ## D229 — Tasks 27–29 stay blocked on the live probe and on the operator (2026-08-09)
 
 **Decision.** The offline half of Task 26 — the probe capability, the measurement
@@ -2484,3 +2510,30 @@ DOM-source exception to it (M4 CONTEXT rule 7).
 `CLAUDE.md` is the profile reader *and nothing else* — it is never silently inherited by a
 new surface. Writing a field map now would produce exactly the artefact D152 exists to
 prevent: a document that looks measured and is not.
+
+## D300 — a `/posts/` permalink watches two document spellings (2026-08-09)
+
+**Numbering:** Task 26's D220–D229 are used, so this takes the next free number outside the
+plan's per-task ranges, per the M4 README's rule.
+
+**Decision.** `activityDocumentPatterns` returns one document watch for a person surface or
+an already-canonical permalink, and **two** for a `/posts/<slug>-activity-<id>-<hash>`
+target: the slug as given, and `https://www.linkedin.com/feed/update/<urn>/`. Both are
+`specific`, and they are named apart because the tap keys watches by name.
+
+**Why.** LinkedIn 302s `/posts/<slug>` to `/feed/update/<urn>/`, so the document that
+actually answers is at a path the target url never named. `documentPattern` matches on exact
+pathname, and the broad net cannot cover the gap — it matches API paths and this is a page.
+One watch would therefore have captured no document at all on the single surface where a
+server-rendered payload is most likely (D116/D117's whole argument), and the probe would have
+reported "nothing was server-rendered" about a body it never watched for. `documentPattern`
+gained an optional name parameter to make this expressible; its default is unchanged.
+
+**Also in this review round, and needing no decision:** the receipt's urn inventory is taken
+across the run rather than summed per body (one author in ten feed bodies is one person, not
+ten) and now carries `body_urns_total` and `body_urns_truncated`, so a family that hits
+`MAX_URNS_PER_FAMILY` says so instead of under-reporting silently. `activitymap`'s per-family
+sets are bounded the same way — they were the one structure in that file that grew with the
+page. A no-op `isPostPermalink` branch was removed from the promote script: `normalizeProfileUrl`
+already refuses a permalink and the catch already returns null, so the branch changed nothing
+and its comment claimed a protection that was never running.

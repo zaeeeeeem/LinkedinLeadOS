@@ -6,7 +6,7 @@ import { assertNoChallenge, recordChallenge } from "../../core/challenge/detect.
 import { classifyResponse } from "../../core/challenge/classify.js";
 import type { ChallengeDetection } from "../../core/challenge/classify.js";
 import { CHALLENGE_PRECEDENCE } from "../../core/challenge/classify.js";
-import { documentPattern, summarizeCaptures } from "../profile.capture/patterns.js";
+import { summarizeCaptures } from "../profile.capture/patterns.js";
 import type { EndpointRow } from "../profile.capture/patterns.js";
 import { RECEIPT_ENDPOINT_CAP } from "../profile.capture/index.js";
 import { readLikeAHuman } from "../profile.capture/read.js";
@@ -18,7 +18,8 @@ import {
 } from "../profile.capture/constants.js";
 import { absoluteTimeLeaves, buildActivityDomMap } from "../../core/fixtures/activitymap.js";
 import {
-  ACTIVITY_PATTERNS, BROAD_PATTERN_NAME, isActivityIsh, sessionUrnHits, urnInventory,
+  ACTIVITY_PATTERNS, BROAD_PATTERN_NAME, activityDocumentPatterns, isActivityIsh,
+  sessionUrnHits, urnInventory,
 } from "./patterns.js";
 import { ACTIVITY_SURFACES, normalizeActivityUrl, looksLikePostPermalink } from "./url.js";
 import { MAX_INVENTORIED_BODIES } from "./constants.js";
@@ -42,6 +43,27 @@ function transient(code: string, message: string, evidence?: string): Capability
   return new CapabilityError({
     code, exit: EXIT.TRANSIENT, action: "RETRY_BACKOFF", retryable: true, message, evidence,
   });
+}
+
+
+/**
+ * How much of the feed was left unread, in pixels. `0` when it was read to the
+ * bottom, or when the page could not be measured at all.
+ *
+ * A function rather than three lines inline, because the distinction it turns
+ * on is invisible at the call site and cannot be staged end to end: it reads
+ * `travelled` — where the scroller ended up — and never `scrolled`, which is
+ * distance dispatched and counts a pass back up as progress. `readLikeAHuman`
+ * takes a back-pass a quarter of the time, so 600 down, 300 up, 300 down is
+ * 1200px of `scrolled` at position 600, and the wrong one of these reports a
+ * 900px page as fully read from halfway down. The capability cannot inject an
+ * rng to force that sequence; a unit test on this can.
+ */
+export function feedShortfall(
+  reading: { travelled: number; scrollable: number | null } | null,
+): number {
+  if (reading === null || reading.scrollable === null) return 0;
+  return Math.max(0, reading.scrollable - reading.travelled);
 }
 
 /** Highest-precedence detection of a set, by the same ordering the gate uses. */
@@ -100,7 +122,12 @@ export const capability = defineCapability({
     await budget.check({ kind: "page_load", n: 1 });
     if (opensProfile) await budget.check({ kind: "profile_open", ref: target.personRef! });
 
-    const patterns = [...ACTIVITY_PATTERNS, documentPattern(target.url)];
+    const patterns = [
+      ...ACTIVITY_PATTERNS,
+      // One watch, or two: a `/posts/` permalink redirects to `/feed/update/`,
+      // and the document that answers is at a path the target never named.
+      ...activityDocumentPatterns(target),
+    ];
     for (const pattern of patterns) tap.watch(pattern);
     const since = tap.cursor;
 
@@ -244,17 +271,24 @@ export const capability = defineCapability({
     // and the count of posts on the receipt would describe the scroll rather
     // than the person. Visible, because a short capture and a short feed must
     // not produce the same receipt.
-    const scrollable = reading?.viewport === null || reading?.viewport === undefined
-      ? null
-      : Math.max(0, reading.viewport.scrollHeight - reading.viewport.scrollerHeight);
-    if (reading !== null && scrollable !== null && reading.scrolled < scrollable) {
+    //
+    // Compared on `travelled` — where the scroller ended up — and never on
+    // `scrolled`, which is distance dispatched and counts a back-pass as
+    // progress. `readLikeAHuman` takes a pass back up a quarter of the time, so
+    // 600 down + 300 up + 300 down is 1200px of `scrolled` at position 600, and
+    // this warning would fall silent on a 900px page at exactly the moment the
+    // capture was short. `scrollable` is the *last* measurement, not the first:
+    // a lazy feed grows as it renders (D228).
+    const scrollable = reading?.scrollable ?? null;
+    const remaining = feedShortfall(reading);
+    if (reading !== null && scrollable !== null && remaining > 0) {
       warnings.push({
         code: "FEED_NOT_EXHAUSTED",
-        n: scrollable - reading.scrolled,
+        n: remaining,
         field:
-          `the scroller still had ${scrollable - reading.scrolled}px below the last pass ` +
-          `(${reading.passes} passes, ${reading.scrolled}px of ${scrollable}px) — this capture ` +
-          `is a prefix of the feed, not all of it`,
+          `the scroller still had ${remaining}px below the last pass (${reading.passes} ` +
+          `passes, ended at ${reading.travelled}px of ${scrollable}px) — this capture is a ` +
+          `prefix of the feed, not all of it`,
       });
     }
 
@@ -310,14 +344,14 @@ export const capability = defineCapability({
     // already caught here once. What was skipped is reported, not dropped.
     const relevant = captures.filter((c) => isActivityIsh(c.body));
     const inventoried = relevant.slice(0, MAX_INVENTORIED_BODIES);
-    const bodyUrns = { distinct: {} as Record<string, number>, sessionHits: 0 };
-    for (const capture of inventoried) {
-      const inv = urnInventory(capture.body);
-      for (const [family, n] of Object.entries(inv.distinct)) {
-        bodyUrns.distinct[family] = (bodyUrns.distinct[family] ?? 0) + n;
-      }
-      bodyUrns.sessionHits += sessionUrnHits(capture.body, sessionUrns);
-    }
+    // Inventoried across the run, not per body and summed: one author appearing
+    // in ten feed bodies is one person, and this count is read as "how many
+    // distinct people were on this page". Summing counted them ten times.
+    const acrossRun = urnInventory(inventoried.map((c) => c.body).join("\n"));
+    const bodySessionHits = inventoried.reduce(
+      (n, c) => n + sessionUrnHits(c.body, sessionUrns),
+      0,
+    );
 
     // The DOM half of the same sweep: what the rendered page carries, how it
     // binds a time to a post, and whether the operator is the only person on it.
@@ -392,6 +426,7 @@ export const capability = defineCapability({
               passes: reading.passes,
               notches: reading.notches,
               scrolled_px: reading.scrolled,
+              travelled_px: reading.travelled,
               scrollable_px: scrollable,
               paused_ms: reading.pausedMs,
               viewport: reading.viewport,
@@ -413,8 +448,13 @@ export const capability = defineCapability({
           session_urns_known: sessionUrns.length,
           bodies_inventoried: inventoried.length,
           bodies_not_inventoried: relevant.length - inventoried.length,
-          body_urns_distinct: bodyUrns.distinct,
-          body_session_urn_hits: bodyUrns.sessionHits,
+          body_urns_distinct: acrossRun.distinct,
+          body_urns_total: acrossRun.total,
+          // Which families hit `MAX_URNS_PER_FAMILY`. Dropped, this
+          // under-reports silently at exactly the scale that matters — the same
+          // failure `bodies_not_inventoried` exists to prevent, one layer down.
+          body_urns_truncated: acrossRun.truncated,
+          body_session_urn_hits: bodySessionHits,
           dom: domMap === null ? null : {
             card_ref_scope_resolved: domMap.scope.profileId !== null,
             card_ref_cards: domMap.scope.cards.length,

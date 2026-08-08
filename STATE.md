@@ -919,7 +919,7 @@ Promotion is surface-selected: `--surface=activity` moves relevance, probes and 
 together, because promoting an activity run under the profile settings drops every body that
 carries posts and no person urn — exactly the body a post parser needs (D226).
 
-Proven: **910/910 offline (107 new), typecheck clean.** Mutations verified to bite: reverting
+Proven: **927/927 offline (124 new), typecheck clean.** Mutations verified to bite: reverting
 the relevance predicate to `isProfileIsh` (4 failures); charging a permalink a `profile_open`
 (1); dropping the `SESSION_IDENTITY_UNAVAILABLE` warning (1); removing the scroller
 descriptor (4). Pinned by test, not by prose: the `profile_open` ref *agrees with*
@@ -930,6 +930,34 @@ string; the lease is released on the challenge, the transient and the bad-url pa
 still on the wire when the run halts is still archived. A compile-time block asserts the
 three `profile.capture` modules and the activity map compose — this capability is the first
 place they meet (review shape 4).
+
+**Reviewed the same day; two real defects found, both in scroll accounting, both landing on
+exactly the surface this probe exists to measure. Fixed before any live run (D228 revised,
+D300).**
+
+- *The scroll budget was measured once, before scrolling.* A feed renders as it is read, so
+  that number was the height the page had before it had any cards: the reader stopped at the
+  first screenful-set and never issued whatever request the rest of the feed would trigger.
+  The archive would have been a prefix **by construction**, and the fixture Tasks 27–29
+  receive would never have shown how the feed pages. Now re-measured after every pass.
+- *The "not exhausted" warning compared distance travelled, not position.* `scrolled` sums
+  absolute movement and the reader goes back up a quarter of the time, so a 900px page read
+  from position 600 looked finished. Now `travelled` vs the last measured extent, via the
+  pure `feedShortfall` — the capability cannot inject an rng, so the property is pinned
+  where the sequence can be chosen instead of rolled.
+
+Also fixed: the urn inventory summed distinct counts per body, so one author across ten feed
+bodies counted ten; truncation of the urn sets was dropped from the receipt; a `/posts/`
+permalink watched only the spelling it was given, though LinkedIn 302s it to `/feed/update/`
+— which would have captured no document at all on the one surface where a server-rendered
+payload is most likely (D300); `activitymap`'s per-family sets were unbounded; a no-op branch
+in the promote script claimed a protection that never ran.
+
+**The original tests passed against all of it**, which is the finding worth keeping: the fake
+cursor never scrolled backwards, and the growing-page case did not exist. Each fix is now
+mutation-verified — reverting it fails a named test — and the flaky assertion that turned up
+while checking (a two-pass read can legitimately end back at position 0) is gone. Suite run
+eight times clean.
 
 **Spend: 0 of the 5 budgeted page loads.** No live run happened; the operator supervises
 every live run.

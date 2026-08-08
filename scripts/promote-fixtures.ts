@@ -19,7 +19,6 @@ import { join, resolve } from "node:path";
 import { isProfileIsh } from "../src/capabilities/profile.capture/patterns.js";
 import { normalizeProfileUrl } from "../src/capabilities/profile.capture/url.js";
 import { isActivityIsh } from "../src/capabilities/activity.capture/patterns.js";
-import { normalizeActivityUrl } from "../src/capabilities/activity.capture/url.js";
 import { ACTIVITY_PROBES } from "../src/core/fixtures/activity-probes.js";
 import { RawArchive } from "../src/core/archive/raw.js";
 import { isPrivateEndpoint, personUrnsIn, promoteFixtures } from "../src/core/fixtures/promote.js";
@@ -59,11 +58,9 @@ function subjectOf(runsDir: string, runId: string, override: string | null): Pro
   const raw = override ?? readRunUrl(runsDir, runId);
   if (raw === null) return null;
   try {
-    // A post permalink names no person, so it has no subject to scope by. Said
-    // out loud rather than falling through to `normalizeProfileUrl`, which
-    // would refuse it and leave promotion on the "any person data" fallback
-    // that filled `fixtures/` with the operator's own inbox (D118).
-    if (isPostPermalink(raw)) return null;
+    // A post permalink reaches `normalizeProfileUrl`'s final refusal and lands
+    // in the catch below, which returns null for anything url-shaped — so a
+    // permalink run promotes with no subject, and the script says so on stderr.
     const target = normalizeProfileUrl(raw);
     // A Sales Navigator lead has no vanity slug; its member id is what every
     // body naming that person carries instead.
@@ -72,15 +69,6 @@ function subjectOf(runsDir: string, runId: string, override: string | null): Pro
   } catch {
     // Already a bare slug, most likely — `--subject=tankots`.
     return /^[a-z0-9-]{3,100}$/i.test(raw) ? { vanity: raw } : null;
-  }
-}
-
-/** True for an input that names one post rather than a person. */
-function isPostPermalink(raw: string): boolean {
-  try {
-    return normalizeActivityUrl(raw).surface === "post";
-  } catch {
-    return false;
   }
 }
 

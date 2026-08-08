@@ -2,6 +2,7 @@ import * as cheerio from "cheerio";
 import { describe, expect, it } from "vitest";
 import {
   MAX_TIME_LEAVES,
+  MAX_URNS_PER_FAMILY,
   MAX_URN_ATTRIBUTES,
   absoluteTimeLeaves,
   buildActivityDomMap,
@@ -172,6 +173,33 @@ describe("buildActivityDomMap — bounds", () => {
     expect(map.truncated.timeLeaves).toBe(true);
     expect(renderActivityDomMap({ file: "f.html", bytes: 1, sourceRun: "R", map }))
       .toContain("the rest are not listed");
+  });
+
+  it("bounds the per-family urn sets and marks the count as a floor", () => {
+    // The one structure in this file that grew with the page: it is only ever
+    // read as a count, but the set behind it retained every distinct urn on a
+    // page we do not control.
+    const over = MAX_URNS_PER_FAMILY + 5;
+    const body = Array.from(
+      { length: over },
+      (_, i) => `<div data-urn="urn:li:activity:${i}"></div>`,
+    ).join("");
+    const map = buildActivityDomMap(`<html><body>${body}</body></html>`);
+
+    expect(map.families.find((f) => f.family === "urn:li:activity")!.distinct)
+      .toBe(MAX_URNS_PER_FAMILY);
+    expect(map.truncated.families).toContain("urn:li:activity");
+    // Rendered as a floor, not as a count — a capped tally that reads as exact
+    // is the silent under-report this bound would otherwise introduce.
+    expect(renderActivityDomMap({ file: "f.html", bytes: 1, sourceRun: "R", map }))
+      .toContain("(at least)");
+  });
+
+  it("does not mark a family that stayed under the cap", () => {
+    const map = buildActivityDomMap(FEED_HTML);
+    expect(map.truncated.families).toEqual([]);
+    expect(renderActivityDomMap({ file: "f.html", bytes: 1, sourceRun: "R", map }))
+      .not.toContain("(at least)");
   });
 
   it("survives html that is not a page at all", () => {

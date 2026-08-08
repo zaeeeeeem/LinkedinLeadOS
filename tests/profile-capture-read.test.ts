@@ -271,6 +271,96 @@ describe("waitForLayout — the regression from the first live capture", () => {
   });
 });
 
+describe("readLikeAHuman — how far it got, versus how far it travelled", () => {
+  /** A page that renders as it is read: each measurement is taller than the
+   *  last. This is what an activity feed does, and what a profile page does not
+   *  — which is why measuring the extent once survived until now. */
+  function growingTab(heights: number[]): ReadTab & { expressions: string[] } {
+    return fakeTab(vp(heights.at(-1)!), heights.map((h) => vp(h)));
+  }
+
+  it("the growing page settles at its first height, which is what makes the test bite", async () => {
+    // Pinning the premise: if layout settled at 30,000 instead, measuring once
+    // and measuring per pass would agree and the test above would prove nothing.
+    const layout = await waitForLayout(growingTab([3_000, 3_000, 3_000, 12_000, 30_000]), {
+      sleep: noSleep,
+    });
+    expect(layout.settled).toBe(true);
+    expect(layout.viewport!.scrollHeight).toBe(3_000);
+  });
+
+  it("re-measures between passes, so a lazily-rendered feed is not capped at its first height", async () => {
+    // Three reads at 3,000 so the layout *settles* there — that is the number
+    // the old code took its budget from — and only then do the cards render.
+    // Measured once, the budget is 2,100px and the reader stops dead there,
+    // having never issued whatever request the rest of the feed would trigger.
+    const cursor = fakeCursor();
+    const result = await readLikeAHuman({
+      tab: growingTab([3_000, 3_000, 3_000, 12_000, 21_000, 30_000, 30_000]),
+      cursor,
+      passes: 4,
+      rng: () => 0.99, // never a back-pass; the largest magnitude, ~1,030px
+      sleep: noSleep,
+    });
+
+    expect(result.passes).toBe(4);
+    expect(result.travelled).toBeGreaterThan(3_000 - 900);
+    // And the extent it reports is the last one measured, not the settled one.
+    expect(result.scrollable).toBe(30_000 - 900);
+  });
+
+  it("still stops at the bottom of a page that is not growing", async () => {
+    const cursor = fakeCursor();
+    const short = vp(1_400);
+    const result = await readLikeAHuman({
+      tab: fakeTab(short), cursor, passes: 6, rng: () => 0.99, sleep: noSleep,
+    });
+    // 1400 - 900 = 500px of travel available, and no more wheel after that.
+    expect(result.travelled).toBe(500);
+    expect(result.passes).toBeLessThan(6);
+    expect(result.scrollable).toBe(500);
+  });
+
+  it("counts a back-pass as travel and not as progress", async () => {
+    // The distinction the exhaustion check turns on. `rng` at 0.0 makes
+    // `chance(0.25)` true, so every pass after the first goes back up.
+    const cursor = fakeCursor();
+    const tall = vp(50_000);
+    const result = await readLikeAHuman({
+      tab: fakeTab(tall), cursor, passes: 3, rng: () => 0, sleep: noSleep,
+    });
+
+    // Down, then up, then up-to-zero: travel keeps accumulating, position does not.
+    expect(result.scrolled).toBeGreaterThan(result.travelled);
+    expect(result.travelled).toBeGreaterThanOrEqual(0);
+    // The whole bug: read as progress, this page looks further along than it is.
+    expect(result.travelled).toBeLessThan(result.scrolled);
+  });
+
+  it("reports no extent at all when the page cannot be measured", async () => {
+    const cursor = fakeCursor();
+    const result = await readLikeAHuman({
+      tab: fakeTab(null), cursor, passes: 2, rng: () => 0.5, sleep: noSleep, layout: SETTLED(null),
+    });
+    // Never Infinity on a receipt: the fallback is to keep scrolling, and to
+    // say the extent is unknown rather than to invent one.
+    expect(result.scrollable).toBeNull();
+    expect(result.passes).toBe(2);
+  });
+
+  it("keeps the last good measurement when a re-measure fails mid-read", async () => {
+    // A failed read means "not yet", never "the page is now zero tall" — which
+    // would collapse the budget and end the read.
+    const cursor = fakeCursor();
+    const tab = fakeTab(vp(20_000), [vp(20_000), vp(20_000), null, vp(20_000), vp(20_000)]);
+    const result = await readLikeAHuman({
+      tab, cursor, passes: 3, rng: () => 0.99, sleep: noSleep,
+    });
+    expect(result.passes).toBe(3);
+    expect(result.scrollable).toBe(20_000 - 900);
+  });
+});
+
 describe("VIEWPORT_EXPRESSION, executed as real javascript", () => {
   /** Runs the expression the way Chrome does, against a stub page. The
    *  expression is a string, so nothing else in this repo type-checks it. */
