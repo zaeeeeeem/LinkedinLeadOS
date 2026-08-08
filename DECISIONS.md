@@ -3116,3 +3116,49 @@ resolved-or-refused against `urn:li:activity:<id>`.
 splitting them and that stands. Reading the reactions *count* and the reaction rows rendered
 on the page is inside this exception; opening a panel to enumerate every reactor is
 interaction, is unmeasured, and stays its own task.
+
+## D314 — `post.get` stores nothing yet, because the snapshot carries no author urn (2026-08-10)
+
+Task 29's file asks the post row to route into `person_posts` or `company_posts` by author
+type. **It cannot, and the reason is measured, not preferential.**
+
+The snapshot carries no author urn anywhere. Twelve `urn:li:member:<id>` values appear, all in
+follow-state components and none anchored to the author; there is no urn within 3,000
+characters of the author's own profile link. The author is identifiable only as a **vanity**
+(`tankots`), resolved by eliminating comment rows, the reaction facepile, and the session's own
+public identifiers.
+
+`person_posts.person_urn` and `company_posts.company_urn` are both `not null`. Writing a row
+would mean inventing an author key, which is the one thing the identity rules never permit —
+and the task file already anticipated exactly this with "refusing an unresolvable author".
+
+So `post.get` returns the post on the receipt and leaves the raw snapshot archived.
+`storage: { mode: "archive-only" }`, the same shape D306 settled for `profile.activity`, and
+reversible the same way: the bytes are on disk, the parser is pure, and a later write path is a
+reparse rather than another metered pass.
+
+**The route that would work, deliberately not taken here:** resolve the author vanity against
+an existing `persons` row via `findPersonByVanity`, refuse when absent. That is a real storage
+decision with a real ambiguity case — `findPersonByVanity` already reports `vanityMatches`
+because a vanity can match more than one person — and it deserves its own entry and its own
+tests rather than being slipped into this one.
+
+## D315 — Comments and reactions are bounded by construction, not by discipline (2026-08-10)
+
+D313 set the policy; this records how it is enforced, because a policy that lives only in a
+README is one refactor from gone.
+
+- The parser takes `comments` / `reactions` as **optional option objects**. Absent means the
+  section is not read at all — not read-then-discarded. A default run cannot produce a comment
+  row, because no code path builds one.
+- Each section is bounded twice: by the caller's `--*-limit`, and by a parser-local
+  `MAX_*_ROWS` of 200 so a malformed snapshot cannot grow the output without limit.
+- The reader takes **one** bounded pass. There is no "load more" call anywhere in the
+  capability, and a limit above what the page rendered returns what the page rendered — proven
+  by test: limit 500 against a 73-comment post returns the 14 rows present.
+- Partial reads are flagged with both numbers (`COMMENTS_PARTIAL`, `REACTIONS_PARTIAL`) and
+  restated as booleans (`read.comments_complete`). Silence is never allowed to read as
+  completeness — that was the operator's specific concern.
+
+Mutation-verified: removing the session-vanity exclusion, the comment-limit slice, or the
+identity-mismatch refusal each fails its own named test.

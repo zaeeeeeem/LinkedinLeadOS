@@ -1274,3 +1274,28 @@ has zero U+FFFD, and the fragment-boundary theory is disproven too.
 
 Branch state: `task-26-activity-surface-probe` carries Tasks 27, 28, the tap fix (D307) and
 main's transport fix. Full suite 1,124 passed, 0 skipped; typecheck clean.
+
+Task 29 — `post.get` (**implemented offline; live gate pending operator**, 2026-08-10). The
+operator granted the third DOM exception (D313), so CLAUDE.md's "two exceptions" rule is now
+three. Delivered `src/capabilities/post.get/` — pure parser over the promoted snapshot, the
+composition, 19 tests, and a README.
+
+Flags are the shape the operator asked for: a default run reads the post only; `--comments`
+and `--reactions` are opt-in, each with its own `--*-limit` (default 10), reactions ranked
+below comments. Nothing loops "load more", and partial reads are flagged by number and by
+boolean (D315). Identity is resolved from the `ReactionFacepileCollection-<activity urn>`
+testid or refused. The author is resolved by eliminating comment rows, the facepile and the
+session's own public identifiers — the D119 trap in its DOM spelling; `sessionVanitiesOf` was
+added next to `sessionUrnsOf` for it.
+
+Storage is archive-only (D314): the snapshot carries no author urn, and both post tables
+require one, so writing a row would mean inventing an author key. The vanity-lookup route is
+named and deliberately deferred.
+
+Verified: typecheck clean; full suite **1,143 passed, 0 skipped**; `cap list` discovers
+`post.get` with all five flags; three mutations each killed by their named test. `post.get`
+has its own budget sub-cap asserting zero profile opens and zero search pages.
+
+**Not done: the live gate.** No LinkedIn page was loaded for this task — the capability has
+never run against a live permalink, only against the archived snapshot from run
+`01KZKXSGNE4XRQMJRK241YQS6Q`.

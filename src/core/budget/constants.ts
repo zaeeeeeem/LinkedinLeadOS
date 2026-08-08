@@ -111,6 +111,12 @@ export const CAPABILITY_SUB_CAPS: Readonly<Record<string, CapabilitySubCaps>> = 
   // a search page or a profile open would be doing something it was not built
   // to do, and a cap of zero is what turns that into exit 7 instead of a habit.
   "company.probe": { pageLoadsPerDay: 12, searchPagesPerDay: 0, distinctProfilesPerDay: 0 },
+  // post.get reads one permalink per run and opens nobody's profile — a
+  // permalink is a post, not a person (D222). The zeroes are assertions in the
+  // same sense as company.probe's: a profile open or a search page recorded
+  // under this name would mean the reader is doing something it was not built
+  // to do, and zero turns that into exit 7 rather than a quiet habit.
+  "post.get": { pageLoadsPerDay: 60, searchPagesPerDay: 0, distinctProfilesPerDay: 0 },
   // The Task 26 probe. Capped well below the fallback because it is a
   // measurement capability, not a working reader: its whole job is a handful of
   // supervised page loads per surface, and a number in the hundreds would let a
