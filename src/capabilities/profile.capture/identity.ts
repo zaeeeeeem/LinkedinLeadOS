@@ -257,6 +257,26 @@ export function sessionUrnsOf(captures: readonly IdentityCapture[]): string[] {
 }
 
 /**
+ * The session's own **public identifiers** (vanity slugs), from the same
+ * `/voyager/api/me` body.
+ *
+ * The urn set above is the comparison set wherever identity is an urn. On a
+ * DOM surface it is not: `post.get` (D313) has only profile *links* to work
+ * with, and the post page renders the operator's own profile in its left rail.
+ * Without this, the operator is indistinguishable from the post's author — the
+ * D119 trap in its DOM spelling.
+ */
+export function sessionVanitiesOf(captures: readonly IdentityCapture[]): string[] {
+  const found = new Set<string>();
+  for (const capture of captures.filter(isSessionBody)) {
+    for (const m of capture.body.matchAll(/"publicIdentifier"\s*:\s*"([^"]+)"/g)) {
+      found.add(m[1]!);
+    }
+  }
+  return [...found];
+}
+
+/**
  * The identity outcome for one run: did the Voyager body arrive, did it carry a
  * subject urn, and is that urn actually the subject's rather than the
  * operator's?

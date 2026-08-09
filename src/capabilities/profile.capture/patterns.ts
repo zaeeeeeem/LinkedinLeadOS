@@ -155,7 +155,12 @@ function documentKey(rawUrl: string): string | null {
  * `profile-document` would report as one row and answer nothing (Task 21 loads
  * five company sub-pages). Omitted, the name is unchanged.
  */
-export function documentPattern(targetUrl: string, name: string = DOCUMENT_PATTERN_NAME): TieredPattern {
+export function documentPattern(
+  targetUrl: string,
+  /** The watch name. The tap keys watches by name, so a caller watching two
+   *  spellings of one document must name them apart. */
+  name: string = DOCUMENT_PATTERN_NAME,
+): TieredPattern {
   const wanted = documentKey(targetUrl);
   return {
     name,

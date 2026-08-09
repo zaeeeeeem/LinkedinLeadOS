@@ -31,6 +31,29 @@ export type ReadCursor = {
   pause(min?: number, max?: number): Promise<number>;
 };
 
+/**
+ * Enough of an element to say *which* element it was, without reading anything
+ * a class name would give away. Class names on this page are content-hashed and
+ * churn on every deploy (D128's reasoning), so they are deliberately not here.
+ */
+export type ScrollerDescriptor = {
+  tag: string;
+  id: string | null;
+  role: string | null;
+  /** LinkedIn's SDUI component key, when the element carries one. */
+  componentkey: string | null;
+  scrollHeight: number;
+  clientHeight: number;
+};
+
+/**
+ * How many scroller candidates are described. A page has a handful; a bound
+ * exists because this rides on every receipt and an unbounded list from a page
+ * we do not control is not a thing to ship. `scrollerCandidates` reports the
+ * true total, so a truncated list is visible rather than silently short.
+ */
+export const MAX_SCROLLER_CANDIDATES = 8;
+
 export type Viewport = {
   width: number;
   height: number;
@@ -44,6 +67,22 @@ export type Viewport = {
   /** `document.documentElement.scrollHeight`, kept for diagnosis — on LinkedIn
    *  it is a constant equal to the viewport and means nothing (D115). */
   documentScrollHeight: number;
+  /**
+   * Which element was measured. Optional because a page that has no inner
+   * scroller has none to describe, and because a caller (or a test double) from
+   * before this existed still satisfies `Viewport`.
+   *
+   * It exists because "the scroller is `main#workspace`" is a fact about the
+   * profile page and an assumption about every other one (M4 CONTEXT rule 3).
+   * A height alone cannot tell an operator which container it came from, so a
+   * new surface could report a settled layout while scrolling the wrong box.
+   */
+  scroller?: ScrollerDescriptor | null;
+  /** Every genuinely-scrollable element found, tallest first, capped at
+   *  `MAX_SCROLLER_CANDIDATES`. */
+  scrollers?: ScrollerDescriptor[];
+  /** How many candidates there were in total, cap or no cap. */
+  scrollerCandidates?: number;
 };
 
 export type LayoutResult = {
@@ -57,8 +96,24 @@ export type LayoutResult = {
 export type ReadResult = {
   passes: number;
   notches: number;
-  /** Absolute pixels dispatched, summed over every pass. */
+  /**
+   * Absolute pixels dispatched, summed over every pass — **distance travelled,
+   * not distance covered.** A back-pass adds to it. Use it to describe effort;
+   * never to answer "did we reach the bottom", which is `travelled`.
+   */
   scrolled: number;
+  /**
+   * Where the scroller ended up, in pixels from the top. This is the number
+   * that says how far down the page actually got: `scrolled` counts a pass down
+   * and the pass back up as 1200px of progress on a 900px page.
+   */
+  travelled: number;
+  /**
+   * How far there was left to go, **as last measured** — the page is
+   * re-measured between passes because a lazy feed grows as it renders. `null`
+   * when the page could not be measured at all.
+   */
+  scrollable: number | null;
   /** Total time paused between and after the passes. */
   pausedMs: number;
   viewport: Viewport | null;
@@ -111,7 +166,34 @@ export const SCROLLER_SELECTION_JS = `(function () {
 
 export const VIEWPORT_EXPRESSION = `(() => {
   try {
+    var MAX = ${MAX_SCROLLER_CANDIDATES};
+    var attr = function (el, name) {
+      try { return el.getAttribute ? el.getAttribute(name) : null; } catch (e) { return null; }
+    };
+    var describe = function (el) {
+      return {
+        tag: (el.tagName || '').toLowerCase(),
+        id: attr(el, 'id') || null,
+        role: attr(el, 'role') || null,
+        componentkey: attr(el, 'componentkey') || null,
+        scrollHeight: el.scrollHeight,
+        clientHeight: el.clientHeight,
+      };
+    };
     var best = ${SCROLLER_SELECTION_JS}();
+    var found = [];
+    var els = document.querySelectorAll('*');
+    for (var i = 0; i < els.length; i++) {
+      var el = els[i];
+      if (el.clientHeight < 200) continue;
+      if (el.scrollHeight <= el.clientHeight + 50) continue;
+      var oy = getComputedStyle(el).overflowY;
+      if (oy !== 'auto' && oy !== 'scroll' && oy !== 'overlay') continue;
+      found.push(el);
+    }
+    found.sort(function (a, b) { return b.scrollHeight - a.scrollHeight; });
+    var described = [];
+    for (var j = 0; j < found.length && j < MAX; j++) described.push(describe(found[j]));
     var docH = (document.documentElement && document.documentElement.scrollHeight) || 0;
     return {
       width: window.innerWidth || 0,
@@ -121,6 +203,10 @@ export const VIEWPORT_EXPRESSION = `(() => {
       innerScroller: !!best,
       scrollerHeight: best ? best.clientHeight : (window.innerHeight || 0),
       documentScrollHeight: docH,
+      /** Which element was measured, and what else could have been. */
+      scroller: best ? describe(best) : null,
+      scrollers: described,
+      scrollerCandidates: found.length,
     };
   } catch (e) { return null; }
 })()`;
@@ -150,6 +236,20 @@ function isViewport(v: unknown): v is Viewport {
  * by an empty shell. It never throws — a page that cannot be measured returns
  * `settled: false` and the caller decides, because the page load is already spent.
  */
+/**
+ * One viewport measurement. `null` when the page cannot be read — during a
+ * navigation the execution context is torn down and rebuilt, and that means
+ * "not yet", never "broken".
+ */
+export async function measureViewport(tab: ReadTab): Promise<Viewport | null> {
+  try {
+    const probe = await tab.evaluate<unknown>(VIEWPORT_EXPRESSION);
+    return isViewport(probe) ? probe : null;
+  } catch {
+    return null;
+  }
+}
+
 export async function waitForLayout(
   tab: ReadTab,
   o: { timeoutMs?: number; pollMs?: number; sleep?: (ms: number) => Promise<void> } = {},
@@ -167,15 +267,7 @@ export async function waitForLayout(
   let polls = 0;
 
   for (;;) {
-    let measured: Viewport | null = null;
-    try {
-      const probe = await tab.evaluate<unknown>(VIEWPORT_EXPRESSION);
-      if (isViewport(probe)) measured = probe;
-    } catch {
-      // The execution context is torn down and rebuilt during navigation, so a
-      // failed read here means "not yet", never "broken".
-      measured = null;
-    }
+    const measured = await measureViewport(tab);
     polls++;
 
     if (measured !== null) {
@@ -228,16 +320,29 @@ export async function readLikeAHuman(o: {
       ...(o.layoutTimeoutMs === undefined ? {} : { timeoutMs: o.layoutTimeoutMs }),
       ...(o.sleep === undefined ? {} : { sleep: o.sleep }),
     }));
-  const viewport = layout.viewport;
+  let viewport = layout.viewport;
 
   const width = viewport?.width ?? FALLBACK_VIEWPORT.width;
   const height = viewport?.height ?? FALLBACK_VIEWPORT.height;
   const passes = o.passes ?? randInt(rng, SCROLL_PASSES_MIN, SCROLL_PASSES_MAX);
 
-  // Never wheel further than the document actually is: past the bottom the
-  // events land on nothing, which is both useless and a shape no reader makes.
-  const visible = viewport ? viewport.scrollerHeight : height;
-  const scrollable = viewport ? Math.max(0, viewport.scrollHeight - visible) : Infinity;
+  /**
+   * How far there is left to go, from the *latest* measurement.
+   *
+   * Measured per pass rather than once, because a lazily-rendered page grows as
+   * it is read: an activity feed measures one screenful before anything has
+   * rendered, and a budget taken from that measurement stops the reader at the
+   * height the page had before it had any content. On a profile — finite, and
+   * mostly rendered by the time layout settles — this made no difference, which
+   * is why it survived until a feed surface needed it.
+   *
+   * `Infinity` when the page cannot be measured at all: the fallback is to keep
+   * scrolling, exactly as before, rather than to stop.
+   */
+  const extentOf = (v: Viewport | null): number =>
+    v === null ? Infinity : Math.max(0, v.scrollHeight - v.scrollerHeight);
+
+  let scrollable = extentOf(viewport);
 
   let notches = 0;
   let scrolled = 0;
@@ -268,11 +373,29 @@ export async function readLikeAHuman(o: {
     o.onPass?.({ index: i, deltaY, result });
 
     pausedMs += await o.cursor.pause(SCROLL_PAUSE_MS_MIN, SCROLL_PAUSE_MS_MAX);
+
+    // After the pause, so whatever the last pass triggered has had its chance
+    // to render. A failed read leaves the previous measurement standing rather
+    // than collapsing the budget to zero mid-read.
+    const remeasured = await measureViewport(o.tab);
+    if (remeasured !== null) {
+      viewport = remeasured;
+      scrollable = extentOf(remeasured);
+    }
   }
 
   // The dwell happens whether or not anything scrolled — a one-screen profile
   // still gets looked at.
   pausedMs += await o.cursor.pause(DWELL_MS_MIN, DWELL_MS_MAX);
 
-  return { passes: done, notches, scrolled, pausedMs, viewport, layout };
+  return {
+    passes: done,
+    notches,
+    scrolled,
+    travelled,
+    scrollable: Number.isFinite(scrollable) ? scrollable : null,
+    pausedMs,
+    viewport,
+    layout,
+  };
 }

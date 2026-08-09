@@ -8,6 +8,8 @@ import { RawArchive } from "../src/core/archive/raw.js";
 import { promoteFixtures } from "../src/core/fixtures/promote.js";
 import type { FixtureIndex } from "../src/core/fixtures/promote.js";
 import { CapabilityError } from "../src/core/run/receipt.js";
+import { isActivityIsh } from "../src/capabilities/activity.capture/patterns.js";
+import { ACTIVITY_PROBES } from "../src/core/fixtures/activity-probes.js";
 
 const PROFILE_BODY = JSON.stringify({
   data: { elements: [{ entityUrn: "urn:li:fsd_profile:ACwAAA", firstName: "Jane", headline: "Founder" }] },
@@ -382,5 +384,103 @@ describe("promoteFixtures — the DOM snapshot (D123)", () => {
     const md = readFileSync(join(fixturesDir, "FIELD-MAP.md"), "utf8");
     expect(md).toContain("rendered DOM snapshot");
     expect(md).toContain(`urn:li:fsd_profile:${SUBJECT_ID}`);
+  });
+});
+
+describe("promoteFixtures — the activity surface (D226)", () => {
+  const ACTIVITY_GQL =
+    "https://www.linkedin.com/voyager/api/graphql?queryId=voyagerFeedDashProfileUpdates.3a";
+  const ACTIVITY_BODY = JSON.stringify({
+    data: {
+      elements: [{
+        entityUrn: "urn:li:activity:7000000000000000001",
+        actor: { urn: "urn:li:fsd_profile:ACwAAA" },
+        commentary: { text: "jane-doe is hiring" },
+        createdAt: Date.UTC(2026, 6, 1),
+      }],
+    },
+  });
+  /** Activity data that names no person at all. Under the profile relevance
+   *  rule this body is dropped, and it is exactly the body a post parser needs. */
+  const COUNTS_BODY = JSON.stringify({
+    data: { socialDetail: { numLikes: 12, numComments: 3, urn: "urn:li:activity:7000000000000000001" } },
+  });
+
+  async function seedActivitySnapshot(html: string): Promise<void> {
+    await new RawArchive(archiveDir).archive({
+      body: html,
+      url: "dom-snapshot:https://www.linkedin.com/in/jane-doe/recent-activity/all/",
+      status: 0,
+      method: "DOM",
+      pattern: "dom-snapshot",
+      contentType: "text/html; charset=utf-8",
+    });
+  }
+
+  it("promotes a body that carries posts and no person urn", async () => {
+    await seed([{ body: COUNTS_BODY, url: ACTIVITY_GQL }]);
+    const result = await run({
+      isRelevant: isActivityIsh,
+      probes: ACTIVITY_PROBES,
+      domMap: "activity",
+    });
+    expect(result.promoted).toHaveLength(1);
+    expect(result.skipped.not_profile).toBe(0);
+  });
+
+  it("drops that same body under the profile rule, which is why the flag exists", async () => {
+    await seed([{ body: COUNTS_BODY, url: ACTIVITY_GQL }]);
+    const result = await run();
+    expect(result.promoted).toHaveLength(0);
+    expect(result.skipped.not_profile).toBe(1);
+  });
+
+  it("runs the activity probes over the promoted body", async () => {
+    await seed([{ body: ACTIVITY_BODY, url: ACTIVITY_GQL }]);
+    await run({ isRelevant: isActivityIsh, probes: ACTIVITY_PROBES, subject: { vanity: "jane-doe" } });
+    const md = readFileSync(join(fixturesDir, "FIELD-MAP.md"), "utf8");
+
+    expect(md).toContain("post_urn");
+    expect(md).toContain("$.data.elements[].entityUrn");
+    // The absolute timestamp, found because the probe can match a number.
+    expect(md).toContain("posted_at_epoch");
+    expect(md).toContain("$.data.elements[].createdAt");
+  });
+
+  it("gives the snapshot the activity DOM map instead of the profile one", async () => {
+    const html =
+      `<html><body><main id="workspace">` +
+      `<div data-urn="urn:li:activity:7000000000000000001"><p>jane-doe</p><span>3d</span></div>` +
+      `</main></body></html>`;
+    await seedActivitySnapshot(html);
+    await run({
+      isRelevant: isActivityIsh,
+      probes: ACTIVITY_PROBES,
+      domMap: "activity",
+      subject: { vanity: "jane-doe" },
+    });
+    const md = readFileSync(join(fixturesDir, "FIELD-MAP.md"), "utf8");
+
+    expect(md).toContain("rendered DOM snapshot (activity surface)");
+    expect(md).toContain("candidate post-card markers");
+    expect(md).toContain("data-urn");
+    expect(md).toContain("Only relative times are rendered");
+    // The profile map's sections must not appear: it would report "no subject
+    // scope" on a page that was never supposed to have one.
+    expect(md).not.toContain("### Subject scope\n");
+  });
+
+  it("marks a path that resolves to the session's own identity, on this surface too", async () => {
+    const operator = "urn:li:fsd_profile:ACoAAAoperator";
+    await seed([{
+      body: JSON.stringify({ elements: [{ urn: "urn:li:activity:1", actor: { urn: operator } }] }),
+      url: ACTIVITY_GQL,
+    }]);
+    await run({ isRelevant: isActivityIsh, probes: ACTIVITY_PROBES, sessionUrns: [operator] });
+    const md = readFileSync(join(fixturesDir, "FIELD-MAP.md"), "utf8");
+    // The author path here is the operator's own. A parser written against it
+    // scores green offline and returns this account for every prospect (D119).
+    const authorSection = md.slice(md.indexOf("### author_urn"));
+    expect(authorSection).toContain("session's own identity");
   });
 });

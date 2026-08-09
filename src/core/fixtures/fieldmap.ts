@@ -15,18 +15,30 @@
 /**
  * One thing a parser author needs to find.
  *
- * `key` matches the property name, `value` matches a string value, `object`
- * matches a node by the shape of its own keys. A probe may use any combination;
- * a node matches if any of them does.
+ * `key` matches the property name, `value` matches a string value, `number`
+ * matches a numeric value, `object` matches a node by the shape of its own
+ * keys. A probe may use any combination; a node matches if any of them does.
+ *
+ * `number` exists because `value` only ever sees strings, and the one question
+ * Task 26 had to answer — does any source carry an *absolute* timestamp — is
+ * about epoch millis, which are numbers. Without it a body full of
+ * `createdAt: 1754697600000` reports as carrying no timestamp at all (D224).
  */
 export type FieldProbe = {
   name: string;
   /** One line, for the rendered map. Says what a parser would do with this. */
   what: string;
   key?: RegExp;
-  value?: RegExp;
+  /** A `RegExp` satisfies this structurally; a shape predicate that is not
+   *  expressible as one (`looksIso8601` parses as well as matches) satisfies it
+   *  too, without a cast. */
+  value?: StringMatcher;
+  number?: (value: number) => boolean;
   object?: (keys: readonly string[]) => boolean;
 };
+
+/** Anything that can say yes or no about a string. `RegExp` is the usual one. */
+export type StringMatcher = { test(value: string): boolean };
 
 /** One place a probe matched, grouped across array indices. */
 export type FieldHit = {
@@ -143,6 +155,7 @@ function templateOf(path: string): string {
 function matches(probe: FieldProbe, key: string | null, value: unknown): boolean {
   if (probe.key && key !== null && probe.key.test(key)) return true;
   if (probe.value && typeof value === "string" && probe.value.test(value)) return true;
+  if (probe.number && typeof value === "number" && Number.isFinite(value) && probe.number(value)) return true;
   if (probe.object && value !== null && typeof value === "object" && !Array.isArray(value)) {
     if (probe.object(Object.keys(value as Record<string, unknown>))) return true;
   }

@@ -45,3 +45,19 @@ posted_at decision written into Tasks 27–29; spend used vs budgeted on STATE.m
   interleaved-repost trap that must not resolve as the subject's post.
 - Live: probe exit 0, no challenge, within budget, lease released, raw-first archived.
 - **Discipline gate** — all four m1-m3 review shapes.
+
+---
+
+## Progress (2026-08-09)
+
+**Part 1 — the instrument — is built, tested and committed.** `activity.capture`, the
+url/pattern modules, the three measurement instruments (`timeshape`, `ACTIVITY_PROBES`,
+`activitymap`), the scroller descriptor, surface-selected promotion, D220–D229, 910/910
+offline. See `STATE.md`.
+
+**Part 2 — the measurement — has not happened.** It needs operator-supervised live runs
+(up to 4 of the 5 budgeted page loads), and everything this task actually *delivers* comes
+out of them: fixtures, `FIELD-MAP.md`, the pinning tests, the author-identity verdict, the
+interleaved-repost trap, the `posted_at` decision, and the source verdicts written into
+Tasks 27–29. The exact commands and what to read on each receipt are at the end of
+`STATE.md`. Tasks 27–29 carry the blocked note (D229).

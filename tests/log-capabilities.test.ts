@@ -118,7 +118,7 @@ describe("log.runs end to end", () => {
     const def = await loadOne("log.runs");
     const { receipt } = await execute({
       def,
-      rawArgs: { since: "24h", "include-queries": "true" },
+      rawArgs: { since: "24h", includeQueries: "true" },
       flags: DEFAULT_FLAGS,
       runsDir,
       budgetPath,

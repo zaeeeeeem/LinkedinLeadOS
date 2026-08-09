@@ -5,6 +5,7 @@ import { CapabilityError, EXIT } from "../run/receipt.js";
 import { buildFieldMap, renderFieldMap } from "./fieldmap.js";
 import type { FieldMap, FieldProbe } from "./fieldmap.js";
 import { buildDomFieldMap, renderDomFieldMap } from "./dommap.js";
+import { buildActivityDomMap, renderActivityDomMap } from "./activitymap.js";
 import { isDomSnapshotEntry } from "../../capabilities/profile.capture/snapshot.js";
 import { embeddedJsonOf } from "./sweep.js";
 
@@ -88,6 +89,15 @@ export type PromoteInput = {
    *  written against the operator's own urn thinking it is the subject's. */
   sessionUrns?: readonly string[];
   probes?: readonly FieldProbe[];
+  /**
+   * Which DOM map a snapshot gets. `profile` is the card-ref map D130's parser
+   * is written against; `activity` is Task 26's shape-based measurement of the
+   * person-activity and post surfaces, which have no card-ref namespace to
+   * assume. Defaulted to `profile` so every existing caller is unchanged, and
+   * selected rather than sniffed: guessing which page a snapshot came from is
+   * exactly the kind of inference that produced D118.
+   */
+  domMap?: "profile" | "activity";
   now?: () => Date;
 };
 
@@ -385,13 +395,23 @@ export async function promoteFixtures(input: PromoteInput): Promise<PromoteResul
   for (const f of merged.fixtures) {
     if (f.dom_snapshot === true) {
       try {
+        const html = await readFile(join(input.fixturesDir, f.file), "utf8");
         domSections.push(
-          renderDomFieldMap({
-            file: f.file,
-            bytes: f.bytes,
-            sourceRun: f.source_run,
-            map: buildDomFieldMap(await readFile(join(input.fixturesDir, f.file), "utf8")),
-          }),
+          input.domMap === "activity"
+            ? renderActivityDomMap({
+                file: f.file,
+                bytes: f.bytes,
+                sourceRun: f.source_run,
+                map: buildActivityDomMap(html, {
+                  ...(input.sessionUrns === undefined ? {} : { sessionUrns: input.sessionUrns }),
+                }),
+              })
+            : renderDomFieldMap({
+                file: f.file,
+                bytes: f.bytes,
+                sourceRun: f.source_run,
+                map: buildDomFieldMap(html),
+              }),
         );
       } catch (cause) {
         domSections.push(

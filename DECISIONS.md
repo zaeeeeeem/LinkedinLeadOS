@@ -2470,6 +2470,190 @@ overrides the archive location on top of that, unchanged.
 
 Numbering note: this is infrastructure discovered while unblocking three tasks at
 once, so it belongs to none of their ranges. D300 is held by Task 26.
+## D220 — the activity surface gets its own relevance predicate, and `summarizeCaptures` takes one (2026-08-09)
+
+**Decision.** `summarizeCaptures` gains an optional `isRelevant` parameter, defaulting to
+`isProfileIsh` so every existing caller is unchanged. `activity.capture` passes
+`isActivityIsh`, which matches post, comment and reaction markers and deliberately does
+**not** match `urn:li:fsd_profile`.
+
+**Why.** Every post card names its author, so "carries person data" is true of essentially
+every body on this surface. Under the profile predicate the two-tier pattern report (D110)
+would say the same thing on every run, and `unmatched_profile_ish` — the number that exists
+to tell us the endpoint guess was wrong — would be noise. Rejected: forking the summary
+(two copies of the one function that produces this task's acceptance evidence).
+
+## D221 — `activity.capture` is a probe capability with its own small daily sub-cap (2026-08-09)
+
+**Decision.** The probe is a capability under `src/capabilities/`, not a script, and it
+carries a `CAPABILITY_SUB_CAPS` entry of 30 page loads / 0 search pages / 20 distinct
+profiles per day — well under the fallback (D162).
+
+**Why.** M4 CONTEXT rule 8 requires probes through the normal runner: lease, ledger,
+challenge gate, raw-first archive. Given that, D153's blast-radius argument applies to it
+too, and it applies *harder*: this capability's whole job is a handful of supervised loads
+per surface, so a number in the hundreds would let one mistyped loop spend a working
+reader's day on pages nobody is reading. Zero search pages for `profile.capture`'s reason —
+it never issues a search, so a search spend under this name means it is doing something it
+was not built to do.
+
+## D222 — a post permalink costs a page load and no `profile_open` (2026-08-09)
+
+**Decision.** `activity.capture` spends `page_load` on every surface and `profile_open`
+only on the three person surfaces. `cost()` branches on `looksLikePostPermalink`, which is
+total and never throws.
+
+**Why.** §8's `distinctProfilesPerDay` rations *how many people we looked at today*. A
+permalink opens nobody's profile; charging it would ration the wrong thing, and would make
+a day of post reads exhaust the budget that protects prospect views. The `cost` helper is
+total because a throw there is reported by the runner as `COST_ESTIMATE_FAILED` and the
+real `ACTIVITY_URL_INVALID` message is lost — the refusal belongs inside `run`, where it
+reads properly.
+
+## D223 — an activity page's `profile_open` ref is the profile's own ref (2026-08-09)
+
+**Decision.** `ActivityTarget.personRef` is `in:<vanity>`, byte for byte what
+`normalizeProfileUrl` produces, and that is the string passed to the ledger.
+
+**Why.** The three person surfaces are three pages of one person. A different spelling
+would count one prospect two or four times against `distinctProfilesPerDay`, and the
+freshness dedupe would stop amortising loads across a profile read and an activity read of
+the same person on the same day — which is exactly what M4 CONTEXT's "prefer targets
+already in the store" is for. Pinned by a test that asserts the two functions agree rather
+than asserting the literal.
+
+## D224 — a field probe may match a number (2026-08-09)
+
+**Decision.** `FieldProbe` gains `number?: (v: number) => boolean`, and `value` is widened
+from `RegExp` to a `StringMatcher` so a shape predicate that is not expressible as a regex
+(`looksIso8601` parses as well as matches) needs no cast.
+
+**Why.** `matches()` only ever tested `value` against strings, and LinkedIn's timestamps
+are epoch millis — numbers. Without this, the one question Task 26 exists to answer, *does
+any source carry an absolute time*, would be answered "no" by a body full of
+`createdAt: 1754697600000`, and `person_posts.posted_at` would get derived from the run
+clock for no reason at all.
+
+## D225 — the activity DOM map is shape-based, and it is an instrument, not a parser (2026-08-09)
+
+**Decision.** `core/fixtures/activitymap.ts` reports what a snapshot *contains* by shape:
+any attribute whose value holds a `urn:li:` is a candidate post-card marker whatever it is
+called; any leaf whose text reads as a time is a candidate `posted_at`; the nearest
+ancestor carrying a urn attribute is what binds the two. It resolves nothing and refuses
+nothing. `dommap.ts` is left alone: it is the profile page's map and is written against
+that page's card-ref namespace.
+
+**Why.** Nothing about this surface has been measured. A map that looked for named fields
+would confirm what someone expected instead of reporting what is there, which is the
+failure D152 exists to prevent — and it would then be lifted into Tasks 27–29 as a parser.
+So no part of this file may be lifted unchanged: those tasks are written against what it
+measured, not against it. It also reports whether the profile card-ref namespace (D127)
+exists here at all, as a measurement rather than an expectation.
+
+## D226 — promotion selects a surface, and relevance, probes and DOM map move together (2026-08-09)
+
+**Decision.** `promoteFixtures` gains `domMap: "profile" | "activity"`, and the promote
+script gains `--surface=profile|activity` which sets `isRelevant`, `probes` and `domMap`
+in one go. Default `profile`, so every existing invocation is unchanged. A post permalink
+run yields no subject, and the script says so rather than falling through.
+
+**Why.** They are one decision, not three. Promoting an activity run under the profile
+settings drops every body that carries posts and no person urn — which is exactly the body
+a post parser needs — and hands the snapshot to a map looking for cards that are not there.
+Selected rather than sniffed from the archive: inferring which page a run captured is the
+kind of guess that produced D118.
+
+## D227 — the scroller is described, not only measured (2026-08-09)
+
+**Decision.** `VIEWPORT_EXPRESSION` now returns a descriptor of the element it measured —
+tag, `id`, `role`, `componentkey`, and its two heights — plus every candidate, tallest
+first, capped at `MAX_SCROLLER_CANDIDATES` with the true total alongside. Class names are
+excluded: they are content-hashed and churn on every deploy.
+
+**Why.** M4 CONTEXT rule 3 says each new surface measures its own scroller. The expression
+already picked the tallest genuinely-scrollable element rather than the document (D115), but
+a height alone cannot tell an operator *which container* it came from, so a surface with two
+nested scrollers could report a settled layout while scrolling the wrong box — and nothing
+on the receipt would show it. Reporting the candidates is what makes "the feed is its own
+scroll container" a measurement rather than a claim.
+
+## D228 — a feed read only part of the way down is a warning, not a silent prefix (2026-08-09)
+
+**Decision.** When the measured scroller still has distance below the last pass,
+`activity.capture` raises `FEED_NOT_EXHAUSTED` with the remaining pixels.
+
+**Why.** On a profile page a short read costs some lazy sections. On a feed it changes what
+the numbers mean: the count of posts describes the scroll rather than the person, and a
+short capture and a short feed produce the same receipt. That is the silent-loss shape
+review has already caught here (the tap's forgotten-versus-never-arrived case) applied to a
+page that is unbounded by construction.
+
+**Revised the same day, after review, on both halves of the arithmetic. As first written
+this warning was near-silent exactly when the capture was short.**
+
+*The extent was measured once, before any scrolling.* `readLikeAHuman` took its scroll
+budget from the viewport measured at layout-settle. A feed renders as it is read, so that
+number is the height the page had before it had any cards: the reader stopped at the first
+screenful-set and never issued whatever request the rest of the feed would have triggered —
+the archive was a prefix *by construction*, and the fixture Tasks 27–29 receive would never
+have shown how the feed pages. It now re-measures after every pass and keeps the latest
+extent, with a failed re-measure leaving the previous one standing rather than collapsing
+the budget mid-read. On a profile page — finite, and mostly rendered by the time layout
+settles — this made no difference, which is why it survived to a feed surface.
+
+*The shortfall was computed from distance travelled, not position.* `ReadResult.scrolled`
+sums `Math.abs` over every pass and `readLikeAHuman` deliberately goes back up a quarter of
+the time, so 600px down, 300 up, 300 down is 1200px of `scrolled` at position 600 — and on
+a 900px page the warning fell silent from halfway down. `ReadResult` now carries
+`travelled` (position) and `scrollable` (the last measured extent) alongside `scrolled`
+(effort), and the check is the pure `feedShortfall`, which reads only the first two.
+
+*Why `feedShortfall` is a function.* The capability cannot inject an rng into
+`readLikeAHuman`, so no end-to-end test can force `scrolled` and `travelled` apart — the
+original tests passed against the bug because the fake cursor never scrolled backwards. A
+pure function can be handed the sequence directly. The property is now pinned where it is
+decidable rather than where it happens to run.
+
+## D229 — Tasks 27–29 stay blocked on the live probe and on the operator (2026-08-09)
+
+**Decision.** The offline half of Task 26 — the probe capability, the measurement
+instruments and their tests — ships now. The `FIELD-MAP.md`, the fixtures and the per-field
+source verdicts do not exist and will not be written from expectation. Tasks 27–29 remain
+blocked on two things: the supervised live run, and, if the run confirms that this surface's
+content lives only in the rendered DOM, an operator decision extending `CLAUDE.md`'s
+DOM-source exception to it (M4 CONTEXT rule 7).
+
+**Why.** D152 forbids parse code before a real-load fixture, and the exception in
+`CLAUDE.md` is the profile reader *and nothing else* — it is never silently inherited by a
+new surface. Writing a field map now would produce exactly the artefact D152 exists to
+prevent: a document that looks measured and is not.
+
+## D300 — a `/posts/` permalink watches two document spellings (2026-08-09)
+
+**Numbering:** Task 26's D220–D229 are used, so this takes the next free number outside the
+plan's per-task ranges, per the M4 README's rule.
+
+**Decision.** `activityDocumentPatterns` returns one document watch for a person surface or
+an already-canonical permalink, and **two** for a `/posts/<slug>-activity-<id>-<hash>`
+target: the slug as given, and `https://www.linkedin.com/feed/update/<urn>/`. Both are
+`specific`, and they are named apart because the tap keys watches by name.
+
+**Why.** LinkedIn 302s `/posts/<slug>` to `/feed/update/<urn>/`, so the document that
+actually answers is at a path the target url never named. `documentPattern` matches on exact
+pathname, and the broad net cannot cover the gap — it matches API paths and this is a page.
+One watch would therefore have captured no document at all on the single surface where a
+server-rendered payload is most likely (D116/D117's whole argument), and the probe would have
+reported "nothing was server-rendered" about a body it never watched for. `documentPattern`
+gained an optional name parameter to make this expressible; its default is unchanged.
+
+**Also in this review round, and needing no decision:** the receipt's urn inventory is taken
+across the run rather than summed per body (one author in ten feed bodies is one person, not
+ten) and now carries `body_urns_total` and `body_urns_truncated`, so a family that hits
+`MAX_URNS_PER_FAMILY` says so instead of under-reporting silently. `activitymap`'s per-family
+sets are bounded the same way — they were the one structure in that file that grew with the
+page. A no-op `isPostPermalink` branch was removed from the promote script: `normalizeProfileUrl`
+already refuses a permalink and the catch already returns null, so the branch changed nothing
+and its comment claimed a protection that was never running.
 
 ## D302 (out-of-range, infrastructure) — a navigation settles on `interactive` when `complete` never comes (2026-08-09)
 
@@ -2796,6 +2980,262 @@ no job urn anywhere stays silent, because that genuinely is an empty company. Th
 D200a applied one layer in. Verified by mutation, and by a companion test proving the
 empty-company case emits nothing.
 
+## D230 — `profile.posts` parses only the feed's referenced update graph (2026-08-09)
+
+The parser starts at `data.data.feedDashProfileUpdatesByMemberShareFeed.*elements`, resolves
+those references against `included[]`, and reads value fields only from the resolved update
+and count entities. It never recursively searches the response and never reads `meta`, so a
+microSchema declaration such as `{type:"string"}` cannot become a post body. The feed order
+is retained because it is the only measured ordering contract in the Task 26 body.
+
+## D231 — The subject urn is an input to the offline post parser (2026-08-09)
+
+Author identity comes only from the resolved update's
+`actor.name.attributesV2[].detailData.*profileFullName`. The parser accepts the already
+resolved subject urn and retains a row only on exact agreement. Subject resolution remains
+the capability composition's responsibility; the parser does not infer a subject from the
+most frequent actor, the first card, or any session identity.
+
+## D232 — Activity snowflakes are the sole post clock (2026-08-09)
+
+`posted_at` is `new Date(Number(BigInt(activityId) >> 22n))`, where `activityId` is taken
+from `urn:li:activity:<id>`. Relative labels and CDN `expiresAt` values are ignored. This is
+the Task 26 verdict, recorded here as the implementation boundary rather than re-derived.
+
+## D233 — `--limit` caps referenced feed items examined and scroll work (2026-08-09)
+
+The default and one captured Voyager page are both 20 items. The reader converts the requested
+limit to zero scroll passes through 20 items, then one additional pass per next 20, capped by
+the activity capture's existing 12-pass safety ceiling. Independently, it stops resolving feed
+references once exactly `limit` items have been examined across captured bodies. Filtering
+strangers or `--since` happens after that work debit, so neither can turn a small limit into an
+unbounded crawl.
+
+## D234 — Subject resolution uses the captured viewee identity, without forcing a person row (2026-08-09)
+
+The reader takes subject candidates only from the captured profile-components body's
+`included[].*vieweeProfile`, removes every urn in `sessionUrnsOf`, and proceeds only with one
+remaining `urn:li:fsd_profile` value. It does not require a `persons` row because the schema has
+no foreign key (D94), and it does not infer identity from author frequency. Zero, multiple, or
+session-owned candidates store nothing and return parse drift.
+
+## D235 — The shared post projection owns both post-table upserts (2026-08-09)
+
+`src/core/store/posts.ts` defines the common activity row and a generic owner key for
+`person_urn` or `company_urn`. One batch upsert path selects `person_posts` or `company_posts`,
+keys on `urn`, and stamps `last_seen`; Task 23 can reuse it without duplicating row projection
+or write semantics.
+
+## D236 — `--since` is inclusive on the snowflake-derived stored instant (2026-08-09)
+
+A row whose derived `posted_at` equals `--since` is retained; only an older row is filtered.
+The comparison uses the same ISO instant written to `person_posts`, not capture time or the
+rendered relative label. Filtering does not replenish `--limit` work.
+
+## D237 — `profile.posts` delegates the complete live capture composition (2026-08-09)
+
+The reader invokes `activity.capture.run` with the caller's context and reads only bodies the
+shared tap archived during that invocation. It adds no navigation, request, tap watch, budget
+spend, challenge gate, or raw archive path of its own. Consequently every load remains metered
+under the outer `profile.posts` RunBudget and raw-first behavior holds on failures too.
+
+## D238 — Post subject ambiguity is parse drift and stores zero rows (2026-08-09)
+
+Zero or multiple non-session viewee urns, or a viewee that is only the logged-in account, is
+`PROFILE_POSTS_SUBJECT_UNRESOLVED` / exit 5 / `HALT_AND_NOTIFY`. This is not retryable: retrying
+the same shape cannot make an ambiguous identity trustworthy. The refusal happens before the
+single batch write.
+
+## D239 — Task 27 stops before its operator-supervised live gate (2026-08-09)
+
+Offline fixture, composition, shared-store, registry/full-suite and type verification are the
+implementation gate. The real-profile gate is deliberately left unspent for the operator, as
+the task requires; no development command in Task 27 opens LinkedIn.
+
+### Task 27 review follow-up — capture boundary and social-count graph (2026-08-09)
+
+The tap cursor is the next capture index: a response archived after a saved cursor may have
+`seq === cursor`, so `profile.posts` selects `seq >= cursor`. This makes D237 exact and prevents
+the first subject-identity or feed body from disappearing.
+
+Count entities are joined through each update's `*socialDetail` urn, preserving whether the
+social activity is keyed by `activity`, `ugcPost`, or `share`; activity ids are never rewritten
+into ugcPost ids. A missing detail falls back to the activity urn. The promoted fixture now
+proves all 14 retained subject rows have both reaction and comment counts.
+
+Malformed feed references, activity ids, and non-activity backend urns are per-item parse misses:
+non-string refs never enter the entity map, an unusable backend falls back to the update entity
+urn, and an invalid snowflake increments `unresolved` without discarding other rows. Since-filtered
+rows are counted as skipped so receipt counts account for every examined item.
+
+## D240 — `profile.activity` keeps the activity actor separate from the target author (2026-08-09)
+
+The acting subject is read from each referenced update's
+`header.text.attributesV2[].detailData.*profileFullName`. The target content author is read
+separately from `actor.name.attributesV2[].detailData.*profileFullName`; it is never used as
+the activity actor or as the subject identity. This follows the two labeled edges in the
+promoted comments and reactions fixtures and prevents engagement with another person's post
+from being attributed to that post's author.
+
+## D241 — `profile.activity` is archive-only with fixed-size receipt counts pending a schema decision (2026-08-09)
+
+Spec section 7 has no table for a person's outbound comments or reactions, and
+`person_posts` is reserved for authored posts. The capability therefore performs no store
+write: it reports bounded counts by activity kind plus an archive-reparse hint. Adding a
+`person_activity` table remains an operator decision and cannot be implied by the existing
+post tables.
+
+## D242 — Comments and reactions are parsed as two explicit feed envelopes (2026-08-09)
+
+The parser accepts only `feedDashProfileUpdatesByMemberComments` and
+`feedDashProfileUpdatesByMemberReactions`, assigning the activity kind from the envelope that
+LinkedIn's UI requested. It does not infer reaction versus comment from prose or recursively
+search `included[]`, and it ignores `meta.microSchema` declarations entirely.
+
+## D243 — `--limit` is a per-tab work bound (2026-08-09)
+
+`profile.activity` reads two independently paged surfaces, so `--limit=N` permits at most N
+referenced comments items and N referenced reactions items, for a total bound of 2N. Each tab
+gets the same Task 27 conversion from item limit to scroll passes. Filtering by actor or
+inclusive `--since` happens after examination and never replenishes either tab's allowance.
+
+## D244 — The reader delegates two complete `activity.capture` runs (2026-08-09)
+
+One comments capture and one reactions capture retain the proven raw-first, navigation,
+pacing, challenge and ledger composition. The outer cost is two page loads and one distinct
+profile open; the ledger's profile reference dedupes the second tab while both page loads and
+the Task 20 sub-cap remain charged. A subject refused after the first capture prevents the
+second page load rather than spending it for unusable output.
+
+## D245 — Activity target fields reuse Task 27's post graph projection (2026-08-09)
+
+Task 27 now exports the pure included-entity graph index and target-post projector it already
+used internally. `profile.activity` composes those functions for the target urn, text,
+snowflake timestamp, and social counts, then adds activity kind, actor urn and target-author
+urn. This keeps `ugcPost`/`share` social-detail resolution and malformed-snowflake behavior in
+one implementation rather than allowing the two readers to drift.
+
+## D246 — Session identity is checked twice, at subject and item actor boundaries (2026-08-09)
+
+The composition refuses a viewee subject left in the session identity set before the second
+load. The pure parser independently excludes any item whose header actor is session-owned
+before testing subject equality. The second check is intentional defense in depth for
+archived reparse and is mutation-pinned independently of composition.
+
+## D247 — Promoted activity fixtures are optional to a fresh clone, not to this worktree (2026-08-09)
+
+Fixture tests resolve `fixtures/profile.activity` through `repoRoot()` and guard all required
+files with `existsSync`. A checkout without the gitignored promoted library reports the suite
+as skipped rather than throwing `ENOENT`; this worktree has the fixtures, so all field and
+mutation assertions execute rather than skip.
+
+## D248 — The activity receipt exposes counts and an archive hint, never activity rows (2026-08-09)
+
+The receipt reports usable comments and reactions separately, total work accounting, source,
+and a fixed reparse instruction. Actor urns, target urns, post text, and captured URLs remain
+in the raw archive and parser result only; none reaches stdout or structured logs. This keeps
+the receipt fixed-size while retaining enough information to choose and later execute storage.
+
+## D249 — Task 28 stops before the two-load live gate (2026-08-09)
+
+Offline fixtures, named mutation failures, the full suite, typecheck and registry discovery
+are the implementation gate. The real-profile comments/reactions run is operator-supervised
+and remains deliberately unspent; no Task 28 development command opens LinkedIn.
+
+### Task 28 review follow-up — exact envelopes, unique counts, and anchored actors (2026-08-09)
+
+The composition admits only the comments envelope on the comments capture and the reactions
+envelope on the reactions capture. The pure parser independently returns zero examined work
+for any other envelope, so an unrelated body cannot consume a tab's allowance. Non-JSON
+bodies likewise return zero work in the shared post parser rather than leaking a raw
+`SyntaxError` out of either reader.
+
+Receipt counts are unique by activity kind plus target activity urn across all captured bodies.
+Repeated pagination-boundary rows still consume examined work, and are accounted as skipped,
+but do not inflate usable comments or reactions. The actor resolver scans every attributed
+profile urn in the header for the already-proven subject rather than trusting attribute order;
+a header with no resolvable actor is parse drift (`unresolved`), not a stranger exclusion.
+
+`--since` remains the settled snowflake comparison but is now labeled in every receipt as
+`target_post.posted_at`. The archive has no absolute comment/reaction event time, so renaming
+the flag would not create the missing timestamp and would diverge from the other activity
+readers without improving accuracy.
+
+## D306 — Person activity stays archive-only; no `person_activity` table (2026-08-09)
+
+Task 28's range D240–D249 is spent, so this takes the next free number (D18's rule, as
+D130 and D185 did before it).
+
+Task 28 ended with an open storage question: add a `person_activity` table via migration,
+or keep outbound reactions and comments as receipt counts plus the raw archive. **The
+operator chose archive-only.** Spec §7 defines no table for activity-on-others, the value
+of this capability is the engagement signal rather than the rows, and forty fixture rows
+are not enough to design columns from.
+
+The choice is deliberately reversible and costs no re-scrape to reverse: every captured
+body is archived under D2, the receipt already carries `storage: { mode: "archive-only" }`
+and an `archive_hint` naming offline reparse, and the parser is pure. If a table is wanted
+later, it is a migration plus a reparse of bodies already on disk — not another metered
+pass over LinkedIn.
+
+`profile.activity` therefore writes no database rows, and Task 28's deliverable is
+complete without one.
+
+## D307 — A capture releases its watches; watch registration is scoped to one capture (2026-08-09)
+
+Found by the Task 28 live gate on 2026-08-09, not by any fixture. `profile.activity` opens
+the comments tab and then the reactions tab through `activity.capture`, and both share one
+`NetworkTap`. Watch names are unique within a tap — registering a duplicate is fatal
+`TAP_DUPLICATE_PATTERN` by design (D-tap: replacing silently would redefine what an already
+waiting `waitFor` is waiting for). `activity.capture` registered its patterns and never
+released them, so the second capture died exit 1 *after the first had already spent a page
+load*.
+
+`tap.watch` has always returned an unsubscribe; nothing called it. It is now called, in the
+same `finally` that drains, and deliberately **after** the drain: releasing a watch stops
+bodies being fetched for it, so releasing earlier would drop exactly the late responses that
+raw-first (D2) requires. Captures already taken are untouched — `unwatch` reads no archive.
+
+The general rule this sets: **watch registration is scoped to one capture, not to a session.**
+A capability that delegates to a capture more than once may now do so freely.
+
+Why no fixture caught it: every offline test constructs a fresh tap per run, so the collision
+needs two real captures over one session. The regression test injects the tap through
+`makeTap` and asserts `watching` is empty after the run; it fails when the release line is
+removed (verified).
+
+## D308 — The post permalink still will not load, and the URL-spelling hypothesis is dead (2026-08-09)
+
+Task 29's task file named one thing to try before starting: the `/posts/<slug>-activity-<id>-<hash>`
+spelling instead of `/feed/update/`, on the theory that the two document paths behave
+differently (D300 already watches both). **Tried and disproven.**
+
+Run `01KZKVYA4JH3TXN1W26CN3RY4A` used the real permalink for the *same post* the two earlier
+attempts used — activity `7491197577439141888`, harvested out of Task 27's own live archive,
+so the slug and hash are LinkedIn's own, not constructed. It failed identically to runs
+`01KZKM4HC3V94H761M65KPCFM7` and `01KZKMDFGDM48683YJ0P2S5NSM`: `CDP_SOCKET_ERROR`, exit 6,
+2,402ms. Three failures, two URL spellings, one behaviour.
+
+The event trace localises it. The document response arrives, then `capture.miss` fires on the
+`activity-document` pattern — the body is not retrievable — and the *browser-level* socket
+errors immediately after. The failure is in fetching that document's body, not in navigation
+and not in the page rendering.
+
+**A second hypothesis is also dead: CDP frame size.** The client uses Node's global
+`WebSocket`, and a 100 MB message over a local socket round-trips fine — measured at 1 MB,
+5 MB, 10 MB, 20 MB, 50 MB and 100 MB, all OK. A large `Network.getResponseBody` result is
+not what kills the connection.
+
+What is *not* yet excluded: browser state. The automation Chrome is holding 9 pages, 27
+iframes and 60 workers, including 8 LinkedIn tabs left open by earlier probe runs. Chrome
+itself survives every failure — `/json/version` answers normally afterwards — so this is the
+socket dropping, not a crash. The task file's other suggestion, a fresh Chrome with no other
+tabs, is the one variable still untested, and it needs the operator: it discards whatever
+they have open.
+
+**Task 29 therefore remains blocked**, now with two fewer candidate explanations and a
+narrower target: the body fetch for this one document type.
+
 ## D309 — The permalink failure is UTF-8 validation in Node's WebSocket, not LinkedIn (2026-08-09)
 
 **Root cause, measured, after four live failures.** The post permalink page is fine. Chrome
@@ -2872,3 +3312,212 @@ point is that a parser drift chased months from now can tell "LinkedIn changed t
 bytes, but it requires `Fetch.enable` — request interception on the one account we have. The
 detection surface is not worth an edge case in a handful of documents, when the alternative is
 knowing precisely which captures were affected.
+
+## D311 — Correction to D309: the transport fix is right, its stated cause is not proven (2026-08-09)
+
+The `ws` swap (D310) works — the permalink captured cleanly on the first attempt after it,
+run `01KZKXSGNE4XRQMJRK241YQS6Q`, exit 0, 26 captures, 0 misses, after four consecutive
+failures. That result stands and is not in question.
+
+**What does not stand is D309's specific claim that this post's document body is not valid
+UTF-8.** Measured on the body now archived:
+
+- **Zero** U+FFFD replacement characters in all 4,750,447 bytes. Had the bytes been invalid,
+  `Buffer.toString("utf8")` under `skipUTF8Validation` would have produced one per bad
+  sequence. It produced none.
+- The obvious follow-up theory — valid UTF-8 with a multi-byte character straddling a frame
+  boundary, which RFC 6455 permits — is **also disproven**. A hand-built server that splits
+  `🎉` across a text frame and its continuation is handled correctly by the global
+  `WebSocket`: message delivered intact.
+
+So what is established is narrower than D309 said, and should be read as the real finding:
+the global `WebSocket` fails the *connection* with an empty-message `TypeError` on some frame
+in this exchange; invalid UTF-8 in a single frame reproduces that exact signature offline; and
+`ws` with validation off survives where it did not. The precise trigger in the live exchange
+is **not** identified. It may not even be the document body — the socket death was only
+correlated with that fetch.
+
+**Consequence for D310's `lossyUtf8` tagging:** on the one capture we now have, nothing is
+lossy. The flag is harmless and correctly conservative, but it should not be read as evidence
+that LinkedIn serves malformed bodies. No archived body has yet been shown to be lossy.
+
+Left open deliberately rather than closed with a tidy story. The fix is proven; the mechanism
+is not, and writing it down as proven would be the kind of thing that costs an account later.
+
+## D312 — `post.get` reads the DOM snapshot; this needs a third exception (2026-08-09)
+
+**Source verdict for Task 29, measured on run `01KZKXSGNE4XRQMJRK241YQS6Q`.**
+
+The permalink carries **no labeled JSON for the post**. Measured in the 4,750,447-byte
+document response and all 26 captured bodies:
+
+- `bpr-guid` embedded data islands: **0**. D117's "embedded structured data in the initial
+  document" route does not exist on this surface.
+- `socialActivityCounts`: **0** occurrences. No reaction or comment counts as labeled fields.
+- No `urn:li:ugcPost` anywhere in the document.
+- The `gql-social-reactions`, `gql-social-comments`, `gql-social-detail` and
+  `gql-social-activity-counts` watches all recorded **0 hits**. Those panels are not fetched
+  on a cold load; they need interaction we have not designed yet.
+
+What *is* there is the rendered DOM, and it is anchored the way D305's job reader is:
+
+- `data-testid="ReactionFacepileCollection-urn:li:activity:7491197577439141888"` — the
+  subject's identity, in a `data-testid`, resolvable-or-refusable against the requested urn.
+- `data-testid="…-commentList…FeedType_FEED_DETAIL"` — the comment list scope.
+- 15 `expandable-text-box` nodes (post body and comment bodies), 56 `urn:li:comment:` urns in
+  the snapshot and 900 in the document.
+- `card_ref_scope_resolved: false` — the `/in/<vanity>` card-ref identity rule (D127) does
+  **not** carry over here, exactly as on the activity surface.
+
+**[DECISION NEEDED] — this would be the third DOM-source exception**, after the profile reader
+(D123/D130) and the job reader (D305). CLAUDE.md currently says "those two exceptions are the
+profile reader and the job reader, and nothing else". Task 29 cannot be written without either
+amending that sentence or abandoning `post.get`. The operator decides; this entry does not
+grant the exception.
+
+If granted, the shape is already settled by precedent and should not be re-derived: `outerHTML`
+snapshot, archived raw, parsed **offline**, every row tagged DOM-sourced, scope anchored on
+`data-testid` rather than container position or hashed classes, identity resolved-or-refused
+against `urn:li:activity:<id>`.
+
+**`--reactors` / `--commenters` are a separate and harder question** and should not ride along
+with the above. Those lists are not on the page at load; they require opening a panel, which
+is interaction, and the standing rule is that we never forge a request the UI did not issue.
+Task 29's file already scopes them to "people the panel actually loaded". Recommend splitting:
+post detail first under the exception above, reactor/commenter lists as their own measured
+task.
+
+## D313 — The post reader gets the third DOM exception, and it is opt-in and bounded (2026-08-10)
+
+**Granted by the operator**, superseding D312's open question. `post.get` may read the rendered
+DOM for the post's own fields, its comments and its reactions. CLAUDE.md's "two exceptions"
+sentence is amended to three in the same commit.
+
+The exception is granted **with conditions attached to spend, not to correctness**, and the
+conditions are the operator's words: comments are not necessary by default, we must not send
+the request again and again to get the whole thread, and reactions rank below comments. So:
+
+1. **A default `post.get` reads the post only.** No comments, no reactions, no panel opened.
+2. **Comments are opt-in and bounded** — `--comments` with `--comments-limit` (default 10).
+   Whatever is rendered on the cold load is what gets read.
+3. **Reactions are opt-in and bounded, and rank below comments** — `--reactions` with
+   `--reactions-limit` (default 10). Never fetched unless named.
+4. **Nothing loops "load more".** The reader takes one bounded pass over what is present. Any
+   growth in the thread is a later, explicitly-requested run — never an implicit one.
+5. **A partial read is always flagged as partial.** When the page states a comment or reaction
+   total higher than the number of rows read, the receipt carries `COMMENTS_PARTIAL` /
+   `REACTIONS_PARTIAL` naming both numbers. Silence would let a caller mistake the first ten
+   comments for the thread, which is the specific failure the operator called out.
+
+Why the bound is a rule and not a default: exhausting a comment thread means repeated
+interaction with the page, and every one of those is spend against a single irreplaceable
+account for data the operator has said is low value. The cheap read is the point.
+
+Shape is inherited from D123/D130 and D305 and is not re-derived: `outerHTML` snapshot,
+archived raw, parsed offline, every row tagged DOM-sourced, scope anchored on `data-testid`
+rather than container position or LinkedIn's per-build hashed classes, identity
+resolved-or-refused against `urn:li:activity:<id>`.
+
+**Still out of scope: `--reactors` / `--commenters` as people-lists.** D312 recommended
+splitting them and that stands. Reading the reactions *count* and the reaction rows rendered
+on the page is inside this exception; opening a panel to enumerate every reactor is
+interaction, is unmeasured, and stays its own task.
+
+## D314 — `post.get` stores nothing yet, because the snapshot carries no author urn (2026-08-10)
+
+Task 29's file asks the post row to route into `person_posts` or `company_posts` by author
+type. **It cannot, and the reason is measured, not preferential.**
+
+The snapshot carries no author urn anywhere. Twelve `urn:li:member:<id>` values appear, all in
+follow-state components and none anchored to the author; there is no urn within 3,000
+characters of the author's own profile link. The author is identifiable only as a **vanity**
+(`tankots`), resolved by eliminating comment rows, the reaction facepile, and the session's own
+public identifiers.
+
+`person_posts.person_urn` and `company_posts.company_urn` are both `not null`. Writing a row
+would mean inventing an author key, which is the one thing the identity rules never permit —
+and the task file already anticipated exactly this with "refusing an unresolvable author".
+
+So `post.get` returns the post on the receipt and leaves the raw snapshot archived.
+`storage: { mode: "archive-only" }`, the same shape D306 settled for `profile.activity`, and
+reversible the same way: the bytes are on disk, the parser is pure, and a later write path is a
+reparse rather than another metered pass.
+
+**The route that would work, deliberately not taken here:** resolve the author vanity against
+an existing `persons` row via `findPersonByVanity`, refuse when absent. That is a real storage
+decision with a real ambiguity case — `findPersonByVanity` already reports `vanityMatches`
+because a vanity can match more than one person — and it deserves its own entry and its own
+tests rather than being slipped into this one.
+
+## D315 — Comments and reactions are bounded by construction, not by discipline (2026-08-10)
+
+D313 set the policy; this records how it is enforced, because a policy that lives only in a
+README is one refactor from gone.
+
+- The parser takes `comments` / `reactions` as **optional option objects**. Absent means the
+  section is not read at all — not read-then-discarded. A default run cannot produce a comment
+  row, because no code path builds one.
+- Each section is bounded twice: by the caller's `--*-limit`, and by a parser-local
+  `MAX_*_ROWS` of 200 so a malformed snapshot cannot grow the output without limit.
+- The reader takes **one** bounded pass. There is no "load more" call anywhere in the
+  capability, and a limit above what the page rendered returns what the page rendered — proven
+  by test: limit 500 against a 73-comment post returns the 14 rows present.
+- Partial reads are flagged with both numbers (`COMMENTS_PARTIAL`, `REACTIONS_PARTIAL`) and
+  restated as booleans (`read.comments_complete`). Silence is never allowed to read as
+  completeness — that was the operator's specific concern.
+
+Mutation-verified: removing the session-vanity exclusion, the comment-limit slice, or the
+identity-mismatch refusal each fails its own named test.
+
+## D316 — Capability schema keys are camelCase, and the registry enforces it (2026-08-10)
+
+**A defect that shipped twice before anything caught it.** `parseArgv` camel-cases every flag
+name before a schema ever sees it, and every capability schema is `.strict()`. So a key written
+`"comments-limit"` is **unreachable**: the CLI accepts `--comments-limit`, hands the schema
+`commentsLimit`, and strict mode rejects it as an unrecognized key. The flag simply does not
+work, and nothing in the suite noticed.
+
+Two instances, both fixed here: `log.runs`'s `include-queries` (pre-existing, and documented in
+its own README as though it worked) and `post.get`'s `comments-limit` / `reactions-limit`.
+
+**Why the suite missed it, which is the more important half.** Capability tests build argument
+objects by hand — `rawArgs: { "include-queries": "true" }` — so every one of them asserted
+against a shape the CLI cannot produce. `cap list` made it worse rather than better: the
+manifest prints schema keys verbatim, so it advertised the broken spelling as the contract.
+A capability could be green in tests, green in `cap list`, and unusable.
+
+**The guard: `tests/cli-schema-keys.test.ts`.** It walks the whole registry and requires
+`camel(key) === key` for every schema key of every capability, then round-trips real argv
+through the real `parseArgv` into the real schema for both capabilities that had the bug. A new
+capability with a kebab-case key now fails on the day it is written rather than the day someone
+first types the flag. Mutation-verified: restoring either kebab key fails two of its three
+tests.
+
+CLI spelling is unchanged and stays kebab — `--comments-limit` is what an operator types. Only
+the schema key had to move.
+
+## D317 — The post's totals are scoped outside the comment rows (2026-08-10)
+
+`totalFrom` took the first leaf element whose whole text is `<n> <noun>`, anywhere in the
+document. Comments render their own reaction counts ("8 reactions"), so the search could return
+a comment's number as the post's. It read correctly on the fixture only because the post's
+totals bar happens to render above the comment list — a layout accident, not a promise.
+
+The existing `outsideComments` predicate — the same identity-based exclusion the author
+resolution already uses — is now applied to all three totals. Zero cost, and it removes a
+silent-wrong-number path rather than a loud one.
+
+## D318 — A permalink names itself; `post.get` passes no surface hint down (2026-08-10)
+
+Found by the live gate on 2026-08-10, and by nothing before it. `post.get` delegated to
+`activity.capture` with `surface: "post"`, which `normalizeActivityUrl` refuses —
+`--surface=post` "names no page on its own", because the flag exists to disambiguate a *bare
+vanity slug*, and a permalink already carries its own identity.
+
+The composition tests could not see it: they inject a fake capture, so the real
+`normalizeActivityUrl` was never reached with the real arguments. The same blind spot as D316,
+one layer down — a seam mocked in tests and unmocked in production.
+
+The failure direction was right, which is the only comfort here: refusal happened before the
+budget was touched, so the run cost **0 page loads**. Now pinned by a test asserting the
+delegated capture receives no `surface` property at all.

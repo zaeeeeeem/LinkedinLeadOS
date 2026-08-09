@@ -29,6 +29,11 @@ export { findCompanyByUrn, findCompanyByVanity, upsertCompany } from "./companie
 export { upsertCompanyPosts } from "./company-posts.js";
 export { upsertCompanyPeople } from "./company-people.js";
 export { upsertJobs } from "./jobs.js";
+export {
+  upsertPostRows,
+  type OwnedPostProjection,
+  type PostProjection,
+} from "./posts.js";
 export type {
   CompanyInput,
   CompanyRow,
