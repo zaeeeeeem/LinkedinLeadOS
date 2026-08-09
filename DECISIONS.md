@@ -3200,3 +3200,18 @@ totals bar happens to render above the comment list — a layout accident, not a
 The existing `outsideComments` predicate — the same identity-based exclusion the author
 resolution already uses — is now applied to all three totals. Zero cost, and it removes a
 silent-wrong-number path rather than a loud one.
+
+## D318 — A permalink names itself; `post.get` passes no surface hint down (2026-08-10)
+
+Found by the live gate on 2026-08-10, and by nothing before it. `post.get` delegated to
+`activity.capture` with `surface: "post"`, which `normalizeActivityUrl` refuses —
+`--surface=post` "names no page on its own", because the flag exists to disambiguate a *bare
+vanity slug*, and a permalink already carries its own identity.
+
+The composition tests could not see it: they inject a fake capture, so the real
+`normalizeActivityUrl` was never reached with the real arguments. The same blind spot as D316,
+one layer down — a seam mocked in tests and unmocked in production.
+
+The failure direction was right, which is the only comfort here: refusal happened before the
+budget was touched, so the run cost **0 page loads**. Now pinned by a test asserting the
+delegated capture receives no `surface` property at all.

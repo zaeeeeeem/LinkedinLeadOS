@@ -51,7 +51,7 @@ type CaptureOutcome = {
 };
 
 export type PostGetDeps = {
-  capture(ctx: Context, captureArgs: { url: string; surface: "post"; scrolls: number }): Promise<CaptureOutcome>;
+  capture(ctx: Context, captureArgs: { url: string; scrolls: number }): Promise<CaptureOutcome>;
 };
 
 /**
@@ -127,7 +127,11 @@ export function createPostGetCapability(deps: PostGetDeps = defaultDeps) {
       const target = normalizeActivityUrl(ctx.args.url);
       if (target.surface !== "post" || target.postUrn === undefined) throw invalidTarget();
 
-      const captured = await deps.capture(ctx, { url: target.url, surface: "post", scrolls: READ_PASSES });
+      // No `surface` passed down either: a permalink names itself, and
+      // `--surface=post` is refused as naming no page on its own. Measured live
+      // on 2026-08-10 — the run failed before spending, which is the right
+      // direction, but it failed.
+      const captured = await deps.capture(ctx, { url: target.url, scrolls: READ_PASSES });
       if (captured.snapshotFile === null) throw noSnapshot();
 
       const snapshotPath = receiptPath(join(ctx.run.paths.raw, captured.snapshotFile));

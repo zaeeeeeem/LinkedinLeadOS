@@ -59,6 +59,18 @@ function capture(html = snapshotHtml()) {
 }
 
 describe("post.get composition", () => {
+  it("passes no surface hint down to the capture — a permalink names itself", async () => {
+    // The live failure of 2026-08-10: `--surface=post` is refused as naming no
+    // page on its own, so the delegated capture must not receive it.
+    const spy = capture();
+    const cap = createPostGetCapability({ capture: spy as never });
+    await cap.run(context({ url: PERMALINK }));
+    expect(spy).toHaveBeenCalledTimes(1);
+    const captureArgs = (spy.mock.calls[0] as unknown as [unknown, Record<string, unknown>])[1];
+    expect(captureArgs).not.toHaveProperty("surface");
+    expect(captureArgs).toMatchObject({ url: expect.stringContaining("7491197577439141888") });
+  });
+
   it("costs one page load and opens nobody's profile", () => {
     const cap = createPostGetCapability({ capture: capture() as never });
     expect(cap.cost({ url: PERMALINK } as never)).toMatchObject({ page_loads: 1, profile_opens: 0 });

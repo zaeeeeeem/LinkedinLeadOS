@@ -1309,3 +1309,24 @@ registry and round-trips real argv, so the next occurrence fails at authoring ti
 that hand-built kebab keys — the pattern that hid the bug — were corrected to the spelling the
 CLI actually produces. Post totals are now scoped outside comment rows (D317). Full suite
 **1,146 passed, 0 skipped**; typecheck clean.
+
+Task 29 — `post.get` (**live gate passed; task complete except storage**, 2026-08-10). Two
+supervised live runs against the real permalink.
+
+Default run `01KZKZSH3YTHFGSB8DQGMKY310`: exit 0, 1 page load, author `tankots`, `posted_at`
+derived from the snowflake, totals 1,016 reactions / 73 comments / 5 reposts, and — the point
+of D313 — **comments 0, reactions 0**. Nothing was read that was not asked for.
+
+Flags run `01KZKZTT5JWXYH6XRZ1VA87974` with `--comments --commentsLimit=4 --reactions
+--reactionsLimit=2`: exit 0, 1 page load, read exactly 4 comments and 2 reactions, with
+`COMMENTS_PARTIAL(69)` and `REACTIONS_PARTIAL(1014)` naming both numbers and
+`comments_complete: false`. This is the end-to-end proof the D316 rename actually fixed the
+flags — the previous spelling could not have parsed.
+
+One live-only bug found and fixed on the way (D318): the delegated capture was being passed
+`surface: "post"`, which is refused for a permalink. It failed before spending, so it cost 0
+page loads.
+
+Full suite **1,146 passed, 0 skipped**; typecheck clean. Storage remains archive-only (D314) —
+the vanity-lookup write path is the only piece of Task 29's file not delivered, and it is
+deferred deliberately with its reason written down.
