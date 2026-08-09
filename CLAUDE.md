@@ -84,7 +84,17 @@ drafting) · L5 orchestration (campaigns, sequences, schedulers) · MCP surface 
   urn as input and returns the operator (D126). This is measured across four live loads, not
   assumed.
 
-  **This exception is the profile reader and nothing else.** Every other capability, and every
+  **There is a second exception: the job reader (D305).** `/jobs/view/<id>` is
+  server-rendered SDUI and carries **no labeled job field anywhere** — the description
+  crosses the network only as an RSC flight tree, and `listedAt`, `workplaceTypes`,
+  `formattedLocation` and the company urn appear in no captured body at all (measured
+  twice, D304). It takes the profile reader's shape exactly: an `outerHTML` snapshot,
+  archived raw, parsed **offline**, every row tagged DOM-sourced, scope anchored on
+  `data-testid` rather than container position or LinkedIn's per-build hashed classes,
+  and identity resolved-or-refused against `urn:li:jobPosting:<id>` in the document.
+
+  **Those two exceptions are the profile reader and the job reader, and nothing else.**
+  Every other capability, and every
   other kind of field, still takes data only from captured network bodies. DOM reads for
   navigation, pagination state, challenge detection and render confirmation are unchanged and
   always allowed everywhere.
