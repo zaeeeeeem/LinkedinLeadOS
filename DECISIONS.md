@@ -2353,3 +2353,86 @@ overrides the archive location on top of that, unchanged.
 
 Numbering note: this is infrastructure discovered while unblocking three tasks at
 once, so it belongs to none of their ranges. D300 is held by Task 26.
+## D260 — the canonical job id is the bare numeric posting id (2026-08-09)
+
+**Decision.** One form across every capability that touches a posting: the bare numeric id
+as a **string**. `normalizeJobUrl` reduces `/jobs/view/<id>`, the slugged share url
+(`/jobs/view/<title>-at-<co>-<id>`), a listing url's `currentJobId`, a bare id and
+`urn:li:fsd_jobPosting:<id>` to it, and derives from it the canonical url
+`https://www.linkedin.com/jobs/view/<id>/`, the event/ledger ref `job:<id>`, and the urn
+`urn:li:fsd_jobPosting:<id>`. §7's `jobs.id` primary key holds that id. **Task 25
+(`company.jobs`) must write the same form** — it is the same table.
+
+**Why the bare id and not the urn.** §7 names the column `id`, not `urn`, and it is the one
+entity in the data model whose key LinkedIn does not hand out as a urn everywhere: list
+cards, `currentJobId`, and the detail url all carry the bare number, while the urn appears
+only inside bodies. Storing the urn would mean re-deriving the number at every join. A
+string, not a number: ids already exceed 2^53.
+
+**Two refusals rather than guesses.** A listing url with no `currentJobId` names no posting —
+opening it spends a page load on whichever job LinkedIn selects. A `/jobs/view/` segment with
+no digit run is refused rather than navigated, because LinkedIn resolves some non-numeric
+segments by redirect, and a target whose id is known only *after* the load cannot be
+budget-deduped, keyed or dedupe-checked before it.
+
+## D261 — the capture summariser takes the relevance predicate, rather than being copied (2026-08-09)
+
+**Decision.** `summarizeCaptures` gains an optional fourth parameter, `isRelevant`, defaulting
+to `isProfileIsh`. `job.capture` passes `isJobIsh` through `summarizeJobCaptures`. The
+returned `profile_ish` / `unmatched_profile_ish` fields therefore mean "relevant by the given
+predicate"; a non-profile caller renames them on its own receipt (`job_ish`,
+`unmatched_job_ish`).
+
+**Why.** "Which endpoints did the page hit, which of them carried what we came for, and which
+of those did no specific pattern predict" is the same computation on every surface; only the
+last clause differs. The alternative was a second copy in `job.capture`, which is 40 lines of
+counting that would then drift from the one the profile probe is proven against. The default
+keeps every existing caller byte-identical, and a test asserts that the same rows summarize
+differently under the two predicates while the default still counts a person body.
+
+**Not renamed.** Renaming the result fields would touch `profile.capture`'s receipt shape and
+its tests for a cosmetic gain, on a surface that is already live — the mapping happens at the
+one place that needs it.
+
+## D262 — a job page costs a page load and never a profile open (2026-08-09)
+
+**Decision.** `job.capture` declares `{ page_loads: 1, search_pages: 0, profile_opens: 0 }`.
+§8's spend kinds stay a closed set of three; no `job_open` kind is added.
+
+**Why.** `profile_open` exists because LinkedIn counts and surfaces profile views — it is a
+LinkedIn-facing fact about the account, not a general "we opened a page" counter. A posting
+view is not one. Recording one would inflate the distinct-profiles-per-day ledger against a
+limit written about a different behaviour, refusing real profile work to pay for job reads.
+Rejected: adding a fourth spend kind for job opens — it would need its own §8 limit, its own
+dedupe scope and a ledger format change, for a surface with no evidence of per-posting
+throttling. The daily blast-radius guard is already there: the capability's own sub-cap (D162).
+
+## D263 — the description's source is measured passively, never by clicking (2026-08-09)
+
+**Decision.** Whether a job description's "see more" is a CSS toggle over text already in the
+DOM, or a control that fetches the rest, is decided by measuring geometry and computed style:
+a clamped block whose `scrollHeight` exceeds its `clientHeight` by more than 40px means the
+text is already there. The probe never clicks. Its verdict is one of `dom-toggle`,
+`likely-request`, `not-truncated`, `unknown` — and `unknown` is a first-class answer that a
+truncated element walk always returns.
+
+**Why.** Clicking is an interaction with the page on the one account that cannot be burned,
+and it is not needed: the two cases have different measurable shapes. The fourth verdict
+exists because this measurement is what Task 31 will build on, and "we could not tell" must
+never be readable as "no fetch" — that is the reading that would ship a `job.get` silently
+storing a truncated description.
+
+## D264 — promotion routes on a capability family, in one tested module (2026-08-09)
+
+**Decision.** `src/core/fixtures/families.ts` owns the three things that differ per page
+surface when an archive is promoted: how a run's own url becomes a subject, what counts as a
+relevant body, and which field probes the map is built with. `scripts/promote-fixtures.ts`
+keeps only the file reads around it. `familyOf` derives the family from the capability name
+(`job.*` → job), and an unrecognized name falls back to the profile rules.
+
+**Why.** Promotion was hardcoded to the profile surface — `normalizeProfileUrl`, `isProfileIsh`,
+`PROFILE_PROBES` — so a job archive promoted with no subject at all and fell back to "any body
+carrying person data", which is the D118 failure on a new surface. Putting the dispatch in a
+module rather than in the script is what makes it testable: the script runs `main()` at import
+and cannot be imported by a test. The fallback direction is the conservative one — a mistyped
+`--capability` promotes *less*, never more.

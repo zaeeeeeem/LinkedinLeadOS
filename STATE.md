@@ -876,6 +876,40 @@ the API calls, not a non-LinkedIn host), that an unparseable url returns false i
 throwing inside the tap's listener, and that a run-time `specific` pattern is not counted as
 unpredicted — that last one fails against the pre-fix `summarizeCaptures`.
 
+Task 30 — job surface probe. **Offline half complete and committed. The live probe run has
+not happened: it is the operator's to supervise, so the fixture, the FIELD-MAP and Task 31's
+source verdict do not exist yet.** Branch `task-30-job-surface-probe`, worktree
+`../LinkedinLeadsOS-worktrees/four` (worktree `three` was already checked out to Task 26).
+Decisions D260–D264.
+
+**Built (offline, no LinkedIn contact anywhere):** `src/capabilities/job.capture/` —
+`url.ts` (canonical job id, D260), `patterns.ts` (job watch patterns, `isJobIsh`, the job
+document pattern, `JOB_FIELD_PROBES` — one per §7 `jobs` column), `probe.ts` (the passive
+description-truncation measurement and its four-way verdict, D263), `identity.ts` (subject
+served? company urn resolved-or-refused? which person urns are the operator's, via
+`sessionUrnsOf` — never re-implemented), `constants.ts`, `index.ts`, `README.md`.
+`src/core/fixtures/families.ts` routes promotion per surface (D264); `summarizeCaptures`
+takes an optional relevance predicate (D261) instead of being copied.
+
+The capability reuses `profile.capture`'s `readLikeAHuman`, `captureDomSnapshot`,
+`sessionUrnsOf` and pacing constants unchanged. It **parses no job field and stores nothing**
+— D152's rule that a probe delivers measurement, not code that consumes it.
+
+Proven: **873 offline tests pass, 13 skipped, typecheck clean** (70 new across
+`tests/job-capture-{url,patterns,probe,identity,run}.test.ts` and
+`tests/fixtures-families.test.ts`; 803 was the count without them). `EXPANDER_EXPRESSION` is
+executed as real JavaScript against a stub page, including its 20,000-element bound.
+Mutations verified to bite: requiring `<section>`s on the job page fails 2 tests; spending
+the page load after navigation instead of before fails the ledger-order test; removing
+`finally { drain() }` fails the mid-read-halt test (that test was rewritten with a slow body
+after the first version passed without the drain — a double that certified a guard it did not
+exercise); breaking `summarizeCaptures`'s default fails 6 profile tests.
+
+Spend so far: **0 of the 3 page loads budgeted.**
+
+**Not done, and blocking:** the live run, the promoted fixture, `fixtures/job.get/FIELD-MAP.md`
+with every path pinned by a test, and the per-field source verdict in Task 31. See `## Next`.
+
 ## Next
 
 M1–M3 are complete. **The M4 plan is written and approved** (`docs/plans/m4-l1-readers/`,
@@ -924,3 +958,24 @@ the browser.
 
 **Leftover:** none. The live M3 gate and cache check both exited 0, `runs/tab.lock` is absent,
 and the automation Chrome remains available on port 9223.
+
+**Task 30 needs one supervised live run, then its second half.** Nothing else in the job
+family can start (D152). Run, on the automation Chrome, with default flags:
+
+```
+cap job.capture --url=https://www.linkedin.com/jobs/view/<id>/
+npm run fixtures:promote -- --run=<runId> --capability=job.get
+```
+
+Pick a posting from a company already in the store if there is one, so entity rows link up.
+Budget: 3 page loads; a second posting is worth one of them (a second shape is what tells a
+one-off layout from the surface). Expect exit 0, no challenge, the lease released, and the
+receipt's `data.description.verdict` to be the headline result. Then the fixture, FIELD-MAP
+and Task 31's verdict get written from the archive — offline.
+
+**[DECISION NEEDED] before Task 31, not before the run.** `CLAUDE.md`'s network-tap exception
+covers the profile reader and nothing else. If the live run shows `jobs.description` (or any
+other §7 job column) living only in the rendered DOM — likely, it is the same SPA — the
+exception must be extended to the job surface in `DECISIONS.md` and amended into `CLAUDE.md`
+before any DOM-reading job code is written (M4 CONTEXT rule 7). The probe itself does not need
+this: it archives the snapshot and measures shapes, and reads no job field from it.

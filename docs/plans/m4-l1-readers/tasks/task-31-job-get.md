@@ -4,7 +4,30 @@
 **Spec:** §7 jobs, §9 · **Decisions owned:** D270–D279
 
 > **Blocked until** Task 30's fixture exists and any DOM-source decision is recorded.
-> *Source verdict from Task 30:* _to be filled in by Task 30._
+>
+> **Status 2026-08-09 (from Task 30).** Still blocked, and the blocker is the live run:
+> Task 30's offline half (the `job.capture` probe) is committed, but no run has happened,
+> so `fixtures/job.get/` is empty. Do not start.
+>
+> *Source verdict from Task 30:* **not yet measured.** What Task 30 has settled without the
+> run, and what this task must therefore honour:
+>
+> - **Canonical id (D260):** the bare numeric posting id, as a string. `normalizeJobUrl` in
+>   `src/capabilities/job.capture/url.ts` is the one implementation — import it, do not write
+>   a second. §7's `jobs.id` holds that id; Task 25 writes the same form.
+> - **Company urn:** resolve by a path from the FIELD-MAP, never by a regex sweep. Task 30
+>   measured that a job page carries other companies ("similar jobs"), so the probe refuses to
+>   resolve an employer whenever more than one candidate appears in the subject's own bodies
+>   (`COMPANY_URN_UNRESOLVED`). Check every candidate against `sessionUrnsOf`; refuse, never
+>   guess.
+> - **Description:** the probe reports `data.description.verdict` —
+>   `dom-toggle` | `likely-request` | `not-truncated` | `unknown` (D263). `unknown` does **not**
+>   mean "no fetch". If the verdict is `likely-request`, the full description is not obtainable
+>   passively and that is a `[DECISION NEEDED]` for the operator, not a field to fabricate from
+>   the list card.
+> - **DOM exception:** if any §7 job column turns out to live only in the rendered DOM, this
+>   task stays blocked until `CLAUDE.md`'s exception is extended to the job surface in
+>   `DECISIONS.md` (M4 CONTEXT rule 7).
 
 ## Objective
 
