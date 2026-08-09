@@ -111,6 +111,17 @@ export const CAPABILITY_SUB_CAPS: Readonly<Record<string, CapabilitySubCaps>> = 
   // a search page or a profile open would be doing something it was not built
   // to do, and a cap of zero is what turns that into exit 7 instead of a habit.
   "company.probe": { pageLoadsPerDay: 12, searchPagesPerDay: 0, distinctProfilesPerDay: 0 },
+  // The other two probes, on the same reasoning. Listed rather than left to the
+  // fallback because the fallback is a *reader's* 150 loads, and a probe landing
+  // there is precisely the "uncapped by omission" this table exists to stop
+  // (D301's sibling problem: a safety number that is right only by accident).
+  //
+  // `activity.capture` differs from the other two in one way: it opens a person's
+  // page, so it genuinely spends `profile_open` and cannot be capped at zero. Four
+  // is the four surfaces of one subject — a probe that walks a fifth person in a
+  // day is not measuring, it is reading.
+  "activity.capture": { pageLoadsPerDay: 12, searchPagesPerDay: 0, distinctProfilesPerDay: 4 },
+  "job.capture": { pageLoadsPerDay: 12, searchPagesPerDay: 0, distinctProfilesPerDay: 0 },
 };
 
 /** The daily sub-caps in force for one capability. Never returns uncapped. */

@@ -588,6 +588,18 @@ describe("sub-cap overrides can only lower a sub-cap", () => {
     expect(subCapsFor("never.registered")).toEqual(DEFAULT_CAPABILITY_SUB_CAPS);
   });
 
+  it("every probe is capped as a probe, not left on the reader fallback", () => {
+    // A probe's stated per-run ceiling is 6 loads (CONTEXT rule 8). Landing on
+    // the 150-load reader fallback by omission is the exact failure the table
+    // exists to prevent, and it is invisible until a probe loops.
+    for (const probe of ["company.probe", "activity.capture", "job.capture"]) {
+      const caps = CAPABILITY_SUB_CAPS[probe];
+      expect(caps, `${probe} has no sub-cap entry`).toBeDefined();
+      expect(caps!.pageLoadsPerDay).toBeLessThanOrEqual(12);
+      expect(caps!.searchPagesPerDay).toBe(0);
+    }
+  });
+
   it("every sub-cap is strictly inside the global limit it sits under", () => {
     for (const caps of [DEFAULT_CAPABILITY_SUB_CAPS, ...Object.values(CAPABILITY_SUB_CAPS)]) {
       expect(caps.pageLoadsPerDay).toBeLessThan(DEFAULT_BUDGET_LIMITS.pageLoadsPerDay);
