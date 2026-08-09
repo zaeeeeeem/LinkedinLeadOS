@@ -25,6 +25,17 @@ with the existing capture/store modules are pinned by tests and typecheck. Final
 operator-supervised live gate as required. Next: operator runs the default-flags gate and
 independently queries `jobs.id = '4450930857'` to verify description enrichment.
 
+Review follow-up for `bbcac14`: fixed machine-local fixture discovery, position-dependent
+description extraction and silent loss of list items; target identity now tolerates unrelated
+recommendation urns (D273, superseding Checkpoint 1's exactly-one rule); unscoped company urns
+are always refused (D274); and nullish job fields cannot erase prior enrichment (D275). Missing
+description now records parse drift when storage is enabled and halts before claiming usable or
+touching `jobs`. DOM mapper build/render are one paired option, and field-map/parser heading
+cardinality now agrees. Live gate remains unrun.
+The fresh-clone fixture path was exercised with an empty shared root (4 synthetic tests pass,
+1 fixture test skips visibly), and mutation checks killed recommendation-rail identity,
+list-item preservation and null-safe enrichment. Final review suite: 1031 passed, 13 skipped.
+
 Updated at every task commit. Trust this over CLAUDE.md's phase line.
 
 **The active plan is `docs/plans/m1-m3/`** (outcome-driven, one file per task; see D12).

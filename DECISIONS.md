@@ -2601,3 +2601,25 @@ The jobs writer uses the bare numeric posting id as its sole conflict target and
 field the caller did not observe. A list write can therefore establish title/location and a
 later detail write can add description to the same row without nulling list fields or creating
 a duplicate. `last_seen` is stamped with the write and `first_seen` remains the database default.
+
+## D273 — job identity is URL agreement, not document-wide urn uniqueness (2026-08-09)
+
+D270's zero-or-multiple refusal is superseded here. The capture deliberately scrolls far
+enough to lazy-load recommendation rails, which may name other postings. The reader now
+requires that the normalized requested id is among the document's job-posting urns; an absent
+target is refused, while unrelated document-wide candidates neither become identity nor
+invalidate the target. The field map inventories all candidates and states the URL cross-check.
+
+## D274 — no company urn is stored until the job surface exposes subject scope (2026-08-09)
+
+The measured fixture contains no company urn. Sweeping the whole document would let an ad or
+recommendation module become the employer, and comparing those urns with `sessionUrnsOf` was a
+dead guard because that helper returns person urns only. Therefore every unscoped company-urn
+candidate is refused and warned; a future company identity requires a measured subject anchor.
+
+## D275 — jobs enrichment is monotonic across both undefined and null (2026-08-09)
+
+D272's omission promise is extended to explicit `null`: the writer drops both nullish forms.
+This prevents a sparse `company.jobs` observation from erasing a description previously stored
+by `job.get`. Clearing a jobs field is not supported without a future explicit operation whose
+contract distinguishes deletion from absence.

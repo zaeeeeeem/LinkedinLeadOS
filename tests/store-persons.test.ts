@@ -104,6 +104,15 @@ describe("upsertJob — list to detail enrichment", () => {
     expect(recorded[1]!.body).not.toHaveProperty("title");
     expect(recorded[1]!.body).toHaveProperty("description", "Full description");
   });
+
+  it("drops explicit nulls so a later sparse list observation cannot erase detail", async () => {
+    replies = [{ status: 200, body: [{ id: "4450930857" }] }];
+    await upsertJob(
+      { id: "4450930857", title: "Full Stack Developer", description: null },
+      { client: client(), now: NOW },
+    );
+    expect(recorded[0]!.body).toEqual({ id: "4450930857", title: "Full Stack Developer", last_seen: STAMP });
+  });
 });
 
 describe("upsertPerson — request shape", () => {

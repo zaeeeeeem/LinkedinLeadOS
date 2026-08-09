@@ -3,10 +3,9 @@ import { z } from "zod";
 import { defineCapability, type CapabilityContext, type CapabilityResult } from "../../cli/types.js";
 import { receiptPath } from "../../core/run/paths.js";
 import { CapabilityError, EXIT } from "../../core/run/receipt.js";
-import { getStore, isStoreConfigured, upsertJob, type StoreClient } from "../../core/store/index.js";
+import { getStore, isStoreConfigured, recordParseDrift, upsertJob, type StoreClient } from "../../core/store/index.js";
 import { capability as jobCapture } from "../job.capture/index.js";
 import { normalizeJobUrl } from "../job.capture/url.js";
-import { sessionUrnsOf } from "../profile.capture/identity.js";
 import { DOM_SOURCE, parseJobSnapshot } from "./parse.js";
 
 const args = z.object({
@@ -22,6 +21,7 @@ export type JobGetDeps = {
   storeConfigured(): boolean;
   store(): StoreClient;
   upsert(input: Parameters<typeof upsertJob>[0], client: StoreClient): ReturnType<typeof upsertJob>;
+  recordDrift(warnings: readonly { field: string; n: number }[], client: StoreClient, shapeHash: string | null): Promise<number>;
   capture(ctx: Context, args: Args): Promise<CapabilityResult>;
 };
 
@@ -29,6 +29,7 @@ const defaults: JobGetDeps = {
   storeConfigured: isStoreConfigured,
   store: getStore,
   upsert: (input, client) => upsertJob(input, { client }),
+  recordDrift: (warnings, client, shapeHash) => recordParseDrift(warnings, { client, capability: "job.get", shapeHash }),
   capture: (ctx, captureArgs) => jobCapture.run({ ...ctx, args: captureArgs }),
 };
 
@@ -54,9 +55,16 @@ export function createJobGetCapability(deps: JobGetDeps = defaults) {
       const evidence = receiptPath(ctx.run.paths.raw) + "/";
       if (file === null) throw drift("JOB_SNAPSHOT_UNAVAILABLE", "job.capture archived no DOM snapshot, so no job may be parsed or stored", evidence);
       const html = await ctx.browser.archive.readText(file);
-      const parsed = parseJobSnapshot(html, { url: target.url, sessionUrns: sessionUrnsOf(ctx.browser.tap.captures()) });
+      const parsed = parseJobSnapshot(html, { url: target.url });
       if (!parsed.ok) throw drift("JOB_IDENTITY_UNRESOLVED", "the normalized URL and the archived document did not resolve to exactly one matching job id", receiptPath(join(ctx.run.paths.raw, file)));
       for (const warning of parsed.warnings) ctx.run.log("parse.miss", { level: "warn", phase: "job.get", item_ref: target.ref, detail: warning });
+      if (!ctx.flags.noStore && parsed.warnings.length > 0) {
+        const archived = (await ctx.browser.archive.list()).find((entry) => entry.file === file);
+        await deps.recordDrift(parsed.warnings, client!, archived?.shapeHash ?? null);
+      }
+      if (parsed.job.value.description === undefined) {
+        throw drift("JOB_DESCRIPTION_UNAVAILABLE", "the archived job snapshot did not yield a description from the approved data-testid anchor", receiptPath(join(ctx.run.paths.raw, file)));
+      }
       ctx.run.log("parse.ok", { phase: "job.get", item_ref: target.ref, detail: { source: DOM_SOURCE, warnings: parsed.warnings.length } });
       const stored = ctx.flags.noStore ? null : await deps.upsert(parsed.job.value, client!);
       if (stored) ctx.run.log("store.write", { phase: "job.get", item_ref: target.ref, detail: { table: "jobs", rows: stored.rows } });

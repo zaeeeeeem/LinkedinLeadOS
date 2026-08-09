@@ -162,8 +162,10 @@ async function main(): Promise<void> {
     ...(subject === null ? {} : { subject }),
     ...(probes === undefined ? {} : { probes }),
     sessionUrns,
-    domMap: (html) => domMapOf(family, html),
-    renderDomMap: (input) => renderDomMapOf(family, input),
+    domMapper: {
+      build: (html) => domMapOf(family, html),
+      render: (input) => renderDomMapOf(family, input),
+    },
   });
 
   // Counts and paths only. Never a body, never a url with a query string.

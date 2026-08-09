@@ -23,16 +23,16 @@ export function buildJobDomFieldMap(html: string): JobDomFieldMap {
   const resolvedId = ids.size === 1 ? [...ids][0]! : null;
   const anchor = $("[data-testid='expandable-text-box']").first();
   const container = anchor.length === 0 ? null : anchor.parent().parent();
-  const heading = container?.find("h2").filter((_, n) => $(n).text().replace(/\s+/g, " ").trim() === "About the job").first();
-  const valid = container !== null && heading !== undefined && heading.length > 0;
+  const headings = container?.find("h2").filter((_, n) => $(n).text().replace(/\s+/g, " ").trim() === "About the job");
+  const valid = container !== null && headings !== undefined && headings.length === 1;
   const hits: DomHit[] = valid ? [{
     path: '[data-testid="expandable-text-box"]', sample: "description content following the expandable-text-box anchor",
-    basis: "attribute", inSubjectScope: resolvedId !== null,
+    basis: "attribute", inSubjectScope: ids.size > 0,
   }] : [];
   const probes: DomProbeReport[] = [
-    resolvedId === null
-      ? { name: "job_id", what: "one jobPosting urn in the document", hits: [], miss: "no single job posting id resolved" }
-      : { name: "job_id", what: "one jobPosting urn in the document", hits: [{ path: "document", sample: resolvedId, basis: "attribute", inSubjectScope: true }] },
+    ids.size === 0
+      ? { name: "job_id", what: "jobPosting urn candidates cross-checked against the normalized URL", hits: [], miss: "no job posting id found" }
+      : { name: "job_id", what: "jobPosting urn candidates cross-checked against the normalized URL", hits: [...ids].map((id) => ({ path: "document", sample: id, basis: "attribute" as const, inSubjectScope: true })) },
     hits.length > 0
       ? { name: "description", what: "paragraphs in the About the job block", hits }
       : { name: "description", what: "paragraphs in the About the job block", hits: [], miss: "no expandable-text-box under an About the job h2" },
@@ -42,11 +42,12 @@ export function buildJobDomFieldMap(html: string): JobDomFieldMap {
 
 export function renderJobDomFieldMap(o: { file: string; bytes: number; sourceRun: string; map: JobDomFieldMap }): string {
   const lines = [`## \`${o.file}\` — rendered job DOM snapshot`, "", `- ${o.bytes} bytes of \`outerHTML\`, captured by run \`${o.sourceRun}\``, "- **This is a DOM-sourced job fixture (D305).**", "", "### Subject scope", ""];
-  if (o.map.scope.resolvedId === null) {
-    lines.push("⚠ **No single job identity could be resolved.** Do not write a parser against this snapshot.", "");
+  if (o.map.scope.jobIds.length === 0) {
+    lines.push("⚠ **No job identity candidate was found.** Do not write a parser against this snapshot.", "");
     return lines.join("\n") + "\n";
   }
-  lines.push(`- job id: \`${o.map.scope.resolvedId}\``, `- urn (§7 key): \`urn:li:jobPosting:${o.map.scope.resolvedId}\``, "", "### Fields", "");
+  lines.push(`- job id candidates: ${o.map.scope.jobIds.map((id) => `\`${id}\``).join(", ")}`);
+  lines.push("- the parser accepts only the candidate equal to the normalized requested URL", "", "### Fields", "");
   for (const p of o.map.probes) {
     lines.push(`#### ${p.name}`, "", p.what, "");
     if (p.hits.length === 0) lines.push(`⚠ **Not found.** ${p.miss ?? ""}`, "");

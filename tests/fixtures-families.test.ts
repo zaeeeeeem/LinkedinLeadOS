@@ -54,9 +54,13 @@ describe("job DOM-map routing", () => {
     expect(rendered).not.toContain("No subject scope could be resolved");
   });
 
-  it("refuses an ambiguous document carrying two posting ids", () => {
+  it("reports every posting candidate so the parser can cross-check the requested target", () => {
     const map = domMapOf("job", html.replace("</body>", `urn:li:jobPosting:9999999999</body>`));
     expect(map.scope).toMatchObject({ resolvedId: null });
+    expect("jobIds" in map.scope && map.scope.jobIds).toEqual([JOB_ID, "9999999999"]);
+    const rendered = renderDomMapOf("job", { file: "x", bytes: 1, sourceRun: "r", map });
+    expect(rendered).toContain("normalized requested URL");
+    expect(rendered).not.toContain("Do not write a parser");
   });
 });
 
