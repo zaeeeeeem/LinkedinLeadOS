@@ -895,7 +895,7 @@ The capability reuses `profile.capture`'s `readLikeAHuman`, `captureDomSnapshot`
 `sessionUrnsOf` and pacing constants unchanged. It **parses no job field and stores nothing**
 — D152's rule that a probe delivers measurement, not code that consumes it.
 
-Proven: **873 offline tests pass, 13 skipped, typecheck clean** (70 new across
+Proven: **876 offline tests pass, 13 skipped, typecheck clean** (73 new across
 `tests/job-capture-{url,patterns,probe,identity,run}.test.ts` and
 `tests/fixtures-families.test.ts`; 803 was the count without them). `EXPANDER_EXPRESSION` is
 executed as real JavaScript against a stub page, including its 20,000-element bound.
@@ -904,6 +904,19 @@ the page load after navigation instead of before fails the ledger-order test; re
 `finally { drain() }` fails the mid-read-halt test (that test was rewritten with a slow body
 after the first version passed without the drain — a double that certified a guard it did not
 exercise); breaking `summarizeCaptures`'s default fails 6 profile tests.
+
+**Review 2026-08-09 (commit defffe1), one real defect, fixed before any page load was
+spent.** The description measurement's "largest text block" had no tag filter, and a
+`<script>` has no child *elements* — so the child-count bound did not exclude it, and its
+`textContent` is the JSON the document response server-renders (D117), almost certainly the
+biggest text node on a real job page. `data.description.largest_block` is the row Task 31's
+field map is addressed from; it would have reported `tag: "script"`, `clientHeight: 0`,
+`componentkey: null` — a dead end dressed as a measurement. The verdict itself was never at
+risk (`not-truncated` needs a page-wide `clampedBlocks === 0`, which a script cannot affect).
+Fixed with `NON_RENDERING_TAGS` plus a `clientHeight > 0` requirement; both mutation-verified.
+Also tightened: `namesJob` matches the bare posting id on digit boundaries, so a tracking
+number containing it no longer inflates `subjectBodies` and widens the company-urn sweep the
+scoping argument rests on.
 
 Spend so far: **0 of the 3 page loads budgeted.**
 

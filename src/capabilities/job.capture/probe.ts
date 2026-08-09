@@ -16,6 +16,12 @@
  * account — so it is the operator's decision to authorize, not this probe's to
  * take (see the capability's README).
  *
+ * The walk calls `getComputedStyle` on up to `MAX_ELEMENTS` elements in one
+ * synchronous evaluate, which blocks the page's main thread for as long as it
+ * takes — the one place this probe perturbs the page it is measuring. It runs
+ * **after** the DOM snapshot is archived, so whatever it costs, the fixture on
+ * disk describes the page as it was before.
+ *
  * Nothing here reads a job *field*. It measures shapes and counts: how many
  * controls, how many clamped blocks, how big the biggest text block is. The
  * fields themselves are addressed later, from the archived snapshot, and only
@@ -33,6 +39,20 @@ export const MAX_CHILDREN_FOR_TEXT_BLOCK = 12;
 /** How far `scrollHeight` must exceed `clientHeight` before a block counts as
  *  holding hidden text rather than as a rounding difference. */
 export const CLAMP_SLACK_PX = 40;
+
+/**
+ * Tags that carry text a reader never sees, and which must never be the
+ * "largest text block".
+ *
+ * `<script>` is the one that matters and it would otherwise win outright: it has
+ * no child *elements*, so the child-count bound does not exclude it, and its
+ * `textContent` is the server-rendered JSON the document response carries
+ * (D117) — on a real job page, almost certainly the biggest text node present.
+ * The reported block would then be `tag: "script"`, `clientHeight: 0`,
+ * `componentkey: null`: a dead end that looks like a measurement rather than an
+ * artifact, on exactly the row Task 31's field map is addressed from.
+ */
+export const NON_RENDERING_TAGS = ["script", "style", "noscript", "template", "head", "title"] as const;
 
 /** The biggest block of text on the page, and how it is presented. */
 export type TextBlock = {
@@ -80,6 +100,7 @@ export const EXPANDER_EXPRESSION = `(() => {
     var MAX_CHILDREN = ${MAX_CHILDREN_FOR_TEXT_BLOCK};
     var SLACK = ${CLAMP_SLACK_PX};
     var MORE = /\\b(see|show|read)\\s+more\\b|…\\s*more\\b/i;
+    var NON_RENDERING = ${JSON.stringify(NON_RENDERING_TAGS)};
 
     var all = document.querySelectorAll('*');
     var limit = all.length > MAX ? MAX : all.length;
@@ -105,8 +126,13 @@ export const EXPANDER_EXPRESSION = `(() => {
       var over = (el.scrollHeight || 0) > (el.clientHeight || 0) + SLACK;
       if (hidden && over) clampedBlocks++;
 
+      // Two filters, and both are needed. The tag list excludes text no reader
+      // sees; a zero clientHeight excludes anything not laid out — a hidden
+      // template, a collapsed container — which is the same requirement stated
+      // as geometry rather than as a name.
       var children = typeof el.childElementCount === 'number' ? el.childElementCount : 0;
-      if (children <= MAX_CHILDREN && (largest === null || trimmed.length > largest.chars)) {
+      var rendersText = NON_RENDERING.indexOf(tag) === -1 && (el.clientHeight || 0) > 0;
+      if (rendersText && children <= MAX_CHILDREN && (largest === null || trimmed.length > largest.chars)) {
         largest = {
           chars: trimmed.length,
           tag: tag,
@@ -192,6 +218,10 @@ export function descriptionVerdict(probe: ExpanderProbe | null): DescriptionVerd
   if (probe === null || probe.truncated) return "unknown";
   const l = probe.largest;
   if (l === null) return "unknown";
+  // The expression sets `clamped` only when the geometry already holds, so on a
+  // real measurement the second half is implied. It is re-checked because
+  // `interpretExpanderProbe` accepts any shape: a probe rebuilt by hand — or by
+  // a future caller — must not be able to assert a clamp the geometry denies.
   if (l.clamped && l.scrollHeight > l.clientHeight + CLAMP_SLACK_PX) return "dom-toggle";
   if (probe.clampedBlocks > 0 && probe.seeMoreControls > 0) return "dom-toggle";
   if (probe.seeMoreControls > 0 && l.endsWithEllipsis && !l.clamped) return "likely-request";

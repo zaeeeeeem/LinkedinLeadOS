@@ -27,6 +27,16 @@ describe("namesJob and companyUrnsIn", () => {
     expect(namesJob(body({ entityUrn: OTHER_JOB }), TARGET)).toBe(false);
   });
 
+  it("matches the bare id only as a whole number", () => {
+    // A substring match also fires on any longer digit run containing the id,
+    // and it errs permissively: subjectBodies inflates, which widens the
+    // company-urn sweep the scoping argument rests on.
+    expect(namesJob(body({ trackingId: `99${TARGET.id}` }), TARGET)).toBe(false);
+    expect(namesJob(body({ trackingId: `${TARGET.id}77` }), TARGET)).toBe(false);
+    expect(namesJob(body({ jobPostingId: Number(TARGET.id) }), TARGET)).toBe(true);
+    expect(namesJob(`<a href="/jobs/view/${TARGET.id}/">apply</a>`, TARGET)).toBe(true);
+  });
+
   it("finds every company urn spelling, deduped", () => {
     const found = companyUrnsIn(
       body({ a: "urn:li:fsd_company:1234", b: "urn:li:fsd_company:1234", c: "urn:li:company:99" }),

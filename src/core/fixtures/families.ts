@@ -52,6 +52,12 @@ export function subjectFor(family: Family, raw: string): PromoteSubject | null {
     // A posting has no vanity slug. Both spellings are supplied because bodies
     // use both: the canonical urn, and the bare numeric id inside urls and
     // tracking blobs (D260).
+    //
+    // `namesSubject` matches a subject urn as a plain substring, so the bare id
+    // here also fires on any longer digit run containing it. That is left as-is:
+    // promotion errs toward keeping a body, and an extra fixture is cheap. Where
+    // the same question decides *scope* rather than inclusion — the company-urn
+    // sweep — it is asked with digit boundaries instead (`namesJob`).
     try {
       const target = normalizeJobUrl(raw);
       return { urns: [target.urn, target.id] };

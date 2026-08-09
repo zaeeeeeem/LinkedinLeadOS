@@ -96,6 +96,32 @@ describe("EXPANDER_EXPRESSION, executed as real javascript", () => {
     expect(interpretExpanderProbe(raw)!.seeMoreControls).toBe(0);
   });
 
+  it("never reports a <script> as the largest text block", () => {
+    // The document response server-renders its JSON into a <script> (D117). It
+    // has no child elements, so the child-count bound does not exclude it, and
+    // on a real job page it is almost certainly the biggest text node there.
+    // Reported, it would give Task 31 `tag: "script"`, `clientHeight: 0`,
+    // `componentkey: null` — a dead end dressed as a measurement.
+    const raw = evaluateAgainst([
+      el({ tagName: "SCRIPT", textContent: "{}".padEnd(200_000, "x"), clientHeight: 0, scrollHeight: 0 }),
+      el({ tagName: "STYLE", textContent: "a".repeat(50_000), clientHeight: 0, scrollHeight: 0 }),
+      el({ tagName: "DIV", textContent: DESCRIPTION, clientHeight: 300, scrollHeight: 2_400, style: { overflowY: "hidden" } }),
+    ]);
+    const probe = interpretExpanderProbe(raw)!;
+    expect(probe.largest!.tag).toBe("div");
+    expect(probe.largest!.chars).toBe(4_000);
+  });
+
+  it("ignores an element that is not laid out, whatever its tag", () => {
+    // Same requirement as the tag list, stated as geometry: a collapsed or
+    // never-rendered container carries text no reader sees.
+    const raw = evaluateAgainst([
+      el({ tagName: "DIV", textContent: "z".repeat(9_000), clientHeight: 0, scrollHeight: 0 }),
+      el({ tagName: "P", textContent: "z".repeat(100), clientHeight: 40, scrollHeight: 40 }),
+    ]);
+    expect(interpretExpanderProbe(raw)!.largest!.chars).toBe(100);
+  });
+
   it("ignores a layout container when picking the largest text block", () => {
     // Without the child-count bound the answer is always <body>, and the whole
     // measurement would describe the page rather than the description.

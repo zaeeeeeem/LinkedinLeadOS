@@ -64,12 +64,20 @@ export type JobIdentityFinding = {
   sessionUrns: number;
 };
 
-/** True when a body names this posting — by canonical urn or by bare id. The
- *  bare id is a 5–20 digit run, specific enough that a false positive would
- *  need another number of the same length in the same body. */
+/**
+ * True when a body names this posting — by canonical urn, or by the bare id as a
+ * *whole* number.
+ *
+ * The digit boundaries are the point. A plain substring match also fires on any
+ * longer run containing the id — a tracking number, a timestamp, another
+ * posting's id that happens to share the prefix — and it fires in the permissive
+ * direction: `subjectBodies` inflates, which widens the company-urn sweep and
+ * softens `JOB_SUBJECT_NOT_SERVED`. The sweep's entire safety argument is that
+ * it is scoped to the subject, so the scope may not be approximate.
+ */
 export function namesJob(body: string, target: JobTarget): boolean {
-  const haystack = body.toLowerCase();
-  return haystack.includes(target.urn.toLowerCase()) || haystack.includes(target.id);
+  if (body.toLowerCase().includes(target.urn.toLowerCase())) return true;
+  return new RegExp(`(?<![0-9])${target.id}(?![0-9])`).test(body);
 }
 
 /**
