@@ -1330,3 +1330,11 @@ page loads.
 Full suite **1,146 passed, 0 skipped**; typecheck clean. Storage remains archive-only (D314) —
 the vanity-lookup write path is the only piece of Task 29's file not delivered, and it is
 deferred deliberately with its reason written down.
+
+Task 34 — `post.get` author resolution and write path (**queued**, 2026-08-10). Written up at
+`docs/plans/m4-l1-readers/tasks/task-34-post-author-resolution.md` as the follow-up D314 named.
+Resolves the author vanity Task 29 already parses into a real urn via `findPersonByVanity`, and
+writes the post row — refusing on ambiguity (`vanityMatches > 1`) and exiting 0 without a write
+when the author has no stored `persons` row. Costs zero page loads: it is a store read, not a
+page open. The company-authored permalink case is unmeasured and may need its own capture.
+Decision range D319–D328.
