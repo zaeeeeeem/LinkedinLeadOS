@@ -99,7 +99,9 @@ export function summarizeJobCaptures(
   misses: readonly CaptureMiss[],
   patterns: readonly TieredPattern[],
 ): CaptureSummary {
-  return summarizeCaptures(captures, misses, patterns, isJobIsh);
+  // D178's options-object spelling, which is the one that landed on the plan
+  // branch with Task 21; D261 described the same rule positionally.
+  return summarizeCaptures(captures, misses, patterns, { isRelevant: isJobIsh });
 }
 
 /**
