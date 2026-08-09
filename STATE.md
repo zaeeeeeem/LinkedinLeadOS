@@ -934,7 +934,53 @@ the first to dispatch, on Opus, per the m1-m3 execution protocol (fresh subagent
 reviewer after each). Read `docs/plans/m4-l1-readers/README.md` then `CONTEXT.md` before
 dispatching.
 
-**Task 20 is done (see Built). Task 21's offline half is done (see Built).**
+**Task 20 is done. Task 21 is done, live-verified. Tasks 26 and 30's offline halves are
+done and their live probes have run.**
+
+## 2026-08-09 — three tasks unblocked at once, and one infrastructure bug behind all of them
+
+Tasks 22, 27 and 31 each reported "my surface fixture does not exist". All three were
+wrong in the same way and the cause was in none of them: `fixtures/` and `runs/` are
+gitignored at the repo root, tasks execute in linked git worktrees, and both directories
+were resolved against `process.cwd()`. Every worktree therefore had an empty fixture
+library — and, worse, **its own budget ledger**, multiplying the section 8 daily caps by
+the number of worktrees open (D301, fixed).
+
+Landed on `plan-m4-l1-readers`, nothing merged from a task branch:
+
+| commit | what |
+|---|---|
+| `0439bfb` | D301 — fixtures/runs/ledger anchored to the repo root via git worktree linkage |
+| `69076c1` | D302 — a navigation settles on `interactive` when `complete` never arrives |
+| `ba21df2` | a dead tab or socket fails the navigation wait at once, not 45s later under the wrong code |
+| `576bb62` | `activity.capture` / `job.capture` were on the 150-load *reader* fallback; now probe-capped |
+| `e64b1df` | D303 — `isLinkedInDataUrl`, a net wide enough to disprove the net |
+| `afcecac` | D303/D304 recorded |
+
+Worktrees `three` (Task 26) and `four` (Task 30) are rebased and merged up to all of it,
+green, and carry the captcha fix `ea029aa` they were missing.
+
+### Ready to start in parallel
+
+- **Task 22 — `company.get`.** Fixture and field map were always on disk; only D301 was
+  hiding them.
+- **Task 27 — `profile.posts`.** `fixtures/profile.posts/` from run
+  `01KZKKZZJ91XX4KX2Z3772QRHH`. Voyager JSON, no DOM exception. `posted_at` is derived
+  from the activity urn (`Number(BigInt(id) >> 22n)`), verified against 11 rendered
+  labels in the fixture.
+- **Task 28 — `profile.activity`.** `fixtures/profile.activity/` from runs
+  `01KZKM1E5AX4WJ91BKA8GRWSK4` and `01KZKM2QPPR35QSW0WSA134EZD`. Same verdict as 27.
+
+### Blocked, each on one named thing
+
+- **Task 31 — `job.get`:** needs the operator's DOM-source decision. The job surface has
+  **no labeled-field source** — measured twice, D304. Recommendation in the task file.
+- **Task 29 — `post.get`:** the `/feed/update/<urn>/` permalink drops the CDP socket
+  ~2.5s in, twice. Needs one clean capture; try the `/posts/<slug>` spelling first.
+
+Spend on 2026-08-09: 9 page loads (3 activity surfaces, 2 permalink attempts, 2 job
+probes, 2 earlier company/activity runs), 1 distinct profile (`in:tankots`).
+
 
 **The next action is a live, operator-supervised probe run** — Task 21 cannot finish without
 it, and Tasks 22–25 stay blocked until it does. Nothing about the company surface has been
