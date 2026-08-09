@@ -6,6 +6,7 @@
  *   npm run fixtures:promote -- --run=<runId>
  *   npm run fixtures:promote -- --latest
  *   npm run fixtures:promote -- --latest --all        # every JSON body, not just profiles
+ *   npm run fixtures:promote -- --run=<id> --capability=job.get   # a job probe's archive
  *
  * Nothing here touches LinkedIn or the browser: it reads files a capture already
  * wrote. Safe to re-run — promotion is idempotent, deduplicated by shape hash,
@@ -16,11 +17,9 @@
  */
 import { existsSync, readdirSync, readFileSync, statSync } from "node:fs";
 import { join, resolve } from "node:path";
-import { isProfileIsh } from "../src/capabilities/profile.capture/patterns.js";
-import { normalizeProfileUrl } from "../src/capabilities/profile.capture/url.js";
-import { isActivityIsh } from "../src/capabilities/activity.capture/patterns.js";
-import { ACTIVITY_PROBES } from "../src/core/fixtures/activity-probes.js";
 import { RawArchive } from "../src/core/archive/raw.js";
+import { domMapOf, familyOf, probesOf, relevanceOf, renderDomMapOf, subjectFor } from "../src/core/fixtures/families.js";
+import type { Family } from "../src/core/fixtures/families.js";
 import { isPrivateEndpoint, personUrnsIn, promoteFixtures } from "../src/core/fixtures/promote.js";
 import type { PromoteSubject } from "../src/core/fixtures/promote.js";
 import { defaultRunsDir } from "../src/core/run/paths.js";
@@ -41,35 +40,32 @@ type Options = {
    * activity run under the profile settings drops every body that carries posts
    * and no person urn, and hands the snapshot to a map that looks for cards
    * that are not there (D226).
+   *
+   * `null` derives it from the capability name; `--surface=` overrides that for
+   * an archive whose capability name does not say which page it came from.
    */
-  surface: "profile" | "activity";
+  surface: Family | null;
 };
 
 /**
  * Who the run was of, from the run's own recorded arguments — so promotion
- * cannot disagree with the capture about whose profile this was.
+ * cannot disagree with the capture about which subject this archive is of.
  *
- * `--subject=` overrides it for an archive whose `run.json` predates this, and
- * an unrecognizable url is reported rather than guessed at: promoting with no
- * subject falls back to "any person data", which is the behaviour that filled
- * the fixture set with the operator's own inbox (D118).
+ * `--subject=` overrides it for an archive whose `run.json` predates this.
+ * The per-family rules live in `core/fixtures/families.ts`, where they are
+ * tested; this function is only the file read around them.
  */
-function subjectOf(runsDir: string, runId: string, override: string | null): PromoteSubject | null {
+function subjectOf(
+  runsDir: string,
+  runId: string,
+  override: string | null,
+  family: Family,
+): PromoteSubject | null {
   const raw = override ?? readRunUrl(runsDir, runId);
-  if (raw === null) return null;
-  try {
-    // A post permalink reaches `normalizeProfileUrl`'s final refusal and lands
-    // in the catch below, which returns null for anything url-shaped — so a
-    // permalink run promotes with no subject, and the script says so on stderr.
-    const target = normalizeProfileUrl(raw);
-    // A Sales Navigator lead has no vanity slug; its member id is what every
-    // body naming that person carries instead.
-    if (target.vanity !== undefined) return { vanity: target.vanity };
-    return target.leadId === undefined ? null : { urns: [target.leadId] };
-  } catch {
-    // Already a bare slug, most likely — `--subject=tankots`.
-    return /^[a-z0-9-]{3,100}$/i.test(raw) ? { vanity: raw } : null;
-  }
+  // A post permalink reaches `normalizeProfileUrl`'s final refusal inside
+  // `subjectFor` and comes back null for anything url-shaped — so a permalink
+  // run promotes with no subject, and the script says so on stderr.
+  return raw === null ? null : subjectFor(family, raw);
 }
 
 function readRunUrl(runsDir: string, runId: string): string | null {
@@ -109,7 +105,7 @@ function usage(message: string): never {
   process.stderr.write(`${message}\n\n`);
   process.stderr.write(
     "usage: npm run fixtures:promote -- (--run=<runId> | --latest) " +
-      "[--capability=profile.get] [--surface=profile|activity] [--subject=<vanity>] [--all] " +
+      "[--capability=profile.get] [--surface=profile|activity|job] [--subject=<vanity>] [--all] " +
       "[--runs-dir=<dir>] [--fixtures-dir=<dir>]\n",
   );
   process.exit(1);
@@ -124,7 +120,7 @@ function parse(argv: string[]): Options {
     runsDir: defaultRunsDir(),
     fixturesDir: null,
     subject: null,
-    surface: "profile",
+    surface: null,
   };
   for (const token of argv) {
     const [name, value] = token.startsWith("--")
@@ -137,7 +133,8 @@ function parse(argv: string[]): Options {
       case "all": o.all = true; break;
       case "subject": o.subject = value ?? usage("--subject needs a vanity slug or profile url"); break;
       case "surface":
-        if (value !== "profile" && value !== "activity") usage("--surface must be profile or activity");
+        if (value !== "profile" && value !== "activity" && value !== "job")
+          usage("--surface must be profile, activity or job");
         o.surface = value;
         break;
       case "runs-dir": o.runsDir = resolve(value ?? usage("--runs-dir needs a path")); break;
@@ -172,8 +169,10 @@ async function main(): Promise<void> {
   // from a worktree has to land in the one library every other checkout reads (D301).
   const fixturesDir = o.fixturesDir ?? resolve(repoRoot(), "fixtures", o.capability);
 
-  const subject = subjectOf(o.runsDir, runId, o.subject);
+  const family = o.surface ?? familyOf(o.capability);
+  const subject = subjectOf(o.runsDir, runId, o.subject, family);
   const sessionUrns = await sessionUrnsOf(archiveDir);
+  const probes = probesOf(family);
 
   const result = await promoteFixtures({
     archiveDir,
@@ -181,10 +180,14 @@ async function main(): Promise<void> {
     capability: o.capability,
     sourceRun: runId,
     all: o.all,
-    isRelevant: o.surface === "activity" ? isActivityIsh : isProfileIsh,
-    ...(o.surface === "activity" ? { probes: ACTIVITY_PROBES, domMap: "activity" as const } : {}),
+    isRelevant: relevanceOf(family),
     ...(subject === null ? {} : { subject }),
+    ...(probes === undefined ? {} : { probes }),
     sessionUrns,
+    domMapper: {
+      build: (html) => domMapOf(family, html, { sessionUrns }),
+      render: (input) => renderDomMapOf(family, input),
+    },
   });
 
   // Counts and paths only. Never a body, never a url with a query string.
@@ -193,7 +196,7 @@ async function main(): Promise<void> {
       {
         run: runId,
         capability: o.capability,
-        surface: o.surface,
+        family,
         // Whether, not who: the slug is the prospect's identity, and only counts
         // and paths belong on stdout.
         subject_known: subject !== null,

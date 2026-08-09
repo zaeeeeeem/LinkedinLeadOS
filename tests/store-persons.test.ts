@@ -4,6 +4,7 @@ import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest";
 import { CapabilityError } from "../src/core/run/receipt.js";
 import { getStore, resetStore, type StoreClient } from "../src/core/store/client.js";
 import { StoreWriteError, upsertPerson } from "../src/core/store/persons.js";
+import { upsertJob } from "../src/core/store/jobs.js";
 
 /**
  * Offline, but not faked at the client boundary: this drives the real supabase-js
@@ -81,6 +82,38 @@ function personRow(over: Record<string, unknown> = {}) {
 }
 
 const at = (n: number) => recorded[n] as Recorded;
+
+describe("upsertJob — list to detail enrichment", () => {
+  it("merges detail into the same canonical id with no duplicate row", async () => {
+    replies = [
+      { status: 200, body: [{ id: "4450930857" }] },
+      { status: 200, body: [{ id: "4450930857" }] },
+    ];
+    const store = client();
+    await upsertJob({ id: "4450930857", title: "Full Stack Developer" }, { client: store, now: NOW });
+    await upsertJob({ id: "4450930857", description: "Full description" }, { client: store, now: NOW + 1 });
+
+    expect(recorded).toHaveLength(2);
+    for (const request of recorded) {
+      expect(request.url).toContain("/jobs");
+      expect(request.url).toContain("on_conflict=id");
+      expect(request.prefer).toContain("resolution=merge-duplicates");
+      expect(request.body).toMatchObject({ id: "4450930857" });
+    }
+    expect(recorded[0]!.body).not.toHaveProperty("description");
+    expect(recorded[1]!.body).not.toHaveProperty("title");
+    expect(recorded[1]!.body).toHaveProperty("description", "Full description");
+  });
+
+  it("drops explicit nulls so a later sparse list observation cannot erase detail", async () => {
+    replies = [{ status: 200, body: [{ id: "4450930857" }] }];
+    await upsertJob(
+      { id: "4450930857", title: "Full Stack Developer", description: null },
+      { client: client(), now: NOW },
+    );
+    expect(recorded[0]!.body).toEqual({ id: "4450930857", title: "Full Stack Developer", last_seen: STAMP });
+  });
+});
 
 describe("upsertPerson — request shape", () => {
   it("upserts the person on urn and stamps last_seen without touching first_seen", async () => {

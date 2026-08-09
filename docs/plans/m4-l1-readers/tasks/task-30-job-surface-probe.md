@@ -33,3 +33,28 @@ into Task 31; spend used vs budgeted on STATE.md.
   meaning-checked assertions, description included.
 - Live: probe exit 0, no challenge, within budget, lease released, raw-first archived.
 - **Discipline gate** — all four m1-m3 review shapes.
+
+---
+
+## Execution note (2026-08-09) — the task is split in two, and only the first half is done
+
+The live run is the operator's to supervise, so this task landed as:
+
+**Half one, committed:** the instrument. `src/capabilities/job.capture/` (probe capability,
+canonical job id, job watch patterns, the passive description measurement, the identity
+checks), `src/core/fixtures/families.ts` (promotion routes per surface), and the offline
+tests for all of it. Decisions D260–D264. **Half one deliberately contains no job parser and
+no field extraction** — D152's rule that a probe delivers measurement, not code that consumes
+it.
+
+**Half two, blocked on the operator:** the live run(s), the promoted fixture,
+`fixtures/job.get/FIELD-MAP.md` with every path pinned by an offline test, and the per-field
+source verdict written into Task 31. `STATE.md`'s `## Next` holds the exact commands.
+
+**Dependency correction.** This file lists Task 25's `jobs` write path as a dependency. It
+does not exist — the company family (Task 21 →25) is still in flight. The canonical id was
+therefore decided here, in D260, rather than read off Task 25; Task 25 must adopt it, and the
+decision says so.
+
+**Worktree.** Built in `../LinkedinLeadsOS-worktrees/four` on `task-30-job-surface-probe`;
+worktree `three` was already checked out to Task 26's branch.

@@ -1,7 +1,7 @@
-import { getStore, storeError } from "./client.js";
+import { getStore, storeError, type StoreClient } from "./client.js";
 import { TABLES } from "./constants.js";
 import { StoreWriteError, type StoreOpts } from "./persons.js";
-import type { JobInput, JobsUpsertResult } from "./types.js";
+import type { JobInput, JobUpsertResult, JobsUpsertResult } from "./types.js";
 
 function compact(value: JobInput): Record<string, unknown> {
   return Object.fromEntries(Object.entries(value).filter(([, item]) => item !== undefined));
@@ -16,4 +16,14 @@ export async function upsertJobs(jobs: readonly JobInput[], opts: StoreOpts = {}
   const result = await client.from(TABLES.jobs).upsert(rows, { onConflict: "id" }).select("id");
   if (result.error) throw new StoreWriteError(storeError({ op: "upsert jobs", table: TABLES.jobs, kind: "write", status: result.status, cause: result.error }), 0);
   return { rows: result.data?.length ?? unique.length };
+}
+
+/** One job, enriched monotonically: a null or absent field never erases detail already stored. */
+export async function upsertJob(input: JobInput, opts: { client?: StoreClient; now?: number } = {}): Promise<JobUpsertResult> {
+  const client = opts.client ?? getStore();
+  const row: Record<string, unknown> = { last_seen: new Date(opts.now ?? Date.now()).toISOString() };
+  for (const [key, value] of Object.entries(input)) if (value !== undefined && value !== null) row[key] = value;
+  const result = await client.from(TABLES.jobs).upsert(row, { onConflict: "id" }).select("id");
+  if (result.error) throw storeError({ op: "upsert job", table: TABLES.jobs, kind: "write", status: result.status, cause: result.error });
+  return { id: input.id, rows: 1 };
 }

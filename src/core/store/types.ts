@@ -139,3 +139,4 @@ export type JobInput = {
   posted_at?: string | null; workplace_type?: string | null; description?: string | null;
 };
 export type JobsUpsertResult = { rows: number };
+export type JobUpsertResult = { id: string; rows: 1 };

@@ -12,6 +12,7 @@ export {
   type StoreConfig,
 } from "./config.js";
 export { isFresh, parseDuration } from "./freshness.js";
+export { upsertJob } from "./jobs.js";
 export {
   MAX_DRIFT_ROWS_PER_WRITE,
   recordParseDrift,
@@ -53,4 +54,5 @@ export type {
   PersonRow,
   PersonUpsertResult,
   StoredPerson,
+  JobUpsertResult,
 } from "./types.js";

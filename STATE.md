@@ -1,5 +1,41 @@
 # STATE
 
+## In progress — Task 31 `job.get` (2026-08-09)
+
+Checkpoint 1: fixture promotion now routes DOM maps by family (D270). Job maps anchor on
+`data-testid="expandable-text-box"`, require the `About the job` heading, and resolve exactly
+one job-posting urn. The requested widest-net run was re-promoted offline but contains no DOM
+snapshot entry; the archived snapshot from the first measured run was re-mapped instead and
+now resolves job `4450930857` plus the description anchor. 34 focused tests pass and typecheck
+is clean. Next: TDD the pure parser and canonical jobs enrichment store path; no live gate.
+
+Checkpoint 2: `src/capabilities/job.get/` now contains the pure offline parser, capability
+wrapper and README; `core/store/jobs.ts` adds the canonical partial upsert (D271-D272). The
+promoted snapshot yields the complete description, URL/document disagreement stores nothing,
+and company session/trap identity is refused. A real `supabase-js` request-shape test proves
+list then detail both merge on one `jobs.id` while omitted fields remain untouched. Mutation
+checks killed each of the three required assertions. Full offline suite: 1027 passed, 13 skipped;
+typecheck clean. Next: final discipline review and handoff before the live gate.
+
+Checkpoint 3 / handoff: all four review shapes were walked. Capture failures preserve only
+raw archive/budget state and never store a job; lower-layer classified errors pass through;
+the exact data-testid path, identity refusal, partial-upsert omission semantics and composition
+with the existing capture/store modules are pinned by tests and typecheck. Final full suite:
+1027 passed, 13 skipped; typecheck and `git diff --check` clean. Task 31 is stopped before the
+operator-supervised live gate as required. Next: operator runs the default-flags gate and
+independently queries `jobs.id = '4450930857'` to verify description enrichment.
+
+Review follow-up for `bbcac14`: fixed machine-local fixture discovery, position-dependent
+description extraction and silent loss of list items; target identity now tolerates unrelated
+recommendation urns (D273, superseding Checkpoint 1's exactly-one rule); unscoped company urns
+are always refused (D274); and nullish job fields cannot erase prior enrichment (D275). Missing
+description now records parse drift when storage is enabled and halts before claiming usable or
+touching `jobs`. DOM mapper build/render are one paired option, and field-map/parser heading
+cardinality now agrees. Live gate remains unrun.
+The fresh-clone fixture path was exercised with an empty shared root (4 synthetic tests pass,
+1 fixture test skips visibly), and mutation checks killed recommendation-rail identity,
+list-item preservation and null-safe enrichment. Final review suite: 1031 passed, 13 skipped.
+
 Updated at every task commit. Trust this over CLAUDE.md's phase line.
 
 **The active plan is `docs/plans/m1-m3/`** (outcome-driven, one file per task; see D12).
@@ -1066,6 +1102,53 @@ proves DOM-only, decide whether to extend `CLAUDE.md`'s DOM-source exception to 
 surface (D229, M4 CONTEXT rule 7). Until that decision lands in `DECISIONS.md`, Tasks 27–29
 do not start.
 
+Task 30 — job surface probe. **Offline half complete and committed. The live probe run has
+not happened: it is the operator's to supervise, so the fixture, the FIELD-MAP and Task 31's
+source verdict do not exist yet.** Branch `task-30-job-surface-probe`, worktree
+`../LinkedinLeadsOS-worktrees/four` (worktree `three` was already checked out to Task 26).
+Decisions D260–D264.
+
+**Built (offline, no LinkedIn contact anywhere):** `src/capabilities/job.capture/` —
+`url.ts` (canonical job id, D260), `patterns.ts` (job watch patterns, `isJobIsh`, the job
+document pattern, `JOB_FIELD_PROBES` — one per §7 `jobs` column), `probe.ts` (the passive
+description-truncation measurement and its four-way verdict, D263), `identity.ts` (subject
+served? company urn resolved-or-refused? which person urns are the operator's, via
+`sessionUrnsOf` — never re-implemented), `constants.ts`, `index.ts`, `README.md`.
+`src/core/fixtures/families.ts` routes promotion per surface (D264); `summarizeCaptures`
+takes an optional relevance predicate (D261) instead of being copied.
+
+The capability reuses `profile.capture`'s `readLikeAHuman`, `captureDomSnapshot`,
+`sessionUrnsOf` and pacing constants unchanged. It **parses no job field and stores nothing**
+— D152's rule that a probe delivers measurement, not code that consumes it.
+
+Proven: **876 offline tests pass, 13 skipped, typecheck clean** (73 new across
+`tests/job-capture-{url,patterns,probe,identity,run}.test.ts` and
+`tests/fixtures-families.test.ts`; 803 was the count without them). `EXPANDER_EXPRESSION` is
+executed as real JavaScript against a stub page, including its 20,000-element bound.
+Mutations verified to bite: requiring `<section>`s on the job page fails 2 tests; spending
+the page load after navigation instead of before fails the ledger-order test; removing
+`finally { drain() }` fails the mid-read-halt test (that test was rewritten with a slow body
+after the first version passed without the drain — a double that certified a guard it did not
+exercise); breaking `summarizeCaptures`'s default fails 6 profile tests.
+
+**Review 2026-08-09 (commit defffe1), one real defect, fixed before any page load was
+spent.** The description measurement's "largest text block" had no tag filter, and a
+`<script>` has no child *elements* — so the child-count bound did not exclude it, and its
+`textContent` is the JSON the document response server-renders (D117), almost certainly the
+biggest text node on a real job page. `data.description.largest_block` is the row Task 31's
+field map is addressed from; it would have reported `tag: "script"`, `clientHeight: 0`,
+`componentkey: null` — a dead end dressed as a measurement. The verdict itself was never at
+risk (`not-truncated` needs a page-wide `clampedBlocks === 0`, which a script cannot affect).
+Fixed with `NON_RENDERING_TAGS` plus a `clientHeight > 0` requirement; both mutation-verified.
+Also tightened: `namesJob` matches the bare posting id on digit boundaries, so a tracking
+number containing it no longer inflates `subjectBodies` and widens the company-urn sweep the
+scoping argument rests on.
+
+Spend so far: **0 of the 3 page loads budgeted.**
+
+**Not done, and blocking:** the live run, the promoted fixture, `fixtures/job.get/FIELD-MAP.md`
+with every path pinned by a test, and the per-field source verdict in Task 31. See `## Next`.
+
 ## Next
 
 **Task 23 — `company.posts` is in progress on `task-23-company-posts`.** Source and
@@ -1430,3 +1513,24 @@ writes the post row — refusing on ambiguity (`vanityMatches > 1`) and exiting 
 when the author has no stored `persons` row. Costs zero page loads: it is a store read, not a
 page open. The company-authored permalink case is unmeasured and may need its own capture.
 Decision range D319–D328.
+
+**Task 30 needs one supervised live run, then its second half.** Nothing else in the job
+family can start (D152). Run, on the automation Chrome, with default flags:
+
+```
+cap job.capture --url=https://www.linkedin.com/jobs/view/<id>/
+npm run fixtures:promote -- --run=<runId> --capability=job.get
+```
+
+Pick a posting from a company already in the store if there is one, so entity rows link up.
+Budget: 3 page loads; a second posting is worth one of them (a second shape is what tells a
+one-off layout from the surface). Expect exit 0, no challenge, the lease released, and the
+receipt's `data.description.verdict` to be the headline result. Then the fixture, FIELD-MAP
+and Task 31's verdict get written from the archive — offline.
+
+**[DECISION NEEDED] before Task 31, not before the run.** `CLAUDE.md`'s network-tap exception
+covers the profile reader and nothing else. If the live run shows `jobs.description` (or any
+other §7 job column) living only in the rendered DOM — likely, it is the same SPA — the
+exception must be extended to the job surface in `DECISIONS.md` and amended into `CLAUDE.md`
+before any DOM-reading job code is written (M4 CONTEXT rule 7). The probe itself does not need
+this: it archives the snapshot and measures shapes, and reads no job field from it.

@@ -11,7 +11,6 @@ export const TABLES = {
   jobs: "jobs",
   parseDrift: "parse_drift",
   personPosts: "person_posts",
-  companyPosts: "company_posts",
 } as const;
 
 /** Env vars the store client reads. `.env.example` documents both. */

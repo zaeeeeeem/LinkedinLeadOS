@@ -10,6 +10,14 @@ import type { FixtureIndex } from "../src/core/fixtures/promote.js";
 import { CapabilityError } from "../src/core/run/receipt.js";
 import { isActivityIsh } from "../src/capabilities/activity.capture/patterns.js";
 import { ACTIVITY_PROBES } from "../src/core/fixtures/activity-probes.js";
+import { domMapOf, renderDomMapOf } from "../src/core/fixtures/families.js";
+
+/** The activity surface's DOM-map pair, as `promote-fixtures.ts` supplies it. */
+const ACTIVITY_DOM_MAPPER = {
+  build: (html: string) => domMapOf("activity", html),
+  render: (o: { file: string; bytes: number; sourceRun: string; map: unknown }) =>
+    renderDomMapOf("activity", o),
+};
 
 const PROFILE_BODY = JSON.stringify({
   data: { elements: [{ entityUrn: "urn:li:fsd_profile:ACwAAA", firstName: "Jane", headline: "Founder" }] },
@@ -422,7 +430,7 @@ describe("promoteFixtures — the activity surface (D226)", () => {
     const result = await run({
       isRelevant: isActivityIsh,
       probes: ACTIVITY_PROBES,
-      domMap: "activity",
+      domMapper: ACTIVITY_DOM_MAPPER,
     });
     expect(result.promoted).toHaveLength(1);
     expect(result.skipped.not_profile).toBe(0);
@@ -456,7 +464,7 @@ describe("promoteFixtures — the activity surface (D226)", () => {
     await run({
       isRelevant: isActivityIsh,
       probes: ACTIVITY_PROBES,
-      domMap: "activity",
+      domMapper: ACTIVITY_DOM_MAPPER,
       subject: { vanity: "jane-doe" },
     });
     const md = readFileSync(join(fixturesDir, "FIELD-MAP.md"), "utf8");

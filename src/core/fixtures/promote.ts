@@ -88,16 +88,13 @@ export type PromoteInput = {
    *  field map marks any path whose value is one of these, so a parser is never
    *  written against the operator's own urn thinking it is the subject's. */
   sessionUrns?: readonly string[];
+  /** Surface-specific DOM mapping is one pair so a job builder cannot be
+   * accidentally combined with the profile renderer. */
+  domMapper?: {
+    build(html: string): unknown;
+    render(o: { file: string; bytes: number; sourceRun: string; map: unknown }): string;
+  };
   probes?: readonly FieldProbe[];
-  /**
-   * Which DOM map a snapshot gets. `profile` is the card-ref map D130's parser
-   * is written against; `activity` is Task 26's shape-based measurement of the
-   * person-activity and post surfaces, which have no card-ref namespace to
-   * assume. Defaulted to `profile` so every existing caller is unchanged, and
-   * selected rather than sniffed: guessing which page a snapshot came from is
-   * exactly the kind of inference that produced D118.
-   */
-  domMap?: "profile" | "activity";
   now?: () => Date;
 };
 
@@ -397,21 +394,12 @@ export async function promoteFixtures(input: PromoteInput): Promise<PromoteResul
       try {
         const html = await readFile(join(input.fixturesDir, f.file), "utf8");
         domSections.push(
-          input.domMap === "activity"
-            ? renderActivityDomMap({
-                file: f.file,
-                bytes: f.bytes,
-                sourceRun: f.source_run,
-                map: buildActivityDomMap(html, {
-                  ...(input.sessionUrns === undefined ? {} : { sessionUrns: input.sessionUrns }),
-                }),
-              })
-            : renderDomFieldMap({
-                file: f.file,
-                bytes: f.bytes,
-                sourceRun: f.source_run,
-                map: buildDomFieldMap(html),
-              }),
+          (input.domMapper?.render ?? ((o) => renderDomFieldMap(o as Parameters<typeof renderDomFieldMap>[0])))({
+            file: f.file,
+            bytes: f.bytes,
+            sourceRun: f.source_run,
+            map: (input.domMapper?.build ?? buildDomFieldMap)(html),
+          }),
         );
       } catch (cause) {
         domSections.push(
