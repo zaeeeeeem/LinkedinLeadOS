@@ -1,5 +1,30 @@
 # STATE
 
+## In progress — Task 31 `job.get` (2026-08-09)
+
+Checkpoint 1: fixture promotion now routes DOM maps by family (D270). Job maps anchor on
+`data-testid="expandable-text-box"`, require the `About the job` heading, and resolve exactly
+one job-posting urn. The requested widest-net run was re-promoted offline but contains no DOM
+snapshot entry; the archived snapshot from the first measured run was re-mapped instead and
+now resolves job `4450930857` plus the description anchor. 34 focused tests pass and typecheck
+is clean. Next: TDD the pure parser and canonical jobs enrichment store path; no live gate.
+
+Checkpoint 2: `src/capabilities/job.get/` now contains the pure offline parser, capability
+wrapper and README; `core/store/jobs.ts` adds the canonical partial upsert (D271-D272). The
+promoted snapshot yields the complete description, URL/document disagreement stores nothing,
+and company session/trap identity is refused. A real `supabase-js` request-shape test proves
+list then detail both merge on one `jobs.id` while omitted fields remain untouched. Mutation
+checks killed each of the three required assertions. Full offline suite: 1027 passed, 13 skipped;
+typecheck clean. Next: final discipline review and handoff before the live gate.
+
+Checkpoint 3 / handoff: all four review shapes were walked. Capture failures preserve only
+raw archive/budget state and never store a job; lower-layer classified errors pass through;
+the exact data-testid path, identity refusal, partial-upsert omission semantics and composition
+with the existing capture/store modules are pinned by tests and typecheck. Final full suite:
+1027 passed, 13 skipped; typecheck and `git diff --check` clean. Task 31 is stopped before the
+operator-supervised live gate as required. Next: operator runs the default-flags gate and
+independently queries `jobs.id = '4450930857'` to verify description enrichment.
+
 Updated at every task commit. Trust this over CLAUDE.md's phase line.
 
 **The active plan is `docs/plans/m1-m3/`** (outcome-driven, one file per task; see D12).

@@ -83,6 +83,8 @@ export type PromoteInput = {
    *  field map marks any path whose value is one of these, so a parser is never
    *  written against the operator's own urn thinking it is the subject's. */
   sessionUrns?: readonly string[];
+  domMap?: (html: string) => unknown;
+  renderDomMap?: (o: { file: string; bytes: number; sourceRun: string; map: unknown }) => string;
   probes?: readonly FieldProbe[];
   now?: () => Date;
 };
@@ -360,11 +362,11 @@ export async function promoteFixtures(input: PromoteInput): Promise<PromoteResul
     if (f.dom_snapshot === true) {
       try {
         domSections.push(
-          renderDomFieldMap({
+          (input.renderDomMap ?? ((o) => renderDomFieldMap(o as Parameters<typeof renderDomFieldMap>[0])))({
             file: f.file,
             bytes: f.bytes,
             sourceRun: f.source_run,
-            map: buildDomFieldMap(await readFile(join(input.fixturesDir, f.file), "utf8")),
+            map: (input.domMap ?? buildDomFieldMap)(await readFile(join(input.fixturesDir, f.file), "utf8")),
           }),
         );
       } catch (cause) {

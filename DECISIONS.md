@@ -2573,3 +2573,31 @@ argument — an exception is not permission to read pages loosely:
 and every other kind of field, still takes data only from captured network
 bodies. This does not generalize to a surface that merely *looks* similar; the
 next surface needs its own measurement and its own decision.
+
+## D270 — DOM field maps are routed by fixture family (2026-08-09)
+
+Fixture relevance, subject resolution and JSON probes were already selected through
+`familyOf`, but DOM maps always used the profile card-ref mapper. DOM mapping and rendering
+now follow that same family decision: profiles retain card-ref scope; jobs resolve one
+job-posting urn and expose content only through the `expandable-text-box` test id beneath
+the `About the job` heading. A document naming zero or multiple job ids has no subject scope.
+
+The widest-net run contains the 21 network bodies but no archived DOM-snapshot entry. Its
+promotion was attempted and produced no fixture. The existing snapshot from the first
+measured run was therefore re-mapped with the corrected job rule; no page was loaded.
+
+## D271 — job detail parsing stores only observed detail fields (2026-08-09)
+
+The detail snapshot proves a description and a job identity. It does not prove title,
+location, posting time, workplace type or company identity on the measured page, so the
+parser omits them instead of copying display text into labeled columns. Description is read
+only from the `About the job` block containing `data-testid="expandable-text-box"`; all output
+is tagged `dom-snapshot`. A sole company urn may be normalized to `urn:li:fsd_company:<id>`,
+but ambiguity or agreement with a supplied session/trap urn refuses that field.
+
+## D272 — job list and detail writes share one partial upsert on `jobs.id` (2026-08-09)
+
+The jobs writer uses the bare numeric posting id as its sole conflict target and omits every
+field the caller did not observe. A list write can therefore establish title/location and a
+later detail write can add description to the same row without nulling list fields or creating
+a duplicate. `last_seen` is stamped with the write and `first_seen` remains the database default.

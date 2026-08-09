@@ -77,3 +77,15 @@ export type PersonUpsertResult = {
     removed: number;
   };
 };
+
+export type JobInput = {
+  id: string;
+  company_urn?: string | null;
+  title?: string | null;
+  location?: string | null;
+  posted_at?: string | null;
+  workplace_type?: string | null;
+  description?: string | null;
+};
+
+export type JobUpsertResult = { id: string; rows: 1 };

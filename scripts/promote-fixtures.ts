@@ -18,7 +18,7 @@
 import { existsSync, readdirSync, readFileSync, statSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { RawArchive } from "../src/core/archive/raw.js";
-import { familyOf, probesOf, relevanceOf, subjectFor } from "../src/core/fixtures/families.js";
+import { domMapOf, familyOf, probesOf, relevanceOf, renderDomMapOf, subjectFor } from "../src/core/fixtures/families.js";
 import type { Family } from "../src/core/fixtures/families.js";
 import { isPrivateEndpoint, personUrnsIn, promoteFixtures } from "../src/core/fixtures/promote.js";
 import type { PromoteSubject } from "../src/core/fixtures/promote.js";
@@ -162,6 +162,8 @@ async function main(): Promise<void> {
     ...(subject === null ? {} : { subject }),
     ...(probes === undefined ? {} : { probes }),
     sessionUrns,
+    domMap: (html) => domMapOf(family, html),
+    renderDomMap: (input) => renderDomMapOf(family, input),
   });
 
   // Counts and paths only. Never a body, never a url with a query string.

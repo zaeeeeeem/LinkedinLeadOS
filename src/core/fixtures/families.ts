@@ -4,6 +4,8 @@ import { JOB_FIELD_PROBES, isJobIsh } from "../../capabilities/job.capture/patte
 import { normalizeJobUrl } from "../../capabilities/job.capture/url.js";
 import type { FieldProbe } from "./fieldmap.js";
 import type { PromoteSubject } from "./promote.js";
+import { buildDomFieldMap, renderDomFieldMap } from "./dommap.js";
+import { buildJobDomFieldMap, renderJobDomFieldMap } from "./job-dommap.js";
 
 /**
  * Which page surface a capability's fixtures come from, and the three things
@@ -37,6 +39,22 @@ export function relevanceOf(family: Family): (body: string) => boolean {
  *  `buildFieldMap`'s own default, which is the profile set. */
 export function probesOf(family: Family): readonly FieldProbe[] | undefined {
   return family === "job" ? JOB_FIELD_PROBES : undefined;
+}
+
+/** DOM snapshots are surface-specific too. Profile card refs have no meaning on
+ * a job SDUI document; job scope is the normalized URL plus job-posting urn and
+ * its content anchors are data-testid attributes (D305). */
+export function domMapOf(family: Family, html: string) {
+  return family === "job" ? buildJobDomFieldMap(html) : buildDomFieldMap(html);
+}
+
+export function renderDomMapOf(
+  family: Family,
+  o: { file: string; bytes: number; sourceRun: string; map: unknown },
+): string {
+  return family === "job"
+    ? renderJobDomFieldMap({ ...o, map: o.map as ReturnType<typeof buildJobDomFieldMap> })
+    : renderDomFieldMap({ ...o, map: o.map as ReturnType<typeof buildDomFieldMap> });
 }
 
 /**

@@ -4,7 +4,7 @@ import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { RawArchive } from "../src/core/archive/raw.js";
 import { promoteFixtures } from "../src/core/fixtures/promote.js";
-import { familyOf, probesOf, relevanceOf, subjectFor } from "../src/core/fixtures/families.js";
+import { domMapOf, familyOf, probesOf, relevanceOf, renderDomMapOf, subjectFor } from "../src/core/fixtures/families.js";
 
 const JOB_ID = "4012345678";
 const JOB_URL = `https://www.linkedin.com/jobs/view/${JOB_ID}/`;
@@ -36,6 +36,27 @@ describe("familyOf", () => {
     // The conservative direction: an unknown name promotes less, not more.
     expect(familyOf("company.get")).toBe("profile");
     expect(familyOf("")).toBe("profile");
+  });
+});
+
+describe("job DOM-map routing", () => {
+  const html = `<html><body>
+    <a href="/x?entity=urn%3Ali%3Afsd_jobPosting%3A${JOB_ID}">report</a>
+    <section><h2>About the job</h2><p><span data-testid="expandable-text-box"></span></p><p>Build reliable systems.</p></section>
+  </body></html>`;
+
+  it("uses the job data-testid rule, not the profile card-ref rule", () => {
+    const map = domMapOf("job", html);
+    expect(map.scope).toMatchObject({ resolvedId: JOB_ID });
+    expect(map.probes.find((p) => p.name === "description")?.hits[0]?.path).toBe('[data-testid="expandable-text-box"]');
+    const rendered = renderDomMapOf("job", { file: "x.html", bytes: html.length, sourceRun: "r", map });
+    expect(rendered).toContain("DOM-sourced job fixture");
+    expect(rendered).not.toContain("No subject scope could be resolved");
+  });
+
+  it("refuses an ambiguous document carrying two posting ids", () => {
+    const map = domMapOf("job", html.replace("</body>", `urn:li:jobPosting:9999999999</body>`));
+    expect(map.scope).toMatchObject({ resolvedId: null });
   });
 });
 
