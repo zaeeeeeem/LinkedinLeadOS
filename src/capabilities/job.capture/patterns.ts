@@ -2,6 +2,7 @@ import {
   BROAD_PATTERN_NAME,
   documentPattern,
   isLinkedInApiUrl,
+  isLinkedInDataUrl,
   summarizeCaptures,
 } from "../profile.capture/patterns.js";
 import type { CaptureSummary, TieredPattern } from "../profile.capture/patterns.js";
@@ -20,6 +21,10 @@ import type { FieldProbe } from "../../core/fixtures/fieldmap.js";
  * are real. A specific pattern with zero hits next to a non-zero
  * `unmatched_job_ish` is the finding this capability exists to produce.
  */
+/** The widest net's name on the receipt. Distinct from `BROAD_PATTERN_NAME` so a
+ *  capture caught only by this one is visibly outside the API surface. */
+export const WIDEST_PATTERN_NAME = "linkedin-any";
+
 export const JOB_PATTERNS: readonly TieredPattern[] = [
   { name: "gql-jobs-job-postings", tier: "specific", match: "voyagerJobsDashJobPostings" },
   { name: "gql-jobs-job-posting-cards", tier: "specific", match: "voyagerJobsDashJobPostingCards" },
@@ -32,6 +37,16 @@ export const JOB_PATTERNS: readonly TieredPattern[] = [
   // predicted" means the same thing on both surfaces.
   { name: "gql-any", tier: "broad", match: "/voyager/api/graphql" },
   { name: BROAD_PATTERN_NAME, tier: "broad", match: (url: string) => isLinkedInApiUrl(url) },
+
+  // And one net wider than both, which this surface specifically needs.
+  //
+  // The first live run captured 25 bodies, reported `misses: 0`, and contained
+  // no job endpoint at all — because `/jobs/view/<id>` is server-rendered SDUI
+  // and fetches nothing under `/voyager/`. `misses: 0` there did not mean "we
+  // saw everything"; it meant "we were watching one neighbourhood". Deciding the
+  // source verdict — is the description on the network or only in the DOM —
+  // requires a net that can be wrong in the direction of *too much* (D303).
+  { name: WIDEST_PATTERN_NAME, tier: "broad", match: (url: string) => isLinkedInDataUrl(url) },
 ];
 
 /** The net every capture is measured against, and the one `waitFor` waits on. */
