@@ -36,6 +36,45 @@ export function isLinkedInApiUrl(rawUrl: string): boolean {
 }
 
 /**
+ * File extensions that are page furniture rather than data. Anything ending in
+ * one of these is a script, a stylesheet, a font or an image, and archiving it
+ * would bury the fixtures under megabytes of bundle.
+ */
+const ASSET_EXTENSIONS = [
+  ".js", ".mjs", ".css", ".map", ".png", ".jpg", ".jpeg", ".gif", ".webp",
+  ".svg", ".ico", ".woff", ".woff2", ".ttf", ".otf", ".mp4", ".webm", ".m3u8",
+];
+
+/**
+ * The **widest** net: any same-origin LinkedIn response that is not an asset and
+ * not telemetry.
+ *
+ * `isLinkedInApiUrl` answers "is this on a path we already know LinkedIn serves
+ * data from", and that is a guess wearing a safety net's clothes. It cost a real
+ * measurement: the `/jobs/view/<id>` probe reported `misses: 0` with no job
+ * endpoint captured at all, and the honest reading of that is not "the data is
+ * not on the network" but "nothing was watching outside `/voyager/`". A net that
+ * only catches what you predicted cannot tell you the prediction was wrong.
+ *
+ * For probes settling a surface's source verdict, not for readers: it is noisier
+ * by construction, and the tap's total buffer is what bounds it.
+ */
+export function isLinkedInDataUrl(rawUrl: string): boolean {
+  let url: URL;
+  try {
+    url = new URL(rawUrl);
+  } catch {
+    return false;
+  }
+  const host = url.hostname.toLowerCase();
+  if (host !== "linkedin.com" && !host.endsWith(".linkedin.com")) return false;
+  const path = url.pathname.toLowerCase();
+  if (path.startsWith("/li/track") || path.includes("/perftracker")) return false;
+  if (ASSET_EXTENSIONS.some((ext) => path.endsWith(ext))) return false;
+  return true;
+}
+
+/**
  * The endpoints a `/in/` profile page is *expected* to fetch, plus the nets that
  * catch what it actually fetches.
  *

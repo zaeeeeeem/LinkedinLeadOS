@@ -14,6 +14,30 @@ import {
 } from "./constants.js";
 
 /**
+ * Failures that mean the wait can never succeed, as opposed to the ordinary
+ * mid-navigation context swap that means "ask again".
+ *
+ * Listed by code rather than by "is it a `CapabilityError`", because most of the
+ * errors a navigating page throws *are* typed and *are* worth waiting through.
+ * These four are the ones where the thing being asked no longer exists.
+ */
+export const UNRECOVERABLE_WAIT_CODES: ReadonlySet<string> = new Set([
+  "TAB_CLOSED",
+  "TAB_DETACHED",
+  "CDP_SOCKET_ERROR",
+  "CDP_CONNECTION_CLOSED",
+  "CDP_CONNECTION_DEAD",
+  "CDP_CLIENT_CLOSED",
+]);
+
+/** Whether a polling failure is one there is no point polling through. */
+export function isUnrecoverable(cause: unknown): boolean {
+  return (
+    cause instanceof CapabilityError && UNRECOVERABLE_WAIT_CODES.has(cause.code)
+  );
+}
+
+/**
  * How a navigation finished waiting.
  *
  * `settledOn` is reported rather than swallowed because the two are not equally
@@ -233,8 +257,13 @@ export class WorkerTab {
       let state: string | null = null;
       try {
         state = await this.evaluate<string>("document.readyState");
-      } catch {
-        /* context swapped underneath us mid-navigation; keep waiting */
+      } catch (cause) {
+        // A swapped execution context is expected mid-navigation and means "not
+        // ready yet". A dead tab or a dead socket is neither, and waiting out the
+        // deadline on one reports TAB_NAVIGATE_TIMEOUT for a failure that had
+        // nothing to do with the page — which is what happened on the permalink
+        // run `01KZKM4HC3V94H761M65KPCFM7` (D302).
+        if (isUnrecoverable(cause)) throw cause;
       }
 
       if (state === "complete") {
