@@ -4,7 +4,7 @@
 
 `src/core/paged/` — the spend/checkpoint/resume contract Tasks 36/39/40 consume instead of
 re-inventing, plus the salesnav sub-caps. **0 page loads, 0 search pages spent**, as the task
-file required. Branch `task-35-paged-run-core`, not merged.
+file required. Merged to `main` as `acde15b` on 2026-08-10, after operator review.
 
 **Built.** `runPaged()` over the existing `RunContext.checkpoint()`, `RawArchive` and budget
 ledger — no second checkpoint mechanism, no second ledger path, ledger semantics untouched.
@@ -14,7 +14,7 @@ archive), and `src/core/paged/README.md` as the contract doc.
 
 **Sub-caps** in `src/core/budget/constants.ts`: `salesnav.leads.list` 20/20, `accounts.list`
 10/10, `probe` 6/6, `savedsearch.list` 6 page loads / 0 search pages, all with zero profile
-opens. Numbers are the operator's to settle; the existence of each cap is not (D345).
+opens. Numbers accepted by the operator at merge and now the live defaults (D345, D350).
 
 **Tests: 1525 pass, typecheck clean.** 66 new across three files. The kill matrix is the
 headline — a 3-page run killed between **every** adjacent pair of steps (8 boundaries × 3

@@ -4603,3 +4603,18 @@ all: a deploy or an OOM left its run row reading "running" forever.
 the cap that refused named in the evidence, every proved page still claimed, and the run
 resumable with `--run-id` once the window clears. A refusal on the *first* page is not
 dressed up as a partial run — the refusal itself is the whole story and propagates unchanged.
+
+## D350 — The operator accepted D345's numbers and D347/D348's two deviations (2026-08-10)
+
+Task 35 was reviewed and merged to `main` (`acde15b`) with the sub-cap numbers of D345
+unchanged — `salesnav.leads.list` 20/20, `accounts.list` 10/10, `probe` 6/6,
+`savedsearch.list` 6 page loads and 0 search pages, zero profile opens across the family.
+
+Both stated deviations from the task file's acceptance criteria stand as recorded:
+orphaned bytes are kept, counted and claimed by nobody rather than deleted or adopted
+(D348), and the ledger reconciles to `pages + wasted ≤ ledger ≤ pages + wasted +
+unconfirmed` rather than to an exact count (D347).
+
+These numbers are now the defaults a live run inherits. Changing one is a fresh
+account-safety decision and gets its own entry — Task 37's measurement of the saved-search
+page is the first one already expected to raise a number here.
