@@ -36,8 +36,8 @@ the receipt's eight authors one for one, and 2 distinct comment-parent urns matc
 receipt's `with_urn: 2`. One card (MAXHUB) named an author whose link could not be resolved and
 was reported, not guessed. The receipt's feed-API hit count now excludes the document watch, so
 the number means what D280 claims. Full suite **1354 passed across 83 files**, typecheck clean.
-Open: the storage `[DECISION NEEDED]` — add a `feed_items` table, or keep archive-only (D283's
-default).
+Storage decided by the operator on 2026-08-10: **archive-only, no Supabase** — recorded in
+D283, which is now closed rather than deferred. Task 32 is complete; nothing is blocking.
 
 ## In progress — Task 31 `job.get` (2026-08-09)
 

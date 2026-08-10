@@ -3948,9 +3948,18 @@ the same reason: a schema invented by the capability that needs it is a schema n
 The receipt carries `text_chars`, never the post body. Ten post bodies on stdout is a large
 result, and receipts do not carry those (§4.1).
 
-Whether a `feed_items` table is worth having is an open operator decision, presented at the end
-of Task 32. Until it is taken, archive-only is the answer and `data.storage.mode` says so on
-every receipt.
+**Decided by the operator on 2026-08-10: archive-only, no Supabase.** The question is closed,
+not deferred. No `feed_items` table, no migration, and no write path is to be added to this
+capability without a new decision superseding this one.
+
+The measurement is what settles it. 5 of 8 items on the probe and 6 of 8 on the live gate carry
+no resolvable urn (D282), so a table would need a nullable primary key and would dedupe on
+`ref` — a per-impression tracking id that is different on every load. Two reads of the same feed
+would insert the same posts twice. A store that cannot recognize a row it already holds is worse
+than no store, because it looks like history and is not.
+
+`data.storage.mode` reports `archive-only` on every receipt, and the snapshot in the run's
+`raw/` is the record.
 
 ## D284 — Promotion resolves session identity through `identity.ts`, on every surface (2026-08-10)
 
