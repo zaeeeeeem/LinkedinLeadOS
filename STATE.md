@@ -1534,3 +1534,41 @@ other §7 job column) living only in the rendered DOM — likely, it is the same
 exception must be extended to the job surface in `DECISIONS.md` and amended into `CLAUDE.md`
 before any DOM-reading job code is written (M4 CONTEXT rule 7). The probe itself does not need
 this: it archives the snapshot and measures shapes, and reads no job field from it.
+
+## 2026-08-10 — integration, live gate, and four fixes
+
+All five task branches merged to `main` (tasks 21–25, 26–29, 30–31, plus the CDP transport fix,
+which was already contained). Worktrees removed, 12 merged branches deleted;
+`backup-before-split` and `backup-pre-integration-2026-08-10` deliberately kept. 18 capabilities
+present. Nothing pushed — `main` is local.
+
+**Live gate run on the merged tree, then re-run after fixes.** All ten default-flags
+capabilities exit 0 with every stored row verified by direct Supabase query. Full write-up,
+including what is still untested, at `docs/reports/2026-08-10-live-test.md`.
+
+Four defects found and fixed, three of which produced clean exit-0 receipts while losing data:
+
+- **D320** — a profile is read to its end, not for a fixed number of passes. `profile.get` had
+  stored every lead with no employer since 2026-08-08; the sections below Activity are deferred
+  containers that never fetch unless scrolled into view. Now 6 experience rows and a resolved
+  current-company urn on default flags.
+- **D321** — one shared readiness gate, accepting the page's own document. Three runs today
+  failed `CAPTURE_TIMEOUT` while holding a fully populated document, because all three readers
+  parse the DOM and the gate waited on an API body.
+- **D322** — the session's own identity is read from the document island on surfaces that never
+  fetch `/voyager/api/me`. The D119 guard had been running with an empty comparison set on the
+  activity surface.
+- **D323** — the longer job description wins. `job.get` reads a collapsed box and was overwriting
+  the full text `company.jobs` had stored.
+
+**D324** records the `first_seen`/`last_seen` inversion as measured write latency, not clock
+skew, and left alone.
+
+### Next
+
+1. A second target per surface — a different company and a different profile. One target cannot
+   surface parse drift, and drift is what a merge this size would produce.
+2. The flag paths: `--no-store`, `--force-release`, `--budget`, resume via `--run-id`.
+3. The two open calls in the report: whether freshness should serve a person row with no
+   employment, and whether `job.get` should report a truncated description as partial.
+4. Tasks 32, 33, 34 remain the operator's.
