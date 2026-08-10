@@ -54,6 +54,7 @@ describe("inbox.thread — composition", () => {
     expect((result.data as any).messages.map((m: any) => m.direction)).toEqual(["received", "sent", "received"]);
     expect((result.data as any).messages[0].text_chars).toBe(SECRETS[0]!.length);
     expect((result.data as any).messages.every((message: any) => !("text" in message))).toBe(true);
+    expect((result.data as any).read.partial).toBe(true);
     for (const secret of SECRETS) {
       expect(JSON.stringify(result)).not.toContain(secret);
       expect(JSON.stringify(ctx.run.log.mock.calls)).not.toContain(secret);

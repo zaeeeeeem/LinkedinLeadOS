@@ -23,7 +23,7 @@ The source is the labeled `messengerConversations` Voyager body. Message rows ar
 set returned by `sessionUrnsOf` to tag `sent`, `received`, or `unknown`. A message without text
 is still emitted with `text_chars: 0` and a counted warning.
 
-Message text never reaches stdout, a receipt, or an event log. The receipt exposes only message
+Message text never reaches parser output, stdout, a receipt, or an event log. The receipt exposes only message
 identity, sender urn, absolute time, direction, and text length. The raw body remains in the run
 archive; promoted live fixtures go only to `.fixtures-private/inbox.thread/`, while tests use a
 committed synthetic body.
@@ -32,6 +32,7 @@ committed synthetic body.
 
 - Default `--limit`: 50; hard maximum: 100.
 - Default scroll passes: 2; hard maximum: 4.
+- `data.read.partial` is always true: no measured field proves the start of history was reached.
 - Cost: 1 page load, 0 search pages, 0 profile opens.
 - Daily inbox-thread sub-cap: 12 page loads, enforced by the ledger with no bypass flag.
 

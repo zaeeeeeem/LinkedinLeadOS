@@ -66,7 +66,7 @@ export function createInboxThreadCapability(deps: InboxThreadDeps = defaultDeps)
           messages: best.messages.length,
           sent: best.messages.filter((message) => message.direction === "sent").length,
           received: best.messages.filter((message) => message.direction === "received").length,
-          textless: best.messages.filter((message) => message.text === null).length,
+          textless: best.messages.filter((message) => message.text_chars === 0).length,
         },
       });
       return {
@@ -86,14 +86,16 @@ export function createInboxThreadCapability(deps: InboxThreadDeps = defaultDeps)
             received: best.messages.filter((message) => message.direction === "received").length,
             unknown_sender: best.messages.filter((message) => message.direction === "unknown").length,
             examined: best.examined,
-            partial: best.messages.length >= ctx.args.limit,
+            // No measured field proves the beginning of the thread was
+            // reached. A bounded read must not claim completeness by silence.
+            partial: true,
           },
           messages: best.messages.map((message) => ({
             urn: message.urn,
             sender_urn: message.sender_urn,
             sent_at: message.sent_at,
             direction: message.direction,
-            text_chars: message.text?.length ?? 0,
+            text_chars: message.text_chars,
           })),
           storage: { mode: "archive-only-pending-decision" },
           side_effect: {

@@ -5,7 +5,11 @@ import { createInboxListCapability } from "./index.js";
 import type { InboxCaptureResult } from "./capture.js";
 
 const fixture = readFileSync(join(import.meta.dirname, "test-fixtures", "messenger-conversations.synthetic.json"), "utf8");
-const SECRET = "SYNTHETIC_PRIVATE_MESSAGE_ALPHA";
+const SECRETS = [
+  "SYNTHETIC_PRIVATE_MESSAGE_ALPHA",
+  "SYNTHETIC_PRIVATE_MESSAGE_BETA",
+  "SYNTHETIC_PRIVATE_MESSAGE_GAMMA",
+];
 
 function captured(payloads = [{ file: "0001-inbox.json.gz", bytes: fixture.length }]): InboxCaptureResult {
   return {
@@ -43,12 +47,15 @@ describe("inbox.list — composition", () => {
     const result = await createInboxListCapability({ capture }).run(ctx);
     expect(ctx.browser.archive.readText).toHaveBeenCalledWith("0001-inbox.json.gz");
     expect((result.data as any).conversations[0].last_message).toMatchObject({
-      text_chars: SECRET.length,
+      text_chars: SECRETS[0]!.length,
       sender_urn: "urn:li:fsd_profile:CONTACT_A",
     });
     expect("text" in (result.data as any).conversations[0].last_message).toBe(false);
-    expect(JSON.stringify(result)).not.toContain(SECRET);
-    expect(JSON.stringify(ctx.run.log.mock.calls)).not.toContain(SECRET);
+    for (const secret of SECRETS) {
+      expect(JSON.stringify(result)).not.toContain(secret);
+      expect(JSON.stringify(ctx.run.log.mock.calls)).not.toContain(secret);
+    }
+    expect((result.data as any).read.partial).toBe(true);
   });
 
   it("reports the labeled-body source and does not claim a read-marking side effect for the list", async () => {

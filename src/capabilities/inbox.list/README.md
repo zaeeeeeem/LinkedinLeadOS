@@ -24,7 +24,9 @@ untouched body remains in the run archive and can be promoted only to
 ## Bounds and budget
 
 - Default `--limit`: 20; hard maximum: 100.
+- At most 20 participants are projected per conversation; excess rows are counted.
 - Default scroll passes: 2; hard maximum: 4.
+- `data.read.partial` is always true: the sync token is not a completion signal.
 - Cost: 1 page load, 0 search pages, 0 profile opens.
 - Daily inbox-list sub-cap: 12 page loads. The ledger enforces it; no flag bypasses it.
 

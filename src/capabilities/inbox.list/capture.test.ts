@@ -98,6 +98,18 @@ describe("captureInbox — safety composition", () => {
     expect(releases.every((release) => release.mock.calls.length === 1)).toBe(true);
   });
 
+  it("drains and releases every watch when navigation itself fails", async () => {
+    vi.mocked(readLikeAHuman).mockResolvedValue(reading as never);
+    const { ctx, tap, releases } = harness();
+    ctx.browser.tab.navigate.mockRejectedValue(new Error("navigation failed"));
+    await expect(
+      captureInbox(ctx, { url: "https://www.linkedin.com/messaging/", passes: 2, itemRef: "list" }),
+    ).rejects.toThrow("navigation failed");
+    expect(tap.drain).toHaveBeenCalledOnce();
+    expect(releases.every((release) => release.mock.calls.length === 1)).toBe(true);
+    expect(readLikeAHuman).not.toHaveBeenCalled();
+  });
+
   it("is silent on a healthy labeled payload and returns only its archived reference", async () => {
     vi.mocked(readLikeAHuman).mockResolvedValue(reading as never);
     const capture = {

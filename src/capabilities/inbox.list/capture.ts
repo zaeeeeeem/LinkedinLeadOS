@@ -66,29 +66,31 @@ export async function captureInbox(
       } catch { return false; }
     },
   }];
-  const releaseWatches = patterns.map((pattern) => tap.watch(pattern));
-  const since = tap.cursor;
   await budget.spend({ kind: "page_load", n: 1 });
-
-  const foreground = await tab.ensureForeground();
-  run.log("render.wait", {
-    phase: "capture",
-    detail: { via: foreground.via, hidden: foreground.state?.hidden ?? null },
-  });
-  if (!foreground.ok) warnings.push({
-    code: "TAB_NOT_FOREGROUND", n: 1,
-    field: "the worker tab still reports itself hidden; messaging rows may not have loaded",
-  });
-
+  const releaseWatches: Array<() => void> = [];
+  let since = tap.cursor;
+  let foreground: Awaited<ReturnType<typeof tab.ensureForeground>> | null = null;
   const checkpoint = { target: { kind: options.itemRef }, phase: "navigate" as string };
-  run.log("nav.start", { phase: "capture", item_ref: options.itemRef });
-  const started = Date.now();
-  await tab.navigate(options.url);
-  run.log("nav.done", { phase: "capture", item_ref: options.itemRef, duration_ms: Date.now() - started });
-
   let reading: ReadResult | null = null;
   let snapshot: DomSnapshotResult | null = null;
   try {
+    for (const pattern of patterns) releaseWatches.push(tap.watch(pattern));
+    since = tap.cursor;
+    foreground = await tab.ensureForeground();
+    run.log("render.wait", {
+      phase: "capture",
+      detail: { via: foreground.via, hidden: foreground.state?.hidden ?? null },
+    });
+    if (!foreground.ok) warnings.push({
+      code: "TAB_NOT_FOREGROUND", n: 1,
+      field: "the worker tab still reports itself hidden; messaging rows may not have loaded",
+    });
+
+    run.log("nav.start", { phase: "capture", item_ref: options.itemRef });
+    const started = Date.now();
+    await tab.navigate(options.url);
+    run.log("nav.done", { phase: "capture", item_ref: options.itemRef, duration_ms: Date.now() - started });
+
     checkpoint.phase = "post-navigation-gate";
     await assertNoChallenge({ tab, run, state: checkpoint });
     checkpoint.phase = "await-first-capture";
@@ -195,6 +197,6 @@ export async function captureInbox(
 
   return {
     payloads, snapshot, reading, summary, sessionUrns, warnings,
-    foreground: { ok: foreground.ok, via: foreground.via },
+    foreground: { ok: foreground?.ok ?? false, via: foreground?.via ?? null },
   };
 }

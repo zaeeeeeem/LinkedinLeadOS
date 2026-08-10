@@ -40,7 +40,8 @@ describe("inbox.thread — pure parser", () => {
   it("emits a message with no text and raises a counted warning", () => {
     const result = parseInboxThread(fixture, { url: target, limit: 20 });
     expect(result.messages).toHaveLength(3);
-    expect(result.messages[2]!.text).toBeNull();
+    expect(result.messages[2]!.text_chars).toBe(0);
+    expect(result.messages.every((message) => !("text" in message))).toBe(true);
     expect(result.warnings).toContainEqual({
       code: "MESSAGE_NO_TEXT",
       n: 1,

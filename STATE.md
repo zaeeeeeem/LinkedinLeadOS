@@ -25,6 +25,18 @@ sub-caps (D292). The thread receipt explicitly says opening it may mark it read.
 verification: 70 tests pass; typecheck clean. Next: capture-layer failure-path tests, registry
 reachability, full suite/review, then stop for operator approval before any messaging page load.
 
+Checkpoint 3 / offline gate complete (zero LinkedIn contact): the four review shapes were
+walked. Navigation/read failures drain the tap and release every watch; lower-layer classified
+errors pass through; every receipt/privacy/bound claim has a named test; the real capture
+implementation satisfies both injected dependency contracts at typecheck. Review tightened
+the private endpoint predicate, made both bounded reads explicitly partial (D293), capped group
+participants at 20, normalized tracking queries off thread hrefs, and changed both parser return
+types to carry text lengths rather than text. Inbox DOM promotion now emits content-free anchor
+counts instead of falling through to the profile mapper. Full suite: **1,394 passed across 90
+files**; typecheck and `git diff --check` clean. Task spend remains **0 of 4 page loads**. Next:
+stop for operator approval, then run default `inbox.list` and one `inbox.thread`, acknowledging
+that the latter may mark the thread read, and verify counts directly from archives/ledger.
+
 ## In progress — Task 32 `feed.get` (2026-08-10)
 
 Checkpoint 1 (offline, zero LinkedIn contact): the feed surface now exists as a promotion

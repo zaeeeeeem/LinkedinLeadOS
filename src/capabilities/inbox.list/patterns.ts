@@ -54,7 +54,7 @@ export function isInboxFixtureEndpoint(rawUrl: string): boolean {
     return false;
   }
   if (!isPrivateEndpoint(rawUrl)) return false;
-  return /(messenger|messaging).*(conversation|message)|(conversation|message).*(messenger|messaging)/i.test(
+  return /messengerConversations|messengerMessages|MessagingDashConversations|MessagingDashMessages/i.test(
     operationOf(rawUrl),
   );
 }

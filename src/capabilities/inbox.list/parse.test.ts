@@ -30,7 +30,7 @@ describe("inbox.list — pure parser", () => {
     expect(result.conversations[0]!.participants.map((p) => p.is_operator)).toEqual([true, false]);
     expect(result.conversations[0]!.last_message).toEqual({
       sender_urn: "urn:li:fsd_profile:CONTACT_A",
-      text: "SYNTHETIC_PRIVATE_MESSAGE_ALPHA",
+      text_chars: "SYNTHETIC_PRIVATE_MESSAGE_ALPHA".length,
       sent_at: "2026-08-09T16:00:00.000Z",
     });
     expect(result.conversations[0]!.unread).toBe(true);
@@ -42,8 +42,27 @@ describe("inbox.list — pure parser", () => {
       "https://www.linkedin.com/messaging/thread/c3ludGhldGljLWE=/",
     );
     expect(absoluteInboxHref("https://evil.example/messaging/thread/x/")).toBeNull();
+    expect(absoluteInboxHref("/messaging/thread/c3ludGhldGljLWE=/?trk=mail")).toBe(
+      "https://www.linkedin.com/messaging/thread/c3ludGhldGljLWE=/",
+    );
     const result = parseInboxList(fixture, { limit: 1 });
     expect(result.conversations[0]!.url).toBe("https://www.linkedin.com/messaging/thread/c3ludGhldGljLWE=/");
+  });
+
+  it("bounds group participants so one conversation cannot make stdout unbounded", () => {
+    const changed = JSON.parse(fixture) as any;
+    const row = changed.data.messengerConversationsBySyncToken.elements[0];
+    row.conversationParticipants = Array.from({ length: 25 }, (_, i) => ({
+      hostIdentityUrn: `urn:li:fsd_profile:SYNTHETIC_${i}`,
+      participantType: { member: { firstName: { text: `Member${i}` } } },
+    }));
+    const result = parseInboxList(JSON.stringify(changed), { limit: 1 });
+    expect(result.conversations[0]!.participants).toHaveLength(20);
+    expect(result.warnings).toContainEqual({
+      code: "PARTICIPANTS_NOT_EXAMINED",
+      n: 5,
+      field: "5 participant rows exceeded the 20-per-conversation receipt bound",
+    });
   });
 
   it("bounds output and warning denominators by rows actually examined", () => {
@@ -51,7 +70,8 @@ describe("inbox.list — pure parser", () => {
     delete changed.data.messengerConversationsBySyncToken.elements[0].messages.elements[0].body.text;
     const result = parseInboxList(JSON.stringify(changed), { limit: 1 });
     expect(result.conversations).toHaveLength(1);
-    expect(result.conversations[0]!.last_message.text).toBeNull();
+    expect(result.conversations[0]!.last_message.text_chars).toBe(0);
+    expect("text" in result.conversations[0]!.last_message).toBe(false);
     expect(result.warnings).toContainEqual({
       code: "CONVERSATION_NO_SNIPPET",
       n: 1,

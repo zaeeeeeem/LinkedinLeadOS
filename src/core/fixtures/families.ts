@@ -13,6 +13,7 @@ import { buildDomFieldMap, renderDomFieldMap } from "./dommap.js";
 import { buildActivityDomMap, renderActivityDomMap } from "./activitymap.js";
 import { buildJobDomFieldMap, renderJobDomFieldMap } from "./job-dommap.js";
 import { buildFeedDomMap, renderFeedDomMap } from "./feed-dommap.js";
+import { buildInboxDomProbeMap, renderInboxDomProbeMap } from "./inbox-dommap.js";
 
 /**
  * Which page surface a capability's fixtures come from, and the three things
@@ -84,8 +85,9 @@ export type DomMapOptions = { sessionUrns?: readonly string[]; sessionVanities?:
 export function domMapOf(family: "job", html: string, o?: DomMapOptions): ReturnType<typeof buildJobDomFieldMap>;
 export function domMapOf(family: "activity", html: string, o?: DomMapOptions): ReturnType<typeof buildActivityDomMap>;
 export function domMapOf(family: "feed", html: string, o?: DomMapOptions): ReturnType<typeof buildFeedDomMap>;
+export function domMapOf(family: "inbox", html: string, o?: DomMapOptions): ReturnType<typeof buildInboxDomProbeMap>;
 export function domMapOf(family: "profile", html: string, o?: DomMapOptions): ReturnType<typeof buildDomFieldMap>;
-export function domMapOf(family: Family, html: string, o?: DomMapOptions): ReturnType<typeof buildJobDomFieldMap> | ReturnType<typeof buildActivityDomMap> | ReturnType<typeof buildFeedDomMap> | ReturnType<typeof buildDomFieldMap>;
+export function domMapOf(family: Family, html: string, o?: DomMapOptions): ReturnType<typeof buildJobDomFieldMap> | ReturnType<typeof buildActivityDomMap> | ReturnType<typeof buildFeedDomMap> | ReturnType<typeof buildInboxDomProbeMap> | ReturnType<typeof buildDomFieldMap>;
 export function domMapOf(family: Family, html: string, o: DomMapOptions = {}) {
   if (family === "job") return buildJobDomFieldMap(html);
   if (family === "activity") {
@@ -97,6 +99,7 @@ export function domMapOf(family: Family, html: string, o: DomMapOptions = {}) {
       ...(o.sessionVanities === undefined ? {} : { sessionVanities: o.sessionVanities }),
     });
   }
+  if (family === "inbox") return buildInboxDomProbeMap(html);
   return buildDomFieldMap(html);
 }
 
@@ -112,6 +115,9 @@ export function renderDomMapOf(
   }
   if (family === "feed") {
     return renderFeedDomMap({ ...o, map: o.map as ReturnType<typeof buildFeedDomMap> });
+  }
+  if (family === "inbox") {
+    return renderInboxDomProbeMap({ ...o, map: o.map as ReturnType<typeof buildInboxDomProbeMap> });
   }
   return renderDomFieldMap({ ...o, map: o.map as ReturnType<typeof buildDomFieldMap> });
 }

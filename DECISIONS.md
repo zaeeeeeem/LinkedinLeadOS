@@ -4066,10 +4066,10 @@ participants, one latest-message record, an absolute `deliveredAt`, a sender hos
 message text and unread state. The exact paths are pinned by the two committed FIELD-MAPs and a
 synthetic fixture; the real body stays under `.fixtures-private/`.
 
-That labeled Voyager body therefore wins over D326's DOM fallback. The parsers can read text to
-measure and classify the archived record, but the receipt projection replaces it with
-`text_chars`, and event logs receive counts only. A composition test serializes both the result
-and every log call and asserts that none of three synthetic message values appears.
+That labeled Voyager body therefore wins over D326's DOM fallback. The parsers inspect text only
+to measure its length, return `text_chars` rather than the value, and event logs receive counts
+only. A composition test serializes both the parser/capability result and every log call and
+asserts that none of three synthetic message values appears.
 
 Rejected: returning the snippet for `inbox.list` because it is a list field. D326's stronger
 privacy condition says message text never reaches stdout, and a receipt is stdout.
@@ -4084,3 +4084,14 @@ and remains a manual task limit; it is not widened by these daily ceilings.
 Rejected: one shared 24-load capability name. The ledger keys by the running capability, so a
 shared name would require hiding which reader spent the load or changing a cross-task ledger
 interface.
+
+## D293 — Bounded inbox reads report partial until the source proves completion (2026-08-10)
+
+The conversation envelope carries `newSyncToken`; it does not carry a total or an end-of-list
+flag. The measured message collection likewise has no field proving that the beginning of the
+thread was reached. Both readers therefore report `data.read.partial: true` on every run, even
+when the returned row count is below `--limit`.
+
+Rejected: treating `rows < limit` as complete. A server-sized 20-row response under a 50-row
+client limit would then claim the rest of the inbox or thread does not exist, when the only
+measured fact is that the response stopped.

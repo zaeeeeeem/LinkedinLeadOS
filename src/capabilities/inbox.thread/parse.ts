@@ -5,7 +5,7 @@ type JsonObject = Record<string, unknown>;
 export type InboxMessage = {
   urn: string | null;
   sender_urn: string | null;
-  text: string | null;
+  text_chars: number;
   sent_at: string | null;
   direction: "sent" | "received" | "unknown";
 };
@@ -75,7 +75,7 @@ export function parseInboxThread(
     return {
       urn: stringOf(message["entityUrn"]),
       sender_urn: senderUrn,
-      text,
+      text_chars: text?.length ?? 0,
       sent_at: sentAt,
       direction: senderUrn === null ? "unknown" : session.has(senderUrn) ? "sent" : "received",
     };

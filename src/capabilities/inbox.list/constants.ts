@@ -1,5 +1,6 @@
 export const DEFAULT_INBOX_LIST_LIMIT = 20;
 export const DEFAULT_INBOX_THREAD_LIMIT = 50;
 export const MAX_INBOX_ROWS = 100;
+export const MAX_INBOX_PARTICIPANTS = 20;
 export const DEFAULT_INBOX_SCROLL_PASSES = 2;
 export const MAX_INBOX_SCROLL_PASSES = 4;

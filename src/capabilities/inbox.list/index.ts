@@ -49,7 +49,7 @@ export function createInboxListCapability(deps: InboxListDeps = defaultDeps) {
       }
       if (best === null) throw noPayload();
 
-      const textless = best.conversations.filter((row) => row.last_message.text === null).length;
+      const textless = best.conversations.filter((row) => row.last_message.text_chars === 0).length;
       ctx.run.log("parse.ok", {
         phase: "inbox.list",
         detail: { conversations: best.conversations.length, unread: best.conversations.filter((row) => row.unread).length, textless },
@@ -69,7 +69,9 @@ export function createInboxListCapability(deps: InboxListDeps = defaultDeps) {
             conversations: best.conversations.length,
             unread: best.conversations.filter((row) => row.unread).length,
             examined: best.examined,
-            partial: best.conversations.length >= ctx.args.limit,
+            // The response carries a new sync token, not a total/completion
+            // signal. A bounded list read is always a prefix.
+            partial: true,
           },
           conversations: best.conversations.map((row) => ({
             urn: row.urn,
@@ -79,7 +81,7 @@ export function createInboxListCapability(deps: InboxListDeps = defaultDeps) {
             last_message: {
               sender_urn: row.last_message.sender_urn,
               sent_at: row.last_message.sent_at,
-              text_chars: row.last_message.text?.length ?? 0,
+              text_chars: row.last_message.text_chars,
             },
             unread_count: row.unread_count,
             unread: row.unread,

@@ -1,3 +1,5 @@
+import { MAX_INBOX_PARTICIPANTS } from "./constants.js";
+
 export type InboxParseWarning = { code: string; n: number; field: string };
 
 export type InboxParticipant = {
@@ -13,7 +15,7 @@ export type InboxConversation = {
   participants: InboxParticipant[];
   last_message: {
     sender_urn: string | null;
-    text: string | null;
+    text_chars: number;
     sent_at: string | null;
   };
   unread_count: number;
@@ -54,6 +56,7 @@ export function absoluteInboxHref(raw: unknown): string | null {
     const host = url.hostname.toLowerCase();
     if (host !== "linkedin.com" && !host.endsWith(".linkedin.com")) return null;
     if (!/^\/messaging\/thread\//i.test(url.pathname)) return null;
+    url.search = "";
     url.hash = "";
     return url.toString();
   } catch {
@@ -100,12 +103,14 @@ export function parseInboxList(
   let noSnippet = 0;
   let noTimestamp = 0;
   let noParticipant = 0;
+  let participantsNotExamined = 0;
 
   for (const row of rows.slice(0, wanted)) {
     const participantRows = Array.isArray(row["conversationParticipants"])
       ? (row["conversationParticipants"] as unknown[]).map(record).filter((p): p is JsonObject => p !== null)
       : [];
-    const participants = participantRows.map((p) => {
+    participantsNotExamined += Math.max(0, participantRows.length - MAX_INBOX_PARTICIPANTS);
+    const participants = participantRows.slice(0, MAX_INBOX_PARTICIPANTS).map((p) => {
       const urn = stringOf(p["hostIdentityUrn"]);
       return { urn, name: participantName(p), is_operator: urn !== null && session.has(urn) };
     });
@@ -130,7 +135,7 @@ export function parseInboxList(
       participants,
       last_message: {
         sender_urn: stringOf(record(latest?.["sender"])?.["hostIdentityUrn"]),
-        text,
+        text_chars: text?.length ?? 0,
         sent_at: sentAt,
       },
       unread_count: unreadCount,
@@ -150,6 +155,10 @@ export function parseInboxList(
   if (noParticipant > 0) warnings.push({
     code: "CONVERSATION_NO_PARTICIPANT", n: noParticipant,
     field: `${noParticipant} of ${examined} examined conversations had no participant row`,
+  });
+  if (participantsNotExamined > 0) warnings.push({
+    code: "PARTICIPANTS_NOT_EXAMINED", n: participantsNotExamined,
+    field: `${participantsNotExamined} participant rows exceeded the ${MAX_INBOX_PARTICIPANTS}-per-conversation receipt bound`,
   });
   return { ok: true, conversations, examined, warnings };
 }
