@@ -86,7 +86,7 @@ export function createInboxListCapability(deps: InboxListDeps = defaultDeps) {
             unread_count: row.unread_count,
             unread: row.unread,
           })),
-          storage: { mode: "archive-only-pending-decision" },
+          storage: { mode: "archive-only" },
           side_effect: { may_mark_read: false },
           probe: {
             labeled_payloads: captured.payloads.length,

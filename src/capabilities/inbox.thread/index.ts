@@ -97,7 +97,7 @@ export function createInboxThreadCapability(deps: InboxThreadDeps = defaultDeps)
             direction: message.direction,
             text_chars: message.text_chars,
           })),
-          storage: { mode: "archive-only-pending-decision" },
+          storage: { mode: "archive-only" },
           side_effect: {
             may_mark_read: true,
             note: "Opening this thread may mark it read in LinkedIn; no send, react, archive or mark action was performed.",

@@ -4095,3 +4095,14 @@ when the returned row count is below `--limit`.
 Rejected: treating `rows < limit` as complete. A server-sized 20-row response under a 50-row
 client limit would then claim the rest of the inbox or thread does not exist, when the only
 measured fact is that the response stopped.
+
+## D294 — Inbox storage is archive-only, with no messaging tables (2026-08-10)
+
+**Decided by the operator on 2026-08-10: archive-only, no Supabase.** The question is closed,
+not deferred. `inbox.list` and `inbox.thread` report `data.storage.mode: "archive-only"`; the
+raw body in the run archive is the record.
+
+Queryable history does not outweigh duplicating private correspondence into a second system
+that would then require retention, access, dedupe and deletion policy. Revisit only if a
+downstream capability actually needs structured message-history queries, and only through a
+new decision that supersedes this one.

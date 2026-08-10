@@ -37,11 +37,10 @@ untouched body remains in the run archive and can be promoted only to
 - A conversation with no optional snippet or timestamp is still emitted and counted in a
   warning whose denominator is the rows actually examined.
 
-## Storage — [DECISION NEEDED]
+## Storage
 
-The approved schema has no messaging tables, so the current mode is
-`archive-only-pending-decision`; there is no Supabase query because this capability stores no
-rows.
+The operator decided archive-only on 2026-08-10 (D294). The approved schema has no messaging
+tables, and there is no Supabase query because this capability stores no rows.
 
 - Add approved conversation/message tables: enables structured cross-run queries and history,
   but duplicates private correspondence into Supabase and requires identity, dedupe, access,
@@ -49,5 +48,4 @@ rows.
 - Keep archive-only: keeps one local raw copy and receipts with counts/summaries, but any
   structured query requires reparsing selected archives and there is no cross-run index.
 
-Recommendation: keep archive-only. The query convenience does not currently justify a second
-structured store of private correspondence.
+Revisit only if a downstream capability actually needs structured message-history queries.

@@ -62,7 +62,7 @@ describe("inbox.list — composition", () => {
     const result = await createInboxListCapability({ capture: async () => captured() }).run(context());
     expect(result.data).toMatchObject({
       source: "voyager-body",
-      storage: { mode: "archive-only-pending-decision" },
+      storage: { mode: "archive-only" },
       side_effect: { may_mark_read: false },
       probe: { source_verdict: "voyager-body", labeled_payloads: 1 },
     });

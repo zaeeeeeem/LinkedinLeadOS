@@ -43,10 +43,10 @@ committed synthetic body.
 - No labeled thread payload, or a payload that does not name the requested thread, is parse
   drift (exit 5), never an empty successful result.
 
-## Storage — [DECISION NEEDED]
+## Storage
 
-The current mode is `archive-only-pending-decision`; no messaging table exists, so there is no
-Supabase query to show.
+The operator decided archive-only on 2026-08-10 (D294). No messaging table exists, so there is
+no Supabase query to show.
 
 - Add approved tables: queryable history and sender/direction filtering, at the cost of a second
   structured copy of message content plus migration, access, dedupe, retention and deletion
@@ -54,5 +54,4 @@ Supabase query to show.
 - Keep archive-only: one local raw copy and receipt counts, at the cost of reparsing archives for
   structured questions and no cross-run index.
 
-Recommendation: keep archive-only because message content sensitivity makes structured storage
-an explicit operator choice, not a default.
+Revisit only if a downstream capability actually needs structured message-history queries.

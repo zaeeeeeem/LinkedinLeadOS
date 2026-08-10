@@ -65,7 +65,7 @@ describe("inbox.thread — composition", () => {
     const result = await createInboxThreadCapability({ capture: async () => captured() }).run(context());
     expect(result.data).toMatchObject({
       source: "voyager-body",
-      storage: { mode: "archive-only-pending-decision" },
+      storage: { mode: "archive-only" },
       side_effect: { may_mark_read: true },
       probe: { source_verdict: "voyager-body" },
     });

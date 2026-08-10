@@ -37,6 +37,14 @@ files**; typecheck and `git diff --check` clean. Task spend remains **0 of 4 pag
 stop for operator approval, then run default `inbox.list` and one `inbox.thread`, acknowledging
 that the latter may mark the thread read, and verify counts directly from archives/ledger.
 
+Checkpoint 4 / operator approval (before live contact): archive-only storage is settled and
+recorded in D294; there will be no messaging migration or BACKLOG deferral. The operator
+approved the default-flags live gate in list-then-thread order and explicitly accepted that
+opening the chosen thread may mark it read. Expected thread outcome is either exit 0 on the
+list envelope or fail-honest exit 5 if the live page uses the already-watched
+`messengerMessages*` operation; in the latter case its archived body becomes the offline parser
+fixture before load 3. Spend at this checkpoint remains 0 of 4 page loads.
+
 ## In progress — Task 32 `feed.get` (2026-08-10)
 
 Checkpoint 1 (offline, zero LinkedIn contact): the feed surface now exists as a promotion
