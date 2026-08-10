@@ -18,10 +18,12 @@ letting the operator discover it afterward.
 
 ## Source and privacy
 
-The source is the labeled `messengerConversations` Voyager body. Message rows are read from
-`messages.elements[]`; sender identity is `sender.hostIdentityUrn`, checked against the identity
-set returned by `sessionUrnsOf` to tag `sent`, `received`, or `unknown`. A message without text
-is still emitted with `text_chars: 0` and a counted warning.
+The primary source is the labeled `messengerMessagesBySyncToken.elements[]` Voyager body measured
+on the first live list run (D296). The older conversation-list envelope remains a tested fallback.
+Several payload pages are merged and deduplicated only by real message urn; sender identity is
+`sender.hostIdentityUrn`, checked against the identity set returned by `sessionUrnsOf` to tag
+`sent`, `received`, or `unknown`. A message without text is still emitted with `text_chars: 0`
+and a counted warning.
 
 Message text never reaches parser output, stdout, a receipt, or an event log. The receipt exposes only message
 identity, sender urn, absolute time, direction, and text length. The raw body remains in the run

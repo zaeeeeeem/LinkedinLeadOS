@@ -1,0 +1,45 @@
+{
+  "data": {
+    "messengerMessagesBySyncToken": {
+      "elements": [
+        {
+          "entityUrn": "urn:li:msg_message:synthetic-2",
+          "backendUrn": "urn:li:messagingMessage:synthetic-2",
+          "backendConversationUrn": "urn:li:messagingThread:c3ludGhldGljLWE=",
+          "conversation": { "entityUrn": "urn:li:msg_conversation:(urn:li:fsd_profile:OPERATOR,synthetic-a)" },
+          "sender": {
+            "entityUrn": "urn:li:msg_messagingParticipant:contact-a",
+            "hostIdentityUrn": "urn:li:fsd_profile:CONTACT_A"
+          },
+          "body": { "text": "SYNTHETIC_PRIVATE_MESSAGE_ALPHA" },
+          "deliveredAt": 1786291200000
+        },
+        {
+          "entityUrn": "urn:li:msg_message:synthetic-1",
+          "backendUrn": "urn:li:messagingMessage:synthetic-1",
+          "backendConversationUrn": "urn:li:messagingThread:c3ludGhldGljLWE=",
+          "conversation": { "entityUrn": "urn:li:msg_conversation:(urn:li:fsd_profile:OPERATOR,synthetic-a)" },
+          "sender": {
+            "entityUrn": "urn:li:msg_messagingParticipant:operator",
+            "hostIdentityUrn": "urn:li:fsd_profile:OPERATOR"
+          },
+          "body": { "text": "SYNTHETIC_PRIVATE_MESSAGE_BETA" },
+          "deliveredAt": 1786290600000
+        },
+        {
+          "entityUrn": "urn:li:msg_message:synthetic-empty",
+          "backendUrn": "urn:li:messagingMessage:synthetic-empty",
+          "backendConversationUrn": "urn:li:messagingThread:c3ludGhldGljLWE=",
+          "conversation": { "entityUrn": "urn:li:msg_conversation:(urn:li:fsd_profile:OPERATOR,synthetic-a)" },
+          "sender": {
+            "entityUrn": "urn:li:msg_messagingParticipant:contact-a",
+            "hostIdentityUrn": "urn:li:fsd_profile:CONTACT_A"
+          },
+          "body": {},
+          "deliveredAt": 1786290000000
+        }
+      ],
+      "metadata": { "newSyncToken": "synthetic-thread-token" }
+    }
+  }
+}

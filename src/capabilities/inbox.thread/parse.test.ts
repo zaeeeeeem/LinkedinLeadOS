@@ -4,14 +4,18 @@ import { describe, expect, it } from "vitest";
 import { INBOX_THREAD_FIELD_PATHS } from "./field-map.js";
 import { parseInboxThread } from "./parse.js";
 
-const fixturePath = join(import.meta.dirname, "..", "inbox.list", "test-fixtures", "messenger-conversations.synthetic.json");
+const fixturePath = join(import.meta.dirname, "test-fixtures", "messenger-messages.synthetic.json");
 const fixture = readFileSync(fixturePath, "utf8");
+const listFixture = readFileSync(
+  join(import.meta.dirname, "..", "inbox.list", "test-fixtures", "messenger-conversations.synthetic.json"),
+  "utf8",
+);
 const target = "https://www.linkedin.com/messaging/thread/c3ludGhldGljLWE=/";
 
 describe("inbox.thread — FIELD-MAP meaning", () => {
   it("pins sender, text and sent_at paths to meaning-checked synthetic values", () => {
     const root = JSON.parse(fixture) as any;
-    const message = root.data.messengerConversationsBySyncToken.elements[0].messages.elements[0];
+    const message = root.data.messengerMessagesBySyncToken.elements[0];
     expect(message.sender.hostIdentityUrn).toBe("urn:li:fsd_profile:CONTACT_A");
     expect(message.body.text).toBe("SYNTHETIC_PRIVATE_MESSAGE_ALPHA");
     expect(message.deliveredAt).toBe(1786291200000);
@@ -57,10 +61,20 @@ describe("inbox.thread — pure parser", () => {
   });
 
   it("refuses a target absent from a multi-conversation body", () => {
-    const result = parseInboxThread(fixture, {
+    const result = parseInboxThread(listFixture, {
       url: "https://www.linkedin.com/messaging/thread/not-present/",
       limit: 20,
     });
     expect(result).toMatchObject({ ok: false, warnings: [{ code: "INBOX_THREAD_TARGET_MISSING" }] });
+  });
+
+  it("keeps the measured conversation-list envelope as an offline fallback", () => {
+    const result = parseInboxThread(listFixture, {
+      url: target,
+      limit: 20,
+      sessionUrns: ["urn:li:fsd_profile:OPERATOR"],
+    });
+    expect(result.ok).toBe(true);
+    expect(result.messages.map((message) => message.direction)).toEqual(["received", "sent", "received"]);
   });
 });

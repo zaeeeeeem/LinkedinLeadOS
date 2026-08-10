@@ -45,6 +45,19 @@ list envelope or fail-honest exit 5 if the live page uses the already-watched
 `messengerMessages*` operation; in the latter case its archived body becomes the offline parser
 fixture before load 3. Spend at this checkpoint remains 0 of 4 page loads.
 
+Checkpoint 5 / live list gate (1 of 4 page loads): default `inbox.list` run
+`01KZNABFNDM59AQEAEHV5SRTTG` exited 0 with 20 of 20 conversations usable, 1 unread and 3
+textless latest-message rows; the measured scroller was one `ul`, 1,796px over a 626px client.
+Independent archive inspection found one 20-row conversation envelope plus two identical
+`messengerMessagesBySyncToken` bodies, and direct ledger inspection found exactly one
+`page_load` line under `inbox.list`. Two watched responses were missed and reported. The message
+body lifted the expected thread-parser gap without another load: its direct envelope is now the
+primary tested path, with multi-body urn dedupe (D296). The list page itself auto-opened a thread
+pane, so its receipt now acknowledges possible read marking too (D295). Before load 2: the
+operator already accepted this side effect; the gate will use the first conversation whose
+list row reports `unread_count: 0`, minimizing avoidable state change while still treating the
+view as potentially read-marking.
+
 ## In progress — Task 32 `feed.get` (2026-08-10)
 
 Checkpoint 1 (offline, zero LinkedIn contact): the feed surface now exists as a promotion

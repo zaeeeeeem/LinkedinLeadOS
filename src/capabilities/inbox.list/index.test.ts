@@ -58,14 +58,15 @@ describe("inbox.list — composition", () => {
     expect((result.data as any).read.partial).toBe(true);
   });
 
-  it("reports the labeled-body source and does not claim a read-marking side effect for the list", async () => {
+  it("reports the labeled-body source and the list page's possible auto-open read side effect", async () => {
     const result = await createInboxListCapability({ capture: async () => captured() }).run(context());
     expect(result.data).toMatchObject({
       source: "voyager-body",
       storage: { mode: "archive-only" },
-      side_effect: { may_mark_read: false },
+      side_effect: { may_mark_read: true },
       probe: { source_verdict: "voyager-body", labeled_payloads: 1 },
     });
+    expect((result.data as any).side_effect.note).toContain("auto-open a thread");
   });
 
   it("fails as parse drift when no labeled payload can be parsed", async () => {

@@ -1,16 +1,17 @@
 # FIELD-MAP — `inbox.thread`
 
-Measured from the private `messengerConversations` fixture and meaning-checked against the
-committed synthetic copy in `../inbox.list/test-fixtures/`. The live thread gate must confirm
-the same paths when opening one thread; until then this map describes the network body already
-captured on a cold LinkedIn load.
+Measured from the private `messengerMessages` fixture captured by default `inbox.list` run
+`01KZNABFNDM59AQEAEHV5SRTTG` and meaning-checked against the committed synthetic copy under
+`test-fixtures/`. Reusing that run saved a page load before the thread gate.
 
 | field | source | exact path |
 |---|---|---|
-| message rows | voyager body | `$.data.messengerConversationsBySyncToken.elements[].messages.elements[]` |
-| sender urn | voyager body | `$.data.messengerConversationsBySyncToken.elements[].messages.elements[].sender.hostIdentityUrn` |
-| text | voyager body | `$.data.messengerConversationsBySyncToken.elements[].messages.elements[].body.text` |
-| sent_at | voyager body | `$.data.messengerConversationsBySyncToken.elements[].messages.elements[].deliveredAt` |
+| message rows | voyager body | `$.data.messengerMessagesBySyncToken.elements[]` |
+| conversation urn | voyager body | `$.data.messengerMessagesBySyncToken.elements[].conversation.entityUrn` |
+| backend conversation urn | voyager body | `$.data.messengerMessagesBySyncToken.elements[].backendConversationUrn` |
+| sender urn | voyager body | `$.data.messengerMessagesBySyncToken.elements[].sender.hostIdentityUrn` |
+| text | voyager body | `$.data.messengerMessagesBySyncToken.elements[].body.text` |
+| sent_at | voyager body | `$.data.messengerMessagesBySyncToken.elements[].deliveredAt` |
 
 The sender urn is the host identity, not the messaging-participant wrapper urn. It is checked
 against `sessionUrnsOf` output to tag operator-sent versus received messages. No message value

@@ -19,13 +19,12 @@
  */
 import { existsSync, readdirSync, readFileSync, statSync } from "node:fs";
 import { join, resolve } from "node:path";
-import { RawArchive } from "../src/core/archive/raw.js";
 import { domMapOf, familyOf, probesOf, relevanceOf, renderDomMapOf, subjectFor } from "../src/core/fixtures/families.js";
 import type { Family } from "../src/core/fixtures/families.js";
-import { isPrivateEndpoint, promoteFixtures } from "../src/core/fixtures/promote.js";
+import { promoteFixtures } from "../src/core/fixtures/promote.js";
 import { promotePrivateFixtures } from "../src/core/fixtures/promote.js";
 import { isInboxFixtureEndpoint } from "../src/capabilities/inbox.list/patterns.js";
-import { sessionUrnsOf, sessionVanitiesOf } from "../src/capabilities/profile.capture/identity.js";
+import { collectFixtureSessionIdentity } from "../src/core/fixtures/session-identity.js";
 import type { PromoteSubject } from "../src/core/fixtures/promote.js";
 import { defaultRunsDir } from "../src/core/run/paths.js";
 import { repoRoot } from "../src/core/run/root.js";
@@ -104,26 +103,6 @@ function readRunUrl(runsDir: string, runId: string): string | null {
  * Private endpoints are skipped before their bodies are read at all — that
  * exclusion has no override anywhere, and it does not gain one here.
  */
-async function sessionIdentityOf(archiveDir: string): Promise<{ urns: string[]; vanities: string[] }> {
-  const archive = new RawArchive(archiveDir);
-  const urns = new Set<string>();
-  const vanities = new Set<string>();
-  // One body at a time, and never a list of them: a feed run archives dozens of
-  // bodies and each can be a megabyte, so holding them all to answer one
-  // question would make promotion's memory grow with the page.
-  for (const entry of await archive.list()) {
-    if (isPrivateEndpoint(entry.url)) continue;
-    try {
-      const one = [{ url: entry.url, body: await archive.readText(entry) }];
-      for (const urn of sessionUrnsOf(one)) urns.add(urn);
-      for (const vanity of sessionVanitiesOf(one)) vanities.add(vanity);
-    } catch {
-      // An unreadable body here costs a marking, not the promotion.
-    }
-  }
-  return { urns: [...urns], vanities: [...vanities] };
-}
-
 function usage(message: string): never {
   process.stderr.write(`${message}\n\n`);
   process.stderr.write(
@@ -200,7 +179,10 @@ async function main(): Promise<void> {
     o.capability,
   );
   const subject = subjectOf(o.runsDir, runId, o.subject, family);
-  const { urns: sessionUrns, vanities: sessionVanities } = await sessionIdentityOf(archiveDir);
+  const { urns: sessionUrns, vanities: sessionVanities } = await collectFixtureSessionIdentity(
+    archiveDir,
+    family === "inbox" ? { eligiblePrivateEndpoint: isInboxFixtureEndpoint } : {},
+  );
   const probes = probesOf(family);
 
   const common = {

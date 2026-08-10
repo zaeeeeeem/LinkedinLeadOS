@@ -3,6 +3,10 @@
 Reads a bounded prefix of the operator's LinkedIn conversation list from one metered page
 load. It is read-only: no send, react, archive or mark action exists in the capability.
 
+**LinkedIn may auto-open a thread on `/messaging/` and mark it read.** The first live list run
+fetched `messengerMessages` twice without an explicit thread click (D295), so every successful
+receipt states this possible side effect.
+
 ```sh
 npm run cap -- inbox.list
 npm run cap -- inbox.list --limit=40

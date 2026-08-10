@@ -5,6 +5,10 @@ import type { InboxCaptureResult } from "../inbox.list/capture.js";
 import { createInboxThreadCapability } from "./index.js";
 
 const fixture = readFileSync(
+  join(import.meta.dirname, "test-fixtures", "messenger-messages.synthetic.json"),
+  "utf8",
+);
+const listFixture = readFileSync(
   join(import.meta.dirname, "..", "inbox.list", "test-fixtures", "messenger-conversations.synthetic.json"),
   "utf8",
 );
@@ -70,6 +74,27 @@ describe("inbox.thread — composition", () => {
       probe: { source_verdict: "voyager-body" },
     });
     expect((result.data as any).side_effect.note).toContain("may mark it read");
+  });
+
+  it("merges list and message envelopes and deduplicates by message urn", async () => {
+    const ctx = context();
+    ctx.browser.archive.readText.mockImplementation(async (file: string) =>
+      file.includes("list") ? listFixture : fixture,
+    );
+    const result = await createInboxThreadCapability({
+      capture: async () => captured([
+        { file: "list.gz", bytes: listFixture.length },
+        { file: "messages-a.gz", bytes: fixture.length },
+        { file: "messages-duplicate.gz", bytes: fixture.length },
+      ]),
+    }).run(ctx);
+    expect((result.data as any).messages).toHaveLength(3);
+    expect((result.data as any).messages.map((message: any) => message.urn)).toEqual([
+      "urn:li:msg_message:synthetic-2",
+      "urn:li:msg_message:synthetic-1",
+      "urn:li:msg_message:synthetic-empty",
+    ]);
+    expect(result.counts!.captured).toBe(3);
   });
 
   it("refuses a non-thread URL before capture or budget work", async () => {

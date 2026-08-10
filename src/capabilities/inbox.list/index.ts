@@ -87,7 +87,10 @@ export function createInboxListCapability(deps: InboxListDeps = defaultDeps) {
             unread: row.unread,
           })),
           storage: { mode: "archive-only" },
-          side_effect: { may_mark_read: false },
+          side_effect: {
+            may_mark_read: true,
+            note: "LinkedIn may auto-open a thread on /messaging/ and mark it read; no send, react, archive or mark action was performed.",
+          },
           probe: {
             labeled_payloads: captured.payloads.length,
             source_verdict: "voyager-body",

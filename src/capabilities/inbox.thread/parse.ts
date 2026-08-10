@@ -35,31 +35,74 @@ function epochIso(value: unknown): string | null {
   return Number.isNaN(date.valueOf()) ? null : date.toISOString();
 }
 
+function targetBackendUrn(url: string): string | null {
+  const absolute = absoluteInboxHref(url);
+  if (absolute === null) return null;
+  try {
+    const segments = new URL(absolute).pathname.split("/").filter(Boolean);
+    const token = segments[2];
+    return token === undefined || token === "" ? null : `urn:li:messagingThread:${decodeURIComponent(token)}`;
+  } catch {
+    return null;
+  }
+}
+
+function directMessagesOf(body: string, backendUrn: string): { rows: JsonObject[]; conversationUrn: string | null } | null {
+  let root: unknown;
+  try { root = JSON.parse(body); } catch { return null; }
+  const data = record(record(root)?.["data"]);
+  const envelope = record(data?.["messengerMessagesBySyncToken"]);
+  const elements = envelope?.["elements"];
+  if (!Array.isArray(elements)) return null;
+  const all = elements.map(record).filter((row): row is JsonObject => row !== null);
+  const rows = all.filter((row) => stringOf(row["backendConversationUrn"]) === backendUrn);
+  if (all.length > 0 && rows.length === 0) return { rows: [], conversationUrn: null };
+  const urns = new Set(
+    rows.map((row) => stringOf(record(row["conversation"])?.["entityUrn"]))
+      .filter((urn): urn is string => urn !== null),
+  );
+  return { rows, conversationUrn: urns.size === 1 ? [...urns][0]! : null };
+}
+
 export function parseInboxThread(
   body: string,
   options: { url: string; limit: number; sessionUrns?: readonly string[] },
 ): ParseInboxThreadResult {
-  const rows = conversationRowsOf(body);
   const target = absoluteInboxHref(options.url);
-  if (rows === null || target === null) {
+  const backendUrn = targetBackendUrn(options.url);
+  if (target === null || backendUrn === null) {
     return {
       ok: false, conversation_urn: null, messages: [], examined: 0,
       warnings: [{ code: "INBOX_THREAD_ENVELOPE_MISSING", n: 1, field: "thread envelope or target missing" }],
     };
   }
-  const row = rows.find((candidate) => absoluteInboxHref(candidate["conversationUrl"]) === target)
-    ?? (rows.length === 1 ? rows[0]! : null);
-  if (row === null) {
+  const direct = directMessagesOf(body, backendUrn);
+  const conversations = direct === null ? conversationRowsOf(body) : null;
+  const row = conversations?.find((candidate) => absoluteInboxHref(candidate["conversationUrl"]) === target)
+    ?? (conversations?.length === 1 ? conversations[0]! : null);
+  if (direct === null && conversations === null) {
     return {
-      ok: false, conversation_urn: null, messages: [], examined: rows.length,
+      ok: false, conversation_urn: null, messages: [], examined: 0,
+      warnings: [{ code: "INBOX_THREAD_ENVELOPE_MISSING", n: 1, field: "thread envelope missing" }],
+    };
+  }
+  if (direct !== null && direct.rows.length === 0) {
+    return {
+      ok: false, conversation_urn: null, messages: [], examined: 0,
+      warnings: [{ code: "INBOX_THREAD_TARGET_MISSING", n: 1, field: "captured body did not name the requested thread" }],
+    };
+  }
+  if (direct === null && row === null) {
+    return {
+      ok: false, conversation_urn: null, messages: [], examined: conversations?.length ?? 0,
       warnings: [{ code: "INBOX_THREAD_TARGET_MISSING", n: 1, field: "captured body did not name the requested thread" }],
     };
   }
   const session = new Set(options.sessionUrns ?? []);
-  const collection = record(row["messages"]);
-  const rawMessages = Array.isArray(collection?.["elements"])
+  const collection = row === null ? null : record(row["messages"]);
+  const rawMessages = direct?.rows ?? (Array.isArray(collection?.["elements"])
     ? (collection!["elements"] as unknown[]).map(record).filter((m): m is JsonObject => m !== null)
-    : [];
+    : []);
   const wanted = Math.max(0, Math.min(options.limit, 100));
   const warnings: InboxParseWarning[] = [];
   let noText = 0;
@@ -95,7 +138,7 @@ export function parseInboxThread(
   });
   return {
     ok: true,
-    conversation_urn: stringOf(row["entityUrn"]),
+    conversation_urn: direct?.conversationUrn ?? (row === null ? null : stringOf(row["entityUrn"])),
     messages,
     examined,
     warnings,

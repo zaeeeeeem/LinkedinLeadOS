@@ -4106,3 +4106,29 @@ Queryable history does not outweigh duplicating private correspondence into a se
 that would then require retention, access, dedupe and deletion policy. Revisit only if a
 downstream capability actually needs structured message-history queries, and only through a
 new decision that supersedes this one.
+
+## D295 — The conversation-list page can auto-open a thread, so its receipt carries the read warning too (2026-08-10)
+
+Default `inbox.list` run `01KZNABFNDM59AQEAEHV5SRTTG` navigated only to `/messaging/` and
+performed no click, but captured the same `messengerMessages` response twice alongside the
+20-row conversation envelope. LinkedIn renders a thread pane as part of the list page; viewing
+that pane can have the same read-marking side effect as an explicit thread URL.
+
+`inbox.list` therefore reports `side_effect.may_mark_read: true` with the same no-action
+qualification as `inbox.thread`. Rejected: keeping it false because the toolkit did not click a
+thread. The boundary is the LinkedIn effect the operator experiences, not which navigation
+spelling caused it.
+
+## D296 — Thread parsing uses `messengerMessagesBySyncToken` and merges pages by real message urn (2026-08-10)
+
+The first live list load archived the thread operation before a thread load was spent:
+`messengerMessages.<hash>`, 7,484 bytes, with one row at
+`$.data.messengerMessagesBySyncToken.elements[]`. Sender, text, sent time, frontend conversation
+urn and backend conversation urn all have labeled paths in that row. The committed thread
+FIELD-MAP and synthetic fixture now pin those paths; the earlier conversation-list envelope
+remains a tested fallback.
+
+One navigation can capture the list's latest-message row and several message pages, including
+duplicate responses. `inbox.thread` merges every successfully parsed body and deduplicates only
+rows with the same non-null message urn. Identity-less rows are retained rather than collapsed
+by a composite guess.
