@@ -17,7 +17,30 @@ table absent from this project's §7 schema, used a foreign naming convention, a
 have broken `db reset`. It landed here by accident (another project's CRM migration) and
 was deleted 2026-08-10.
 
-## Blocked — Task 34 `post.get` author resolution (2026-08-10)
+## Complete — Task 34 `post.get` author resolution, live-verified on Ember (2026-08-10)
+
+**Gate passed, default flags, 1 page load.** Run `01KZP19KXT6PJK9PSXC4SNW038`, exit 0,
+`renderer: "ember"` — the first live proof of both D340's fallback and D330–D333's author
+resolution, neither of which had ever run against a real page.
+
+Verified independently of the receipt:
+
+- **The row.** `select * from person_posts where urn = 'urn:li:activity:7491197577439141888'`
+  returns one row whose `person_urn` is `urn:li:fsd_profile:ACoAABJLCOABl3WHDMGiReUZpWQ432xXbddzpUA`
+  — the urn Task 27's gate stored for `tankots`, resolved here from the store by vanity and never
+  from the page (D330). 1,091 characters of text, `posted_at` from the snowflake,
+  reactions 1052 / comments 74.
+- **`first_seen` held, `last_seen` bumped.** `first_seen` stays 01:31:29, written by
+  `profile.posts` this morning; `last_seen` moves to 14:30:45. D102's "a re-scrape cannot reset
+  first_seen" holds across two different capabilities writing the same row.
+- **The spend.** Exactly one `page_load` line under `post.get` for this run id.
+- **The renderer.** The archived snapshot has 0 `data-testid` attributes and carries
+  `theme--mercado`, so the Ember path is what actually ran — not inferred from the receipt field.
+
+Task 34 is closed. D334 remains the only open question on this capability, and it is now a
+question about the *SDUI* company page only.
+
+## Was blocked — Task 34 `post.get` author resolution (2026-08-10)
 
 **Offline half done and merged; live gate run and blocked by renderer drift (D337).** `post.get` no longer stores nothing: the author
 vanity is resolved to a urn through `findPersonByVanity` and one row goes into `person_posts`
