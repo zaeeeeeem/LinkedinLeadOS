@@ -4042,3 +4042,156 @@ fixture cannot close on its own.
 `--limit`, but reported "N of {every card on the page}". `--limit=2` on an 8-card feed implied six
 checks that never ran. Both now cite `examined`, which is also on the receipt as
 `read.cards_examined` beside `read.cards_rendered`.
+## D290 — Private promotion is a separate operation, not a shared-promoter switch (2026-08-10)
+
+Task 33 adds `promotePrivateFixtures`, with a required per-surface endpoint predicate and no
+`all` option. The existing `promoteFixtures` entry point still refuses every D118 private
+endpoint before reading its body, including with `all: true`; a regression test runs both
+operations over the same archive and pins that separation.
+
+The CLI derives the destination from the capability family: `inbox.*` writes only under the
+repo-root `.fixtures-private/<capability>/`, and rejects `--fixtures-dir`. This makes the
+privacy choice a reviewed capability property rather than an invocation flag somebody can
+mistype. The private operation also refuses every endpoint outside the family's explicit
+boundary, so choosing a private destination does not mean promoting all private rails.
+
+Rejected: adding `--allow-private` to shared promotion. That would make D118's denial one flag
+away from failure again, which is exactly the state D327 says remains unchanged.
+
+## D291 — Inbox parsing starts from the labeled conversation body, and receipts redact text (2026-08-10)
+
+The real `messengerConversations` body already archived by run
+`01KZH9VVPKB5JEVEBW7G2JJ6F3` contains 20 conversation rows. All 20 examined rows have two
+participants, one latest-message record, an absolute `deliveredAt`, a sender host-identity urn,
+message text and unread state. The exact paths are pinned by the two committed FIELD-MAPs and a
+synthetic fixture; the real body stays under `.fixtures-private/`.
+
+That labeled Voyager body therefore wins over D326's DOM fallback. The parsers inspect text only
+to measure its length, return `text_chars` rather than the value, and event logs receive counts
+only. A composition test serializes both the parser/capability result and every log call and
+asserts that none of three synthetic message values appears.
+
+Rejected: returning the snippet for `inbox.list` because it is a list field. D326's stronger
+privacy condition says message text never reaches stdout, and a receipt is stdout.
+
+## D292 — Each inbox reader is capped at 12 page loads per day (2026-08-10)
+
+`inbox.list` and `inbox.thread` each spend exactly one page load and zero search pages/profile
+opens. Each gets a daily 12/0/0 capability sub-cap, low enough that accidental polling stops at
+the ledger while leaving room for supervised use. The task's four-load live budget is tighter
+and remains a manual task limit; it is not widened by these daily ceilings.
+
+Rejected: one shared 24-load capability name. The ledger keys by the running capability, so a
+shared name would require hiding which reader spent the load or changing a cross-task ledger
+interface.
+
+## D293 — Bounded inbox reads report partial until the source proves completion (2026-08-10)
+
+The conversation envelope carries `newSyncToken`; it does not carry a total or an end-of-list
+flag. The measured message collection likewise has no field proving that the beginning of the
+thread was reached. Both readers therefore report `data.read.partial: true` on every run, even
+when the returned row count is below `--limit`.
+
+Rejected: treating `rows < limit` as complete. A server-sized 20-row response under a 50-row
+client limit would then claim the rest of the inbox or thread does not exist, when the only
+measured fact is that the response stopped.
+
+## D294 — Inbox storage is archive-only, with no messaging tables (2026-08-10)
+
+**Decided by the operator on 2026-08-10: archive-only, no Supabase.** The question is closed,
+not deferred. `inbox.list` and `inbox.thread` report `data.storage.mode: "archive-only"`; the
+raw body in the run archive is the record.
+
+Queryable history does not outweigh duplicating private correspondence into a second system
+that would then require retention, access, dedupe and deletion policy. Revisit only if a
+downstream capability actually needs structured message-history queries, and only through a
+new decision that supersedes this one.
+
+## D295 — The conversation-list page can auto-open a thread, so its receipt carries the read warning too (2026-08-10)
+
+Default `inbox.list` run `01KZNABFNDM59AQEAEHV5SRTTG` navigated only to `/messaging/` and
+performed no click, but captured the same `messengerMessages` response twice alongside the
+20-row conversation envelope. LinkedIn renders a thread pane as part of the list page; viewing
+that pane can have the same read-marking side effect as an explicit thread URL.
+
+`inbox.list` therefore reports `side_effect.may_mark_read: true` with the same no-action
+qualification as `inbox.thread`. Rejected: keeping it false because the toolkit did not click a
+thread. The boundary is the LinkedIn effect the operator experiences, not which navigation
+spelling caused it.
+
+## D296 — Thread parsing uses `messengerMessagesBySyncToken` and merges pages by real message urn (2026-08-10)
+
+The first live list load archived the thread operation before a thread load was spent:
+`messengerMessages.<hash>`, 7,484 bytes, with one row at
+`$.data.messengerMessagesBySyncToken.elements[]`. Sender, text, sent time, frontend conversation
+urn and backend conversation urn all have labeled paths in that row. The committed thread
+FIELD-MAP and synthetic fixture now pin those paths; the earlier conversation-list envelope
+remains a tested fallback.
+
+One navigation can capture the list's latest-message row and several message pages, including
+duplicate responses. `inbox.thread` merges every successfully parsed body and deduplicates only
+rows with the same non-null message urn. Identity-less rows are retained rather than collapsed
+by a composite guess.
+
+## D297 — The live inbox gate is satisfied by archive-verified counts, with two loads left unspent (2026-08-10)
+
+The default live gate completed in the approved order. `inbox.list` run
+`01KZNABFNDM59AQEAEHV5SRTTG` returned 20 usable conversations; direct archive inspection counted
+the same 20 rows. After acknowledging that the view may mark a conversation read,
+`inbox.thread` run `01KZNATNDEC8SX22CX2T81M4Z3` returned one usable message through the direct
+`messengerMessagesBySyncToken` parser. Its two captured message bodies were duplicates: direct
+archive inspection found one unique message urn, and direct ledger inspection found one page
+load for each capability run.
+
+The thread message's exact text value occurs zero times in the run receipt and event log. Both
+reads remain unconditionally `partial: true`, and both archives remain private and archive-only.
+The gate spent 2 of its maximum 4 page loads; no confirmation load is justified after the
+default thread read exited 0, so the remaining two stay unspent.
+
+## D298 — The scroller is chosen by name where a page has more than one (2026-08-10)
+
+**Decision.** `readLikeAHuman` accepts `preferScroller`, an ordered list of CSS selectors
+naming the box to read. The first that resolves to a genuinely-scrollable element wins; the
+tallest-element rule (D115) decides only when none matches, and a fall back to it is reported
+as `SCROLLER_SELECTOR_UNMATCHED` rather than passing silently. The chosen element's
+`getBoundingClientRect` is now measured, and the wheel is aimed inside that rect instead of at
+a fraction of the window.
+
+`inbox.list` reads `.msg-conversations-container__conversations-list`; `inbox.thread` reads
+`.msg-s-message-list-container`, then `.msg-s-message-list-content`. Both were measured from
+the archived DOM snapshot of run `01KZNFTXE2D1530BHYAFEGH7HV`, offline, at no page-load cost.
+They are LinkedIn's semantic BEM class names, not the per-build content-hashed kind D128 warns
+against.
+
+**Why.** D115 measured one page, and every surface since has had exactly one scroller, so
+"tallest wins" was never wrong until `/messaging/`. There the conversation rail (20 rows,
+`scrollHeight 1888`) is taller than the message pane, so both inbox reads scrolled the rail.
+`inbox.list` wanted the rail and was accidentally right. `inbox.thread` did not, and the
+2026-08-10 gate returned **1 message** with `layout.settled: true`, no warning, and a receipt
+that looked healthy — the scroll passes had paged the wrong box.
+
+The rect matters as much as the selector. A wheel event is delivered to whatever sits under
+the pointer, and the old placement drew `x` from `0.3–0.7 × window width`; on a 2000px window
+the low end is 600px, left of a message pane that starts at 620px. Measuring one box and
+scrolling another is the same defect wearing different clothes.
+
+**Cost.** `preferScroller` is opt-in and the no-preference expression is byte-identical to the
+old one, so profile, job, activity and feed reads are unchanged. The rect fallback keeps the
+old placement for any page or test double without one.
+
+## D299 — Correspondent names stay in the archive, like message text (2026-08-10)
+
+**Decision.** `inbox.list` emits `urn` and `is_operator` per participant. The display name is
+not on the receipt. It remains in the archived body, reachable offline, exactly as message
+text is under D326's grant.
+
+**Why.** The 2026-08-10 live run printed 20 real people's full names and profile urns to
+stdout, a log and a session transcript. Message text was correctly withheld, so the rule that
+was written held — and the rule was too narrow. A receipt naming who someone corresponds with,
+when, and how often identifies a real person as surely as the message body does, and the
+inbox's whole justification for archive-only storage (D294) is that this correspondence is
+private. Withholding the text while publishing the counterparty was an inconsistency, not a
+balance.
+
+A test pins it: the parsed receipt is serialized and asserted to contain none of the fixture's
+participant names, the same shape as the existing message-text leak test.

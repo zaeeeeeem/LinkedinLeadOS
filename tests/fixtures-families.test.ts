@@ -44,6 +44,29 @@ describe("familyOf", () => {
     // assume one person's page.
     expect(familyOf("profile.activity")).toBe("activity");
   });
+
+  it("routes both inbox capabilities to the private inbox family", () => {
+    expect(familyOf("inbox.list")).toBe("inbox");
+    expect(familyOf("inbox.thread")).toBe("inbox");
+    expect(subjectFor("inbox", "https://www.linkedin.com/messaging/")).toBeNull();
+    expect(probesOf("inbox")?.map((p) => p.name)).toEqual(expect.arrayContaining([
+      "participants", "last_message_snippet", "unread", "sender", "message_text", "sent_at",
+    ]));
+  });
+
+  it("maps an inbox snapshot as content-free anchor counts, not profile fields", () => {
+    const html = '<main role="main"><div data-testid="messaging-list"><a componentkey="row" href="/messaging/thread/synthetic/">private text</a></div></main>';
+    const map = domMapOf("inbox", html);
+    expect(map).toEqual({
+      nodes: 6,
+      textChars: 12,
+      anchors: { dataTestId: 1, componentKey: 1, role: 1, messagingThreadHref: 1 },
+    });
+    const rendered = renderDomMapOf("inbox", { file: "snapshot.html", bytes: html.length, sourceRun: "RUN", map });
+    expect(rendered).toContain("rendered DOM snapshot (inbox probe)");
+    expect(rendered).not.toContain("private text");
+    expect(rendered).toContain("labeled Voyager body wins");
+  });
 });
 
 describe("the feed family", () => {

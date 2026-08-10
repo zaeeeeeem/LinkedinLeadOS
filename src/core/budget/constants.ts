@@ -138,6 +138,11 @@ export const CAPABILITY_SUB_CAPS: Readonly<Record<string, CapabilitySubCaps>> = 
   // under the fallback's 150 because a feed is re-read, not enumerated: a
   // reader that wanted 60 loads of one page in a day is a loop, not a read.
   "feed.get": { pageLoadsPerDay: 24, searchPagesPerDay: 0, distinctProfilesPerDay: 0 },
+  // The operator's inbox is one page per invocation and never a search or a
+  // profile open. The low daily ceilings make a polling loop fail at the
+  // ledger; no invocation flag can raise them.
+  "inbox.list": { pageLoadsPerDay: 12, searchPagesPerDay: 0, distinctProfilesPerDay: 0 },
+  "inbox.thread": { pageLoadsPerDay: 12, searchPagesPerDay: 0, distinctProfilesPerDay: 0 },
   // The job probe, same reasoning: listed rather than left to the reader
   // fallback, and zero profile opens because it never opens a person.
   "job.capture": { pageLoadsPerDay: 12, searchPagesPerDay: 0, distinctProfilesPerDay: 0 },

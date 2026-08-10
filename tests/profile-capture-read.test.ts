@@ -471,6 +471,10 @@ describe("VIEWPORT_EXPRESSION, executed as real javascript", () => {
     expect(measured["scroller"]).toEqual({
       tag: "main", id: "workspace", role: null, componentkey: null,
       scrollHeight: 7348, clientHeight: 746,
+      // This double has no `getBoundingClientRect`, so the rect is honestly
+      // absent rather than invented; `matchedSelector` is null because nothing
+      // was preferred and the tallest-element rule chose it (D298).
+      rect: null, matchedSelector: null,
     });
     expect(measured["scrollerCandidates"]).toBe(1);
   });

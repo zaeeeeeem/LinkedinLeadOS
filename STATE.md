@@ -1,5 +1,106 @@
 # STATE
 
+## Checkpoint 7 — Task 33 review fixes, live-verified (2026-08-10)
+
+Two defects found by reviewing the first live gate, both fixed and both re-run live. All 4
+inbox page loads are now spent; the ledger shows two `inbox.list` and two `inbox.thread`.
+
+**The wrong box was being scrolled (D298).** `/messaging/` is the first surface with two
+scrollers side by side, and the tallest-element rule picked the conversation rail for both
+readers. `inbox.list` wanted the rail and was right by luck; `inbox.thread` wanted the message
+pane and paged the rail, returning 1 message with a settled layout and no warning. The scroller
+can now be named by selector, the wheel is aimed inside the chosen element's rect, and falling
+back to the tallest element raises `SCROLLER_SELECTOR_UNMATCHED`. Both selectors were read
+offline from an archived snapshot, for zero page loads.
+
+**Correspondent names were on the receipt (D299).** The 2026-08-10 `inbox.list` run printed 20
+real names and profile urns to stdout. Participants are now urn plus operator flag only, pinned
+by the same leak test message text has.
+
+Live re-runs. `inbox.list` `01KZNFTXE2D1530BHYAFEGH7HV` exit 0, 20 conversations, 1 unread —
+this run predates the name fix and did print names. `inbox.thread`
+`01KZNH277M33767P4VEGGFM4E6` exit 0, and it is the first run to exercise
+`direction: "received"` (sent 0, received 1). It also raised the new
+`SCROLLER_SELECTOR_UNMATCHED` warning: the message pane is present in the DOM but had one
+message and nothing to scroll, so the scrollable test correctly rejected it and said so.
+
+One `CDP_PROTOCOL_ERROR` (exit 6, `Storage.getCookies` — "Browser context management is not
+supported") on a first attempt, 0 page loads spent; the retry succeeded. Not investigated.
+
+**Still unproven live, and the budget is now exhausted:** a multi-message thread, and therefore
+the preferred pane selector actually being chosen and paged. Neither can be silently wrong —
+an unmatched selector warns, and a bounded read always reports `partial: true`.
+
+## Complete — Task 33 `inbox.list` + `inbox.thread` (2026-08-10)
+
+Checkpoint 1 (offline, zero LinkedIn contact): private fixture promotion now has a separate
+`promotePrivateFixtures` entry point with a required endpoint boundary and no `all` option;
+shared promotion still refuses the same D118 endpoints. `inbox.*` is routed automatically to
+repo-root `.fixtures-private/` and cannot take `--fixtures-dir` (D290). The inbox family has
+URL-aware payload classification plus field probes for participants, latest-message preview,
+timestamp, unread state, sender, text and sent time. Replaying real run
+`01KZH9VVPKB5JEVEBW7G2JJ6F3` promoted one 339,617-byte `messengerConversations` body privately
+and skipped 23 out-of-bound bodies; this spent 0 page loads and put the first real inbox fixture
+on disk, lifting D152 for the network parser. Focused verification: 46 tests pass; typecheck
+clean. Next: meaning-check the measured paths, create the redacted committed fixture, then TDD
+the pure parsers and capture composition. The operator-supervised messaging page load remains
+unspent.
+
+Checkpoint 2 (offline, zero LinkedIn contact): both pure parsers, tested FIELD-MAPs and the
+committed synthetic fixture now exist. The measured Voyager envelope supplies all required
+fields, so it wins over the DOM fallback (D291). `inbox.list` returns bounded conversation
+summaries with text lengths; `inbox.thread` tags sender direction through the supplied session
+urn set and emits textless messages with a counted warning. Both compositions parse archived
+bytes, expose counts/metadata only, state archive-only-pending-decision, and carry 12/0/0 ledger
+sub-caps (D292). The thread receipt explicitly says opening it may mark it read. Focused
+verification: 70 tests pass; typecheck clean. Next: capture-layer failure-path tests, registry
+reachability, full suite/review, then stop for operator approval before any messaging page load.
+
+Checkpoint 3 / offline gate complete (zero LinkedIn contact): the four review shapes were
+walked. Navigation/read failures drain the tap and release every watch; lower-layer classified
+errors pass through; every receipt/privacy/bound claim has a named test; the real capture
+implementation satisfies both injected dependency contracts at typecheck. Review tightened
+the private endpoint predicate, made both bounded reads explicitly partial (D293), capped group
+participants at 20, normalized tracking queries off thread hrefs, and changed both parser return
+types to carry text lengths rather than text. Inbox DOM promotion now emits content-free anchor
+counts instead of falling through to the profile mapper. Full suite: **1,394 passed across 90
+files**; typecheck and `git diff --check` clean. Task spend remains **0 of 4 page loads**. Next:
+stop for operator approval, then run default `inbox.list` and one `inbox.thread`, acknowledging
+that the latter may mark the thread read, and verify counts directly from archives/ledger.
+
+Checkpoint 4 / operator approval (before live contact): archive-only storage is settled and
+recorded in D294; there will be no messaging migration or BACKLOG deferral. The operator
+approved the default-flags live gate in list-then-thread order and explicitly accepted that
+opening the chosen thread may mark it read. Expected thread outcome is either exit 0 on the
+list envelope or fail-honest exit 5 if the live page uses the already-watched
+`messengerMessages*` operation; in the latter case its archived body becomes the offline parser
+fixture before load 3. Spend at this checkpoint remains 0 of 4 page loads.
+
+Checkpoint 5 / live list gate (1 of 4 page loads): default `inbox.list` run
+`01KZNABFNDM59AQEAEHV5SRTTG` exited 0 with 20 of 20 conversations usable, 1 unread and 3
+textless latest-message rows; the measured scroller was one `ul`, 1,796px over a 626px client.
+Independent archive inspection found one 20-row conversation envelope plus two identical
+`messengerMessagesBySyncToken` bodies, and direct ledger inspection found exactly one
+`page_load` line under `inbox.list`. Two watched responses were missed and reported. The message
+body lifted the expected thread-parser gap without another load: its direct envelope is now the
+primary tested path, with multi-body urn dedupe (D296). The list page itself auto-opened a thread
+pane, so its receipt now acknowledges possible read marking too (D295). Before load 2: the
+operator already accepted this side effect; the gate will use the first conversation whose
+list row reports `unread_count: 0`, minimizing avoidable state change while still treating the
+view as potentially read-marking.
+
+Checkpoint 6 / live thread gate complete (2 of 4 page loads): after the read-marking effect was
+acknowledged, default `inbox.thread` run `01KZNATNDEC8SX22CX2T81M4Z3` exited 0 on that already-read
+conversation. It emitted 1 of 1 usable message, tagged sent, with `text_chars: 121`,
+`partial: true`, archive-only storage and no message text. Independent archive inspection found
+two duplicate `messengerMessagesBySyncToken` bodies containing one unique message urn and no
+textless rows; exact-value containment testing found zero message values in `summary.json` or
+`events.ndjson`. Direct ledger inspection found exactly one `page_load` line under
+`inbox.thread`. Private promotion recognized the measured shapes and two session urns, adding no
+duplicate fixture and spending no load. Both default live gates are therefore complete with
+**2 of 4 page loads spent and 2 spare** (D297). Full suite and typecheck are green at task close.
+The final suite result is **1,397 passed across 91 files**.
+
 ## In progress — Task 32 `feed.get` (2026-08-10)
 
 Checkpoint 1 (offline, zero LinkedIn contact): the feed surface now exists as a promotion

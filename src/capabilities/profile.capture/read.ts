@@ -46,6 +46,20 @@ export type ScrollerDescriptor = {
   componentkey: string | null;
   scrollHeight: number;
   clientHeight: number;
+  /**
+   * Where the element sits in the viewport. A wheel event is delivered to
+   * whatever is under the pointer, not to whatever we measured, so a page with
+   * two scrollers side by side needs the rect to aim at the one it chose. See
+   * D298: on `/messaging/` the conversation rail and the message pane are
+   * siblings, and a pointer placed by viewport fraction hits either.
+   *
+   * Optional so a caller or test double from before this existed still
+   * satisfies `ScrollerDescriptor`.
+   */
+  rect?: { x: number; y: number; width: number; height: number } | null;
+  /** Which entry of `preferScroller` matched, `null` when none did and the
+   *  tallest-element rule chose it. */
+  matchedSelector?: string | null;
 };
 
 /**
@@ -162,27 +176,72 @@ export type ReadResult = {
  *
  * `null` when the document itself is the scroller.
  */
-export const SCROLLER_SELECTION_JS = `(function () {
+/**
+ * Whether one element is the kind of thing that scrolls. Shared so the
+ * preference pass and the fallback pass cannot drift into two answers.
+ */
+const SCROLLABLE_TEST_JS = `function (el) {
+    if (!el || el.clientHeight < 200) return false;
+    if (el.scrollHeight <= el.clientHeight + 50) return false;
+    var oy = getComputedStyle(el).overflowY;
+    return oy === 'auto' || oy === 'scroll' || oy === 'overlay';
+  }`;
+
+/**
+ * Builds the selection function for a given preference list.
+ *
+ * `prefer` is an ordered list of CSS selectors naming the box the caller
+ * actually means. The first one that resolves to a genuinely-scrollable
+ * element wins; if none does, the tallest-element rule below decides exactly
+ * as it always has.
+ *
+ * A preference exists because "tallest" is a heuristic that was only ever
+ * measured on pages with one scroller. `/messaging/` has two: the conversation
+ * rail (20 rows, `scrollHeight 1888`) and the message pane. Tallest picks the
+ * rail, so a thread read scrolled the wrong box and returned one message with
+ * no warning — the layout settled, the page was tall, nothing looked wrong.
+ * See D298.
+ */
+export function scrollerSelectionJs(prefer: readonly string[] = []): string {
+  return `(function () {
+  var isScrollable = ${SCROLLABLE_TEST_JS};
+  var prefer = ${JSON.stringify([...prefer])};
+  for (var p = 0; p < prefer.length; p++) {
+    var nodes;
+    try { nodes = document.querySelectorAll(prefer[p]); } catch (e) { continue; }
+    for (var n = 0; n < nodes.length; n++) {
+      if (isScrollable(nodes[n])) {
+        try { nodes[n].__preferredBy = prefer[p]; } catch (e) {}
+        return nodes[n];
+      }
+    }
+  }
   var best = null;
   var els = document.querySelectorAll('*');
   for (var i = 0; i < els.length; i++) {
-    var el = els[i];
-    if (el.clientHeight < 200) continue;
-    if (el.scrollHeight <= el.clientHeight + 50) continue;
-    var oy = getComputedStyle(el).overflowY;
-    if (oy !== 'auto' && oy !== 'scroll' && oy !== 'overlay') continue;
-    if (best === null || el.scrollHeight > best.scrollHeight) best = el;
+    if (!isScrollable(els[i])) continue;
+    if (best === null || els[i].scrollHeight > best.scrollHeight) best = els[i];
   }
   return best;
 })`;
+}
 
-export const VIEWPORT_EXPRESSION = `(() => {
+/** The no-preference form, unchanged for every surface with one scroller. */
+export const SCROLLER_SELECTION_JS = scrollerSelectionJs();
+
+export function viewportExpression(prefer: readonly string[] = []): string {
+  return `(() => {
   try {
     var MAX = ${MAX_SCROLLER_CANDIDATES};
     var attr = function (el, name) {
       try { return el.getAttribute ? el.getAttribute(name) : null; } catch (e) { return null; }
     };
     var describe = function (el) {
+      var r = null;
+      try {
+        var box = el.getBoundingClientRect();
+        r = { x: box.left, y: box.top, width: box.width, height: box.height };
+      } catch (e) { r = null; }
       return {
         tag: (el.tagName || '').toLowerCase(),
         id: attr(el, 'id') || null,
@@ -190,18 +249,16 @@ export const VIEWPORT_EXPRESSION = `(() => {
         componentkey: attr(el, 'componentkey') || null,
         scrollHeight: el.scrollHeight,
         clientHeight: el.clientHeight,
+        rect: r,
+        matchedSelector: el.__preferredBy || null,
       };
     };
-    var best = ${SCROLLER_SELECTION_JS}();
+    var best = ${scrollerSelectionJs(prefer)}();
+    var isScrollable = ${SCROLLABLE_TEST_JS};
     var found = [];
     var els = document.querySelectorAll('*');
     for (var i = 0; i < els.length; i++) {
-      var el = els[i];
-      if (el.clientHeight < 200) continue;
-      if (el.scrollHeight <= el.clientHeight + 50) continue;
-      var oy = getComputedStyle(el).overflowY;
-      if (oy !== 'auto' && oy !== 'scroll' && oy !== 'overlay') continue;
-      found.push(el);
+      if (isScrollable(els[i])) found.push(els[i]);
     }
     found.sort(function (a, b) { return b.scrollHeight - a.scrollHeight; });
     var described = [];
@@ -222,6 +279,10 @@ export const VIEWPORT_EXPRESSION = `(() => {
     };
   } catch (e) { return null; }
 })()`;
+}
+
+/** The no-preference form, unchanged for every surface with one scroller. */
+export const VIEWPORT_EXPRESSION = viewportExpression();
 
 /**
  * How much of the page is still an unfilled placeholder.
@@ -355,9 +416,14 @@ function isViewport(v: unknown): v is Viewport {
  * navigation the execution context is torn down and rebuilt, and that means
  * "not yet", never "broken".
  */
-export async function measureViewport(tab: ReadTab): Promise<Viewport | null> {
+export async function measureViewport(
+  tab: ReadTab,
+  prefer: readonly string[] = [],
+): Promise<Viewport | null> {
   try {
-    const probe = await tab.evaluate<unknown>(VIEWPORT_EXPRESSION);
+    const probe = await tab.evaluate<unknown>(
+      prefer.length === 0 ? VIEWPORT_EXPRESSION : viewportExpression(prefer),
+    );
     return isViewport(probe) ? probe : null;
   } catch {
     return null;
@@ -366,7 +432,12 @@ export async function measureViewport(tab: ReadTab): Promise<Viewport | null> {
 
 export async function waitForLayout(
   tab: ReadTab,
-  o: { timeoutMs?: number; pollMs?: number; sleep?: (ms: number) => Promise<void> } = {},
+  o: {
+    timeoutMs?: number;
+    pollMs?: number;
+    sleep?: (ms: number) => Promise<void>;
+    preferScroller?: readonly string[];
+  } = {},
 ): Promise<LayoutResult> {
   const timeoutMs = o.timeoutMs ?? LAYOUT_TIMEOUT_MS;
   // A short window still gets several polls: a caller who asks for one cannot be
@@ -381,7 +452,7 @@ export async function waitForLayout(
   let polls = 0;
 
   for (;;) {
-    const measured = await measureViewport(tab);
+    const measured = await measureViewport(tab, o.preferScroller ?? []);
     polls++;
 
     if (measured !== null) {
@@ -435,16 +506,27 @@ export async function readLikeAHuman(o: {
   /** A layout already waited for. Omitted: this waits for one itself. */
   layout?: LayoutResult;
   layoutTimeoutMs?: number;
+  /**
+   * Ordered CSS selectors naming the box to scroll, most specific first. The
+   * tallest-element rule decides when none matches.
+   *
+   * Needed on any page with more than one scroller: the wheel is also aimed
+   * inside the chosen box's rect, so naming the wrong box scrolls the wrong
+   * content *and* looks like it worked (D298).
+   */
+  preferScroller?: readonly string[];
   sleep?: (ms: number) => Promise<void>;
   onPass?: (pass: { index: number; deltaY: number; result: WheelResult }) => void;
 }): Promise<ReadResult> {
   const rng = o.rng ?? defaultRng;
+  const prefer = o.preferScroller ?? [];
 
   const layout =
     o.layout ??
     (await waitForLayout(o.tab, {
       ...(o.layoutTimeoutMs === undefined ? {} : { timeoutMs: o.layoutTimeoutMs }),
       ...(o.sleep === undefined ? {} : { sleep: o.sleep }),
+      ...(prefer.length === 0 ? {} : { preferScroller: prefer }),
     }));
   let viewport = layout.viewport;
 
@@ -476,6 +558,27 @@ export async function readLikeAHuman(o: {
 
   let scrollable = extentOf(viewport);
 
+  /**
+   * Where to put the pointer for the next wheel event.
+   *
+   * Inside the chosen scroller's rect when we know it, because the browser
+   * delivers a wheel to whatever is under the pointer — measuring one box and
+   * scrolling another is exactly the failure D298 records. Falls back to the
+   * old viewport-fraction placement when there is no rect, which is every
+   * single-scroller page and every test double written before this.
+   *
+   * The randomization is unchanged either way: the same fraction range, just
+   * applied to the box instead of the window, so the pacing stays as it was.
+   */
+  const pointerIn = (v: Viewport | null): { x: number; y: number } => {
+    const r = v?.scroller?.rect ?? null;
+    const usable = r !== null && r.width >= 40 && r.height >= 40;
+    const fx = randFloat(rng, POINTER_FRACTION_MIN, POINTER_FRACTION_MAX);
+    const fy = randFloat(rng, POINTER_FRACTION_MIN, POINTER_FRACTION_MAX);
+    if (!usable) return { x: Math.round(width * fx), y: Math.round(height * fy) };
+    return { x: Math.round(r.x + r.width * fx), y: Math.round(r.y + r.height * fy) };
+  };
+
   let notches = 0;
   let scrolled = 0;
   let pausedMs = 0;
@@ -486,8 +589,9 @@ export async function readLikeAHuman(o: {
   let reachedBottom: boolean | null = seeking ? false : null;
 
   for (let i = 0; i < passes; i++) {
-    const x = Math.round(width * randFloat(rng, POINTER_FRACTION_MIN, POINTER_FRACTION_MAX));
-    const y = Math.round(height * randFloat(rng, POINTER_FRACTION_MIN, POINTER_FRACTION_MAX));
+    const { x, y } = pointerIn(viewport);
+    // The magnitude still comes from the window, not the box: a wheel notch is
+    // a device gesture, and its size does not shrink because the pane is small.
     const magnitude = Math.round(height * randFloat(rng, SCROLL_FRACTION_MIN, SCROLL_FRACTION_MAX));
 
     // A pass back up is only possible once there is something above us.
@@ -504,7 +608,7 @@ export async function readLikeAHuman(o: {
         // and only believe two in a row.
         atBottom++;
         pausedMs += await o.cursor.pause(SCROLL_PAUSE_MS_MIN, SCROLL_PAUSE_MS_MAX);
-        const grown = await measureViewport(o.tab);
+        const grown = await measureViewport(o.tab, prefer);
         if (grown !== null) {
           viewport = grown;
           scrollable = extentOf(grown);
@@ -532,7 +636,7 @@ export async function readLikeAHuman(o: {
     // After the pause, so whatever the last pass triggered has had its chance
     // to render. A failed read leaves the previous measurement standing rather
     // than collapsing the budget to zero mid-read.
-    const remeasured = await measureViewport(o.tab);
+    const remeasured = await measureViewport(o.tab, prefer);
     if (remeasured !== null) {
       viewport = remeasured;
       scrollable = extentOf(remeasured);

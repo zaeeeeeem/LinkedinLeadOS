@@ -4,13 +4,16 @@ import { JOB_FIELD_PROBES, isJobIsh } from "../../capabilities/job.capture/patte
 import { normalizeJobUrl } from "../../capabilities/job.capture/url.js";
 import { isActivityIsh } from "../../capabilities/activity.capture/patterns.js";
 import { isFeedIsh } from "../../capabilities/feed.get/patterns.js";
+import { isInboxIsh } from "../../capabilities/inbox.list/patterns.js";
 import { ACTIVITY_PROBES } from "./activity-probes.js";
+import { INBOX_PROBES } from "./inbox-probes.js";
 import type { FieldProbe } from "./fieldmap.js";
 import type { PromoteSubject } from "./promote.js";
 import { buildDomFieldMap, renderDomFieldMap } from "./dommap.js";
 import { buildActivityDomMap, renderActivityDomMap } from "./activitymap.js";
 import { buildJobDomFieldMap, renderJobDomFieldMap } from "./job-dommap.js";
 import { buildFeedDomMap, renderFeedDomMap } from "./feed-dommap.js";
+import { buildInboxDomProbeMap, renderInboxDomProbeMap } from "./inbox-dommap.js";
 
 /**
  * Which page surface a capability's fixtures come from, and the three things
@@ -29,7 +32,7 @@ import { buildFeedDomMap, renderFeedDomMap } from "./feed-dommap.js";
  * as tight as it was, and a mis-typed `--capability` promotes less rather than
  * more.
  */
-export type Family = "profile" | "activity" | "job" | "feed";
+export type Family = "profile" | "activity" | "job" | "feed" | "inbox";
 
 /** The capability prefixes that read the person-activity / post surface rather
  *  than the profile top card. Listed rather than sniffed: these three share one
@@ -40,6 +43,7 @@ const ACTIVITY_CAPABILITIES = ["activity.", "post.", "profile.posts", "profile.a
 export function familyOf(capability: string): Family {
   if (capability.startsWith("job.")) return "job";
   if (capability.startsWith("feed.")) return "feed";
+  if (capability.startsWith("inbox.")) return "inbox";
   if (ACTIVITY_CAPABILITIES.some((prefix) => capability.startsWith(prefix))) return "activity";
   return "profile";
 }
@@ -48,6 +52,7 @@ export function familyOf(capability: string): Family {
 export function relevanceOf(family: Family): (body: string) => boolean {
   if (family === "job") return isJobIsh;
   if (family === "feed") return isFeedIsh;
+  if (family === "inbox") return isInboxIsh;
   return family === "activity" ? isActivityIsh : isProfileIsh;
 }
 
@@ -55,6 +60,7 @@ export function relevanceOf(family: Family): (body: string) => boolean {
  *  `buildFieldMap`'s own default, which is the profile set. */
 export function probesOf(family: Family): readonly FieldProbe[] | undefined {
   if (family === "job") return JOB_FIELD_PROBES;
+  if (family === "inbox") return INBOX_PROBES;
   // The feed asks the JSON bodies exactly the questions the activity set
   // already asks — post urn, author urn, body text, an absolute vs relative
   // `posted_at`, the reaction and comment counts, and how the surface pages.
@@ -79,8 +85,9 @@ export type DomMapOptions = { sessionUrns?: readonly string[]; sessionVanities?:
 export function domMapOf(family: "job", html: string, o?: DomMapOptions): ReturnType<typeof buildJobDomFieldMap>;
 export function domMapOf(family: "activity", html: string, o?: DomMapOptions): ReturnType<typeof buildActivityDomMap>;
 export function domMapOf(family: "feed", html: string, o?: DomMapOptions): ReturnType<typeof buildFeedDomMap>;
+export function domMapOf(family: "inbox", html: string, o?: DomMapOptions): ReturnType<typeof buildInboxDomProbeMap>;
 export function domMapOf(family: "profile", html: string, o?: DomMapOptions): ReturnType<typeof buildDomFieldMap>;
-export function domMapOf(family: Family, html: string, o?: DomMapOptions): ReturnType<typeof buildJobDomFieldMap> | ReturnType<typeof buildActivityDomMap> | ReturnType<typeof buildFeedDomMap> | ReturnType<typeof buildDomFieldMap>;
+export function domMapOf(family: Family, html: string, o?: DomMapOptions): ReturnType<typeof buildJobDomFieldMap> | ReturnType<typeof buildActivityDomMap> | ReturnType<typeof buildFeedDomMap> | ReturnType<typeof buildInboxDomProbeMap> | ReturnType<typeof buildDomFieldMap>;
 export function domMapOf(family: Family, html: string, o: DomMapOptions = {}) {
   if (family === "job") return buildJobDomFieldMap(html);
   if (family === "activity") {
@@ -92,6 +99,7 @@ export function domMapOf(family: Family, html: string, o: DomMapOptions = {}) {
       ...(o.sessionVanities === undefined ? {} : { sessionVanities: o.sessionVanities }),
     });
   }
+  if (family === "inbox") return buildInboxDomProbeMap(html);
   return buildDomFieldMap(html);
 }
 
@@ -107,6 +115,9 @@ export function renderDomMapOf(
   }
   if (family === "feed") {
     return renderFeedDomMap({ ...o, map: o.map as ReturnType<typeof buildFeedDomMap> });
+  }
+  if (family === "inbox") {
+    return renderInboxDomProbeMap({ ...o, map: o.map as ReturnType<typeof buildInboxDomProbeMap> });
   }
   return renderDomFieldMap({ ...o, map: o.map as ReturnType<typeof buildDomFieldMap> });
 }
@@ -127,7 +138,7 @@ export function subjectFor(family: Family, raw: string): PromoteSubject | null {
   // which on this surface is the correct filter and not the D118 accident —
   // `isFeedIsh` requires an update urn, and the private-endpoint exclusion that
   // caused D118 is unchanged and has no override.
-  if (family === "feed") return null;
+  if (family === "feed" || family === "inbox") return null;
 
   if (family === "job") {
     // A posting has no vanity slug. Both spellings are supplied because bodies
