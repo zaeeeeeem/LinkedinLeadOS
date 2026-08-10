@@ -3788,3 +3788,76 @@ Left as is. The inversion can only appear on a row's first insert, `first_seen` 
 informational, and freshness compares `last_seen` alone. Fixing it properly means a trigger, and
 a schema migration to correct a cosmetic field on one row is not a trade worth making. Recorded
 so the next person to see it does not re-derive it.
+
+## D325 — The feed reader gets the fourth DOM exception (2026-08-10)
+
+Operator approval, given ahead of the measurement rather than after it, for `feed.get` (Task 32)
+to read the operator's own `/feed/` from a DOM snapshot under the same shape as the three
+readers before it: `outerHTML` captured after layout settles, archived raw, parsed **offline**,
+every row tagged DOM-sourced, scope anchored on stable attributes rather than LinkedIn's
+per-build hashed classes.
+
+**The approval is a fallback, not a licence, and the probe must still measure.** If a labeled
+network body carries a feed item's fields, the tap rule wins and the exception goes unused —
+that is the whole reason the first three exceptions each took a measurement before they were
+granted. Task 32's probe reports what it found either way, and a DOM read of a field that was
+available in a captured body is a defect, not a shortcut.
+
+Two properties of this surface are unlike the three before it, and both are part of the grant:
+
+- **The subject framing inverts.** A feed is other people's content. There is no one subject to
+  scope to, so scoping means resolving *each item's* author independently, and `sessionUrnsOf`
+  is used to tag the operator's own items rather than to find the subject. An item whose author
+  cannot be resolved is reported unresolved; it is never attributed by position.
+- **A feed does not end.** `untilBottom` (D320) must not be used here. The read is bounded by
+  `--limit` and by a fixed pass count, and a partial read is flagged as partial rather than
+  reported as the whole — the same discipline D313 put on comments.
+
+Storage is unaffected and still undecided: §7 has no feed table, and the default remains
+archive-only until a migration is approved. This grant covers reading, not writing.
+
+## D326 — The inbox readers get the fifth DOM exception, read-only (2026-08-10)
+
+Operator approval for `inbox.list` and `inbox.thread` (Task 33) to read the operator's own
+messaging from DOM snapshots, under the same shape and the same measure-first condition as D325.
+
+Three conditions are part of the grant rather than implementation detail:
+
+- **Read-only is the boundary.** Nothing sends, reacts, archives or marks. Opening a thread may
+  mark it read; that is a side effect of viewing which the operator accepts knowingly, and it is
+  stated on the receipt and in the README rather than discovered.
+- **Message text never leaves the archive.** Not to stdout, not to a receipt, not to an event
+  log, not to a commit. Counts and shapes only. A test asserts it.
+- **Fixtures go to the private root of D327, never to `fixtures/`.**
+
+The reason this needed an explicit decision at all is D118: the promoter refuses these endpoints
+by name — `messaging`, `messenger`, `conversation`, `mailbox`, `presence` — and refuses them in
+a way no flag can turn off, because the first live capture promoted 339KB of the operator's inbox
+into the shared fixture library. That refusal is not being relaxed. D327 gives the surface
+somewhere else to go instead.
+
+## D327 — Operator-private fixtures live in `.fixtures-private/`, and D118 stays as it is (2026-08-10)
+
+`fixtures/` is the directory that will eventually be shared. `.fixtures-private/` is the one that
+never will be: git-ignored, repo-local, and holding the surfaces whose bodies are the operator's
+own correspondence.
+
+The private-endpoint deny-list of D118 is **unchanged**. It keeps refusing message bodies for
+`fixtures/`, with no flag to disable it, exactly as written. What changes is that a capability
+built for those endpoints may name the private root as its destination explicitly — a promotion
+into `.fixtures-private/` is a different operation with a different target, not the deny-list
+being bypassed.
+
+The distinction that makes this safe rather than a loophole: the deny-list protects the *shared*
+library from bodies nobody chose to share. Naming the private root is that choice, made per
+capability, in code, reviewable. A capability that does not name it cannot reach those bodies at
+all — absence stays refusal.
+
+Consequences that follow, and are part of the decision:
+
+- A parser written against a private fixture is **not reproducible on another machine**, so its
+  tests must be written against a redacted or synthetic fixture committed to the repo, with the
+  private one used for the live measurement only. Offline provability (the parser rule) is not
+  waived; it is satisfied by the synthetic copy.
+- `.fixtures-private/` is git-ignored at the repo root, alongside `/runs/` and `/fixtures/`, and
+  anchored the same way for the reason D301 records.

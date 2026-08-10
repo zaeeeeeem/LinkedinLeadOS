@@ -107,8 +107,25 @@ drafting) · L5 orchestration (campaigns, sequences, schedulers) · MCP surface 
   flagged as partial rather than reported as the whole. Reactions rank below comments and are
   never fetched unless asked for by name. See D313.
 
-  **Those three exceptions are the profile reader, the job reader and the post reader, and
-  nothing else.** Every other capability, and every
+  **There is a fourth and a fifth: the feed reader (D325) and the inbox readers (D326).**
+  Both read the operator's *own* data, both take the same shape as the three above — snapshot
+  archived raw, parsed offline, rows tagged DOM-sourced, scope on stable attributes — and both
+  were granted **before** their measurement rather than after it. So both carry a condition the
+  first three did not need: **the probe still measures, and a labeled network body still wins.**
+  A DOM read of a field that was available in a captured body is a defect on these surfaces, not
+  a shortcut.
+
+  Two further conditions are part of those grants rather than implementation detail. The feed
+  has no single subject — every item's author is resolved independently, an unresolvable author
+  is reported rather than attributed, and because a feed does not end it is bounded by `--limit`
+  and a fixed pass count, never read to the bottom (D320's `untilBottom` is for pages that end).
+  The inbox is **read-only** — nothing sends, reacts, archives or marks; opening a thread may
+  mark it read and that is stated on the receipt rather than discovered — and **message text
+  never leaves the archive**: not to stdout, not to a receipt, not to a log, not to a commit.
+  Its fixtures go to `.fixtures-private/` (D327), never to `fixtures/`.
+
+  **Those five exceptions are the profile, job, post, feed and inbox readers, and nothing
+  else.** Every other capability, and every
   other kind of field, still takes data only from captured network bodies. DOM reads for
   navigation, pagination state, challenge detection and render confirmation are unchanged and
   always allowed everywhere.

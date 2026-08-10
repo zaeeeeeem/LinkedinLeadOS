@@ -2,8 +2,10 @@
 
 **Model:** Sonnet · **Depends on:** Task 29 (`post.get`, delivered archive-only)
 **Spec:** §7 (`person_posts`, `company_posts`) · §9 (`post.get`)
-**Decisions owned:** D319–D328 — Task 34's nominal range (D300–D309) is spent, so it takes
-the next free block under D18's rule. Check `DECISIONS.md` before assuming they are free.
+**Decisions owned:** D330–D339 — reassigned 2026-08-10. The doc originally claimed D319–D328;
+D320–D324 were then spent by the live-gate fixes and D325–D327 by the exception grants, so the
+range moved to the next clear block under D18's rule. D319 is free and unused; leave it. Check
+`DECISIONS.md` before assuming anything is free.
 
 > **Why this task exists.** Task 29 ships `post.get` reading the post correctly and storing
 > **nothing**. That is not an oversight, it is D314: the post permalink's DOM carries **no
@@ -88,4 +90,5 @@ than one stored person.
 - Do not relax the `not null` on either author column.
 - Do not extend the DOM exception. D313 covers the post, its comments and its reactions; this
   task adds no new DOM reading at all — it is a store lookup over a field Task 29 already
-  parses.
+  parses. The 2026-08-10 grants (D325, D326) are for the feed and inbox surfaces and have
+  nothing to do with this task; do not read them as licence here.

@@ -7,6 +7,10 @@ node_modules/
 # these exist to keep out of git are both at the root.
 /runs/
 /fixtures/
+# The operator's own correspondence never reaches the shared fixture library
+# (D118) and never reaches git either. D327: capabilities built for private
+# surfaces name this root explicitly; absence of that naming stays refusal.
+/.fixtures-private/
 .env
 .env.local
 dist/

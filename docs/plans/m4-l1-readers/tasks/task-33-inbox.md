@@ -1,7 +1,7 @@
 # Task 33 — `inbox.list` + `inbox.thread` (probe + capabilities, operator's own data)
 
 **Model:** Opus · **Depends on:** Task 20 · **Spec:** §9 (`inbox.list`, `inbox.thread` —
-read-only) · **Decisions owned:** D290–D299
+read-only) · **Decisions owned:** D290–D299 (free as of 2026-08-10; D326 grants the DOM exception, D327 the private fixture root)
 **Budget: max 4 page loads** (conversation list + a few threads).
 
 ## Objective
@@ -27,7 +27,17 @@ both capabilities + storage decision collapse into one task.
   operator: add tables (approved migration) or return receipt-counts + archived-only.
   Default archive-only. Given message content sensitivity, storing is the operator's
   explicit call, not a default.
-- DOM-source likely → `[DECISION NEEDED]` to extend the CLAUDE.md exception first.
+- **The DOM exception is already granted (D326, 2026-08-10)**, read-only, with the same
+  measure-first condition as D325: a labeled network body still wins over a DOM read.
+- **Fixtures go to `.fixtures-private/`, never to `fixtures/` (D327).** D118's deny-list is
+  **unchanged** and still has no flag — this capability names the private root as its
+  destination explicitly, which is a different operation with a different target, not the
+  deny-list being bypassed. The promoter needs a private-root destination before this task's
+  fixture step can run; that plumbing is part of this task.
+- **A private fixture is not reproducible on another machine.** Parser tests are written against
+  a redacted or synthetic fixture committed to the repo; the private one is for the live
+  measurement only. The offline-provability rule is not waived, it is satisfied by the synthetic
+  copy.
 - Metered through the ledger + an inbox sub-cap.
 
 ## Deliverables
