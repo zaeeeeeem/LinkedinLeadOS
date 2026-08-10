@@ -103,7 +103,8 @@ D18's arithmetic formula is exhausted. The live high-water mark in `DECISIONS.md
 practice). D328–D329 and everything above D334 are free. M5 assigns explicit ranges
 starting clear of all of that:
 
-Task 35 → **D340–D349** · Task 36 → **D350–D359** · Task 37 → **D360–D369** ·
+Task 35 → **D340–D349**, taken as **D342–D349** (D340/D341 were used before it ran) ·
+Task 36 → **D350–D359** · Task 37 → **D360–D369** ·
 Task 38 → **D370–D379** · Task 39 → **D380–D389** · Task 40 → **D390–D399**.
 
 **Check `DECISIONS.md` before assuming your range is free.** A task whose ten are used

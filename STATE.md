@@ -1,5 +1,61 @@
 # STATE
 
+## Complete — Task 35, the paged-run core (2026-08-10, offline, zero LinkedIn contact)
+
+`src/core/paged/` — the spend/checkpoint/resume contract Tasks 36/39/40 consume instead of
+re-inventing, plus the salesnav sub-caps. **0 page loads, 0 search pages spent**, as the task
+file required. Branch `task-35-paged-run-core`, not merged.
+
+**Built.** `runPaged()` over the existing `RunContext.checkpoint()`, `RawArchive` and budget
+ledger — no second checkpoint mechanism, no second ledger path, ledger semantics untouched.
+Alongside it: `pauseFileStop`/`installSignalPause` (pause at a page boundary), a dwell layer
+(three-part mixture, break every fifth page), `reconcile()` (resume verified against the
+archive), and `src/core/paged/README.md` as the contract doc.
+
+**Sub-caps** in `src/core/budget/constants.ts`: `salesnav.leads.list` 20/20, `accounts.list`
+10/10, `probe` 6/6, `savedsearch.list` 6 page loads / 0 search pages, all with zero profile
+opens. Numbers are the operator's to settle; the existence of each cap is not (D345).
+
+**Tests: 1525 pass, typecheck clean.** 66 new across three files. The kill matrix is the
+headline — a 3-page run killed between **every** adjacent pair of steps (8 boundaries × 3
+pages = 24 scenarios), resumed, each converging to exactly one *claimed* archived copy per
+page with every byte accounted for and the ledger never under-counting.
+
+**Three mutation checks, each run and each verified to bite:**
+
+| mutation | result |
+|---|---|
+| resume trusts the checkpoint without the archive check | 2 tests fail (missing-bytes cases) |
+| remove the adoption guard, so a proved page is re-spent | 1 test fails (double-charging) |
+| move the spend after the load | 47 tests fail, including the ordering test |
+
+**Two defects the kill matrix found in the first implementation**, both fixed rather than
+tested around: a resumed run did not know its last page had said "no next page" and paid for
+a page 4 of a 3-page search (`has_more` is now checkpointed, and every stop condition is
+evaluated at the top of the loop against the checkpoint so a resume behaves identically to
+the session it continues); and a crash inside the spend phase left a real ledger line
+attributable to nothing (now bounded and reported as `unconfirmed`, D347).
+
+**Decisions D342–D349.** The task file reserved D340–D349; D340 and D341 were already taken
+by Task 34 and the reactions work, so this task took the next eight free numbers, per
+standing practice.
+
+**Two stated deviations from the task file**, both recorded rather than quietly absorbed:
+
+1. *"Exactly one archived copy of each page"* does not hold literally when a kill lands
+   part-way through archiving. Orphaned bytes are kept, reported and claimed by nobody
+   (D348) — deleting archived bodies would break raw-first, and the live consumers archive
+   through the network tap, which cannot stage.
+2. The ledger cannot be exactly reconciled after a crash *inside* the spend phase. The
+   invariant that does hold is `pages + wasted ≤ ledger ≤ pages + wasted + unconfirmed`
+   (D347) — over-counting only, never under.
+
+### Next
+
+Task 36 (Sales Nav surface probe) — live, operator-supervised, and the honest seat check.
+It is the first consumer of this contract. Nothing in M5 loads a page before the operator
+approves the plan and confirms the automation account has a Sales Navigator seat.
+
 ## Planned — M5 (L2 Sales Navigator) plan laid down (2026-08-10)
 
 The full M5 plan is written at `docs/plans/m5-l2-salesnav/` — README, CONTEXT, RECORDING,
