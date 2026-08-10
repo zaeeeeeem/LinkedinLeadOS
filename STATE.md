@@ -1,5 +1,36 @@
 # STATE
 
+## Checkpoint 7 — Task 33 review fixes, live-verified (2026-08-10)
+
+Two defects found by reviewing the first live gate, both fixed and both re-run live. All 4
+inbox page loads are now spent; the ledger shows two `inbox.list` and two `inbox.thread`.
+
+**The wrong box was being scrolled (D298).** `/messaging/` is the first surface with two
+scrollers side by side, and the tallest-element rule picked the conversation rail for both
+readers. `inbox.list` wanted the rail and was right by luck; `inbox.thread` wanted the message
+pane and paged the rail, returning 1 message with a settled layout and no warning. The scroller
+can now be named by selector, the wheel is aimed inside the chosen element's rect, and falling
+back to the tallest element raises `SCROLLER_SELECTOR_UNMATCHED`. Both selectors were read
+offline from an archived snapshot, for zero page loads.
+
+**Correspondent names were on the receipt (D299).** The 2026-08-10 `inbox.list` run printed 20
+real names and profile urns to stdout. Participants are now urn plus operator flag only, pinned
+by the same leak test message text has.
+
+Live re-runs. `inbox.list` `01KZNFTXE2D1530BHYAFEGH7HV` exit 0, 20 conversations, 1 unread —
+this run predates the name fix and did print names. `inbox.thread`
+`01KZNH277M33767P4VEGGFM4E6` exit 0, and it is the first run to exercise
+`direction: "received"` (sent 0, received 1). It also raised the new
+`SCROLLER_SELECTOR_UNMATCHED` warning: the message pane is present in the DOM but had one
+message and nothing to scroll, so the scrollable test correctly rejected it and said so.
+
+One `CDP_PROTOCOL_ERROR` (exit 6, `Storage.getCookies` — "Browser context management is not
+supported") on a first attempt, 0 page loads spent; the retry succeeded. Not investigated.
+
+**Still unproven live, and the budget is now exhausted:** a multi-message thread, and therefore
+the preferred pane selector actually being chosen and paged. Neither can be silently wrong —
+an unmatched selector warns, and a bounded read always reports `partial: true`.
+
 ## Complete — Task 33 `inbox.list` + `inbox.thread` (2026-08-10)
 
 Checkpoint 1 (offline, zero LinkedIn contact): private fixture promotion now has a separate
