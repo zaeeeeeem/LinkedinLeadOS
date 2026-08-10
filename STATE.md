@@ -1,6 +1,6 @@
 # STATE
 
-## In progress — Task 33 `inbox.list` + `inbox.thread` (2026-08-10)
+## Complete — Task 33 `inbox.list` + `inbox.thread` (2026-08-10)
 
 Checkpoint 1 (offline, zero LinkedIn contact): private fixture promotion now has a separate
 `promotePrivateFixtures` entry point with a required endpoint boundary and no `all` option;
@@ -57,6 +57,18 @@ pane, so its receipt now acknowledges possible read marking too (D295). Before l
 operator already accepted this side effect; the gate will use the first conversation whose
 list row reports `unread_count: 0`, minimizing avoidable state change while still treating the
 view as potentially read-marking.
+
+Checkpoint 6 / live thread gate complete (2 of 4 page loads): after the read-marking effect was
+acknowledged, default `inbox.thread` run `01KZNATNDEC8SX22CX2T81M4Z3` exited 0 on that already-read
+conversation. It emitted 1 of 1 usable message, tagged sent, with `text_chars: 121`,
+`partial: true`, archive-only storage and no message text. Independent archive inspection found
+two duplicate `messengerMessagesBySyncToken` bodies containing one unique message urn and no
+textless rows; exact-value containment testing found zero message values in `summary.json` or
+`events.ndjson`. Direct ledger inspection found exactly one `page_load` line under
+`inbox.thread`. Private promotion recognized the measured shapes and two session urns, adding no
+duplicate fixture and spending no load. Both default live gates are therefore complete with
+**2 of 4 page loads spent and 2 spare** (D297). Full suite and typecheck are green at task close.
+The final suite result is **1,397 passed across 91 files**.
 
 ## In progress — Task 32 `feed.get` (2026-08-10)
 

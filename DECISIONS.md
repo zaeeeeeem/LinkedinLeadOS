@@ -4132,3 +4132,18 @@ One navigation can capture the list's latest-message row and several message pag
 duplicate responses. `inbox.thread` merges every successfully parsed body and deduplicates only
 rows with the same non-null message urn. Identity-less rows are retained rather than collapsed
 by a composite guess.
+
+## D297 — The live inbox gate is satisfied by archive-verified counts, with two loads left unspent (2026-08-10)
+
+The default live gate completed in the approved order. `inbox.list` run
+`01KZNABFNDM59AQEAEHV5SRTTG` returned 20 usable conversations; direct archive inspection counted
+the same 20 rows. After acknowledging that the view may mark a conversation read,
+`inbox.thread` run `01KZNATNDEC8SX22CX2T81M4Z3` returned one usable message through the direct
+`messengerMessagesBySyncToken` parser. Its two captured message bodies were duplicates: direct
+archive inspection found one unique message urn, and direct ledger inspection found one page
+load for each capability run.
+
+The thread message's exact text value occurs zero times in the run receipt and event log. Both
+reads remain unconditionally `partial: true`, and both archives remain private and archive-only.
+The gate spent 2 of its maximum 4 page loads; no confirmation load is justified after the
+default thread read exited 0, so the remaining two stay unspent.
