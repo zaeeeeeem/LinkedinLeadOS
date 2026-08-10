@@ -270,17 +270,24 @@ function pathOf(rawUrl: string): string {
  * and "a body about a company" are different questions asked of the same
  * machinery, and a second copy of this function is how the two would drift
  * apart. Omitted, it is `isProfileIsh` and nothing changes.
+ *
+ * It is handed the url as well as the body. A content test alone cannot tell a
+ * feed payload from the notification rail, which carries activity urns too and
+ * loads on every page — so the feed's predicate would call one body relevant on
+ * every single run and its "an unpredicted endpoint answered" signal would never
+ * be silent. Existing body-only predicates ignore the second argument and are
+ * unaffected.
  */
 export function summarizeCaptures(
   captures: readonly Capture[],
   misses: readonly CaptureMiss[],
   patterns: readonly TieredPattern[] = PROFILE_PATTERNS,
-  o: { isRelevant?: (body: string) => boolean } = {},
+  o: { isRelevant?: (body: string, url: string) => boolean } = {},
 ): CaptureSummary {
   const isRelevant = o.isRelevant ?? isProfileIsh;
   const specific = specificNames(patterns);
   const endpoints: EndpointRow[] = captures.map((c) => {
-    const profileIsh = isRelevant(c.body);
+    const profileIsh = isRelevant(c.body, c.url);
     return {
       path: pathOf(c.url),
       query_id: queryIdOf(c.url),

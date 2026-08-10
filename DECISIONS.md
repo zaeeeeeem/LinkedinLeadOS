@@ -3977,3 +3977,68 @@ also yields **vanities**, which the DOM surfaces need: a rendered card names its
 from a stranger's.
 
 The private-endpoint exclusion is untouched and is still applied before any body is read.
+
+## D285 — A feed payload is not "any body with an activity urn in it" (2026-08-10)
+
+Two probe signals were reported broken by review on 2026-08-10, and both were. They are the
+mechanisms D325 conditioned its grant on, so both are defects rather than cosmetics.
+
+`isFeedIsh` is a body test: a body carrying `urn:li:activity:`, `numComments` or a social-detail
+marker. That is the right test for **promotion**, which excludes the rails by endpoint before
+any body is read. It is the wrong test for **"did a labeled body carry the feed"**, because two
+kinds of body pass it without being feed payloads:
+
+- **The page's own document.** It carries the feed because it *is* the page. `NO_FEED_PAYLOAD` —
+  the one warning that announces the DOM exception is in use — is gated on the feed-ish count
+  being zero, so it never fired once. Both live runs reported `feed_ish: 2` and no warning,
+  while `parse.ts` and `index.ts` both documented the opposite.
+- **`voyagerIdentityDashNotificationCards`.** The notification rail carries activity urns and a
+  comment count inside its schema block, and it loads on *every* LinkedIn page. So
+  `unmatched_feed_ish` was permanently ≥ 1 and `PATTERN_MISMATCH` fired on every run. A warning
+  that is always on is a warning nobody reads, and it buried the D110 signal a genuinely
+  unpredicted feed endpoint would need to raise.
+
+`carriesFeedPayload(body, url)` is the stricter test the counts now use: not the document, not a
+rail, and feed-ish. The rail list is `isPrivateEndpoint` reused rather than re-listed — it is
+already the repo's one list of the operator's own chrome and correspondence, and it is the list
+D118 is enforced from.
+
+`summarizeCaptures`'s `isRelevant` is handed the url as well as the body to make this expressible.
+Existing body-only predicates ignore the second argument and are unaffected.
+
+Verified by replaying both archived runs offline, zero page loads: **before**, `feed_ish 2 /
+unmatched 1`, so `NO_FEED_PAYLOAD` silent and `PATTERN_MISMATCH` firing; **after**, `feed_ish 0 /
+unmatched 0`, both correct. Confirmed live on run `01KZN22Z7AGSFFKS0BNYCGZMPZ`.
+
+## D286 — A post with no text is still a post (2026-08-10)
+
+`parse.ts` treated a card with no `expandable-text-box` as a rendered placeholder and skipped it
+before counting. An image-only or video-only post has no text box, so such a post vanished from
+`items`, from `container.cards` and from every warning at the same time: the read came back one
+item shorter with nothing saying why.
+
+The same selector is used ten lines later scoped to `outsideComments`, where it means "the post's
+body". One selector, two meanings, in one loop — which is how the drop survived review of the
+fixture, where all eight cards happened to have text.
+
+A card is now a card if it carries the SDUI card key, full stop. A bodyless one is returned with
+`text_chars: 0` and counted in `FEED_ITEM_NO_BODY`. The first live run after the change reported
+one, on a real feed.
+
+## D287 — A relative profile href is resolved, not silently half-read (2026-08-10)
+
+LinkedIn renders both `https://www.linkedin.com/in/x/` and a bare `/in/x/`. `vanityOf` only
+matches the first, so a relative href produced `author_vanity: null` **and**
+`is_operator: false` while `author_url` stayed non-null — a row that looked fully resolved, with
+the D119 operator-tagging guard inert and no warning raised.
+
+Hrefs are normalized once, in `absoluteHref`, before any identity is read off them. Untested
+before this: the fixture happens to be all-absolute, which is exactly the kind of coverage gap a
+fixture cannot close on its own.
+
+## D288 — A warning's denominator is what was read, not what was on the page (2026-08-10)
+
+`PARSE_AUTHOR_UNRESOLVED` and `PARSE_ITEM_URN_UNRESOLVED` accumulated only over the cards inside
+`--limit`, but reported "N of {every card on the page}". `--limit=2` on an 8-card feed implied six
+checks that never ran. Both now cite `examined`, which is also on the receipt as
+`read.cards_examined` beside `read.cards_rendered`.

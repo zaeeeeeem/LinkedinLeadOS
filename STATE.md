@@ -37,7 +37,20 @@ receipt's `with_urn: 2`. One card (MAXHUB) named an author whose link could not 
 was reported, not guessed. The receipt's feed-API hit count now excludes the document watch, so
 the number means what D280 claims. Full suite **1354 passed across 83 files**, typecheck clean.
 Storage decided by the operator on 2026-08-10: **archive-only, no Supabase** — recorded in
-D283, which is now closed rather than deferred. Task 32 is complete; nothing is blocking.
+D283, which is now closed rather than deferred.
+
+Checkpoint 4 — review follow-up, all five findings fixed (3 page loads spent of 3). Both D325
+probe signals were broken and are the mechanisms the grant was conditioned on: `NO_FEED_PAYLOAD`
+had never fired and `PATTERN_MISMATCH` fired every run, because `isFeedIsh` counted the page's own
+document and the notification rail as feed payloads (D285). `carriesFeedPayload(body, url)` is the
+stricter test the counts now use; `summarizeCaptures`'s predicate sees the url. A card with no text
+box is no longer dropped — a media-only post is a post (D286). Relative `/in/` hrefs are resolved
+before identity is read off them, so the operator-tagging guard cannot go inert quietly (D287).
+Warning ratios cite `examined`, not every card on the page (D288). Proven by replaying both
+archived runs offline — before `feed_ish 2 / unmatched 1`, after `0 / 0` — and confirmed live on
+run `01KZN22Z7AGSFFKS0BNYCGZMPZ`, exit 0, which reported `NO_FEED_PAYLOAD` and caught one real
+`FEED_ITEM_NO_BODY` on its first try. Full suite **1362 passed across 84 files**, typecheck clean.
+Task 32 is complete; nothing is blocking.
 
 ## In progress — Task 31 `job.get` (2026-08-09)
 

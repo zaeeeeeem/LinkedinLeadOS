@@ -34,7 +34,7 @@ function captureResult(o: { archived?: string | null; html?: string } = {}): Fee
         },
     reading: null,
     summary: {
-      captured: 26, profile_ish: 2, unmatched_profile_ish: 1, misses: 0,
+      captured: 26, profile_ish: 0, unmatched_profile_ish: 0, misses: 0,
       patterns: [
         { name: "gql-feed-updates", tier: "specific", hits: 0, profile_ish: 0, misses: 0 },
         // The document watch is `specific` too and always hits. It is not a
@@ -46,7 +46,10 @@ function captureResult(o: { archived?: string | null; html?: string } = {}): Fee
     } as never,
     sessionUrns: ["urn:li:fsd_profile:OPERATOR"],
     sessionVanities: ["zaeem-dev"],
-    bodySweep: { inventoried: 2, notInventoried: 0, inventory: { distinct: {}, total: {}, truncated: [] } },
+    bodySweep: {
+      inventoried: 0, notInventoried: 0, inventory: { distinct: {}, total: {}, truncated: [] },
+      nonFeedRailBodies: 1, documentCaptured: true,
+    },
     warnings: [{ code: "PATTERN_MISMATCH", n: 1, field: "x" }],
     foreground: { ok: true, via: "already" },
   };
@@ -128,7 +131,7 @@ describe("feed.get — composition", () => {
     const r = await createFeedGetCapability({ capture }).run(context());
     const probe = (r.data as { probe: { feed_api_pattern_hits: number; feed_ish_bodies: number } }).probe;
     expect(probe.feed_api_pattern_hits).toBe(0);
-    expect(probe.feed_ish_bodies).toBe(2);
+    expect(probe.feed_ish_bodies).toBe(0);
   });
 
   it("carries no post text onto the receipt, only its length", async () => {

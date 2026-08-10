@@ -143,6 +143,7 @@ export function createFeedGetCapability(deps: FeedGetDeps = defaultDeps) {
         read: {
           items: parsed.items.length,
           cards_rendered: parsed.container.cards,
+          cards_examined: parsed.container.examined,
           container_children: parsed.container.children,
           unresolved_authors: parsed.unresolved,
           with_urn: parsed.items.filter((i) => i.value.urn !== null).length,
@@ -170,6 +171,10 @@ export function createFeedGetCapability(deps: FeedGetDeps = defaultDeps) {
           session_vanities_known: captured.sessionVanities.length,
           bodies_inventoried: captured.bodySweep.inventoried,
           bodies_not_inventoried: captured.bodySweep.notInventoried,
+          // Counted, not dropped: "no feed payload" has to be readable as a
+          // statement about the feed rather than about an empty page.
+          non_feed_rail_bodies: captured.bodySweep.nonFeedRailBodies,
+          document_captured: captured.bodySweep.documentCaptured,
           body_urns_distinct: captured.bodySweep.inventory.distinct,
           dom: {
             container_found: domMap.container.found,

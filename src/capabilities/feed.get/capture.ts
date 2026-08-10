@@ -19,7 +19,8 @@ import {
 import { urnInventory } from "../activity.capture/patterns.js";
 import type { UrnInventory } from "../activity.capture/patterns.js";
 import {
-  BROAD_PATTERN_NAME, FEED_DOCUMENT_NAME, FEED_PATTERNS, feedDocumentPattern, isFeedIsh,
+  BROAD_PATTERN_NAME, FEED_DOCUMENT_NAME, FEED_PATTERNS, carriesFeedPayload, feedDocumentPattern,
+  isFeedIsh, isNonFeedRail,
 } from "./patterns.js";
 import { FEED_URL, MAX_INVENTORIED_BODIES } from "./constants.js";
 
@@ -60,6 +61,13 @@ export type FeedCaptureResult = {
     inventoried: number;
     notInventoried: number;
     inventory: UrnInventory;
+    /** Bodies that carry update urns but are **not** the feed: the notification
+     *  rail and friends. Counted rather than dropped, so "no feed payload" is
+     *  visibly a statement about the feed and not about an empty page. */
+    nonFeedRailBodies: number;
+    /** Whether the page's own document was captured. It carries the feed
+     *  because it *is* the page, which is why it is not a payload. */
+    documentCaptured: boolean;
   };
   warnings: Warning[];
   foreground: { ok: boolean; via: string | null };
@@ -213,7 +221,12 @@ export async function captureFeed(
   }
 
   const captures = tap.captures();
-  const summary = summarizeCaptures(captures, tap.misses(), patterns, { isRelevant: isFeedIsh });
+  // `carriesFeedPayload`, not `isFeedIsh`: the question these counts answer is
+  // D325's condition — did a *labeled body* carry feed items — and the page's
+  // own document and the notification rail are neither.
+  const summary = summarizeCaptures(captures, tap.misses(), patterns, {
+    isRelevant: carriesFeedPayload,
+  });
 
   // The status gate, over what the page fetched rather than over the page.
   const detections: ChallengeDetection[] = [];
@@ -299,19 +312,25 @@ export async function captureFeed(
 
   // Bounded on purpose: a feed page can archive dozens of megabyte bodies. What
   // was skipped is reported, not dropped.
-  const relevant = captures.filter((c) => isFeedIsh(c.body));
+  const relevant = captures.filter((c) => carriesFeedPayload(c.body, c.url));
   const inventoried = relevant.slice(0, MAX_INVENTORIED_BODIES);
   const inventory = urnInventory(inventoried.map((c) => c.body).join("\n"));
 
   if (summary.profile_ish === 0) {
     // The measurement D325 asked for, stated on the receipt. Not a failure: it
-    // is the finding that the DOM exception is the only source available here.
+    // is the finding that the DOM exception is the only source available here,
+    // and it is expected to fire on every run until LinkedIn changes.
+    //
+    // It was dead until 2026-08-10. `isFeedIsh` counted the page's own document
+    // and the notification rail as feed payloads, so `profile_ish` was never
+    // zero and the one warning announcing "the DOM exception is in use" never
+    // fired once (D285).
     warnings.push({
       code: "NO_FEED_PAYLOAD",
       n: 1,
       field:
-        `${summary.captured} linkedin api responses archived, none carrying feed-item data — ` +
-        `the DOM snapshot is the only source on this surface (D325's fallback is in use)`,
+        `${summary.captured} responses archived and none is a feed payload — the DOM snapshot ` +
+        `is the only source on this surface, so D325's fallback is in use`,
     });
   }
   if (summary.unmatched_profile_ish > 0) {
@@ -346,6 +365,8 @@ export async function captureFeed(
       inventoried: inventoried.length,
       notInventoried: relevant.length - inventoried.length,
       inventory,
+      nonFeedRailBodies: captures.filter((c) => isNonFeedRail(c.url) && isFeedIsh(c.body)).length,
+      documentCaptured: captures.some((c) => c.patterns.includes(FEED_DOCUMENT_NAME)),
     },
     warnings,
     foreground: { ok: foreground.ok, via: foreground.via },

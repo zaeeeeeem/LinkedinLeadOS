@@ -276,18 +276,66 @@ describe("feed.get — bounds and scope", () => {
     expect(partial?.n).toBe(9);
   });
 
-  it("skips container chrome that carries no card key and no body", () => {
+  it("skips container chrome that carries no card key", () => {
     const r = parseFeed(
       feed([
         `<div><div>share box</div></div>`,
+        card({ track: "N2", author: "B", authorVanity: "b" }),
+      ]),
+      { limit: 10 },
+    );
+    expect(r.container.children).toBe(2);
+    expect(r.container.cards).toBe(1);
+    expect(r.items.map((i) => i.value.author_vanity)).toEqual(["b"]);
+  });
+
+  it("returns a card with no text box instead of dropping it", () => {
+    // An image-only or video-only post has no expandable-text-box. Dropping it
+    // removed the post from items, from cards and from every warning at once.
+    const r = parseFeed(
+      feed([
         card({ track: "N1", author: "A", authorVanity: "a", body: false }),
         card({ track: "N2", author: "B", authorVanity: "b" }),
       ]),
       { limit: 10 },
     );
-    expect(r.container.children).toBe(3);
-    expect(r.container.cards).toBe(1);
-    expect(r.items.map((i) => i.value.author_vanity)).toEqual(["b"]);
+    expect(r.container.cards).toBe(2);
+    expect(r.items.map((i) => i.value.author_vanity)).toEqual(["a", "b"]);
+    expect(r.items[0]!.value.text_chars).toBe(0);
+    const w = r.warnings.find((x) => x.code === "FEED_ITEM_NO_BODY");
+    expect(w?.n).toBe(1);
+  });
+
+  it("resolves an author from a relative href and still tags the operator", () => {
+    // LinkedIn renders both spellings. A relative one used to give a non-null
+    // author_url with a null vanity, so the D119 tagging guard went inert on a
+    // row that looked resolved.
+    const html = feed([card({ track: "R1", author: "Zaeem Dev", authorVanity: "zaeem-dev" })]).replace(
+      "https://www.linkedin.com/in/zaeem-dev/",
+      "/in/zaeem-dev/",
+    );
+    const r = parseFeed(html, { limit: 5, sessionVanities: ["zaeem-dev"] });
+    expect(r.items[0]!.value.author_vanity).toBe("zaeem-dev");
+    expect(r.items[0]!.value.author_url).toBe("https://www.linkedin.com/in/zaeem-dev/");
+    expect(r.items[0]!.value.is_operator).toBe(true);
+  });
+
+  it("counts warning ratios against the cards it read, not the cards on the page", () => {
+    const r = parseFeed(
+      feed([
+        card({ track: "W1", author: "A", authorVanity: "a" }),
+        card({ track: "W2", author: "B", authorVanity: "b" }),
+        card({ track: "W3" }),
+        card({ track: "W4" }),
+      ]),
+      { limit: 2 },
+    );
+    expect(r.container.cards).toBe(4);
+    expect(r.container.examined).toBe(2);
+    // The two unlabelled cards were never read, so nothing claims they were.
+    expect(r.unresolved).toBe(0);
+    expect(r.warnings.find((w) => w.code === "PARSE_ITEM_URN_UNRESOLVED")?.field)
+      .toContain("2 of the 2 cards read");
   });
 
   it("refuses a snapshot with no feed container instead of returning an empty read", () => {

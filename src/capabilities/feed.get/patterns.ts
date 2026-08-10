@@ -1,4 +1,5 @@
 import { documentPattern, isLinkedInApiUrl, type TieredPattern } from "../profile.capture/patterns.js";
+import { isPrivateEndpoint } from "../../core/fixtures/promote.js";
 import { FEED_URL } from "./constants.js";
 
 /**
@@ -72,7 +73,50 @@ const FEED_MARKERS = [
   '"numComments"',
 ];
 
-/** True when a captured body carries feed-item data. */
+/** True when a captured body carries feed-item data. Body-only, and that is
+ *  what promotion wants: promotion already excludes the rails by endpoint. */
 export function isFeedIsh(body: string): boolean {
   return FEED_MARKERS.some((marker) => body.includes(marker));
+}
+
+/**
+ * The rails that ride along on every LinkedIn page and are not the feed.
+ *
+ * Reused rather than re-listed: `isPrivateEndpoint` is already the repo's one
+ * list of "the operator's own chrome and correspondence" — notifications,
+ * messaging, badging, presence, mailbox, invitations, globalnav — and it is the
+ * list D118 is enforced from.
+ */
+export const isNonFeedRail = isPrivateEndpoint;
+
+/** The page's own document, by path. */
+function isFeedDocument(url: string): boolean {
+  try {
+    return new URL(url).pathname.replace(/\/+$/, "") === "/feed";
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * True when a captured body is a **feed payload** — the question D325's
+ * condition actually asks, and a stricter one than `isFeedIsh`.
+ *
+ * Two exclusions, both measured rather than assumed:
+ *
+ * - **The page's own document.** It carries the feed because it *is* the page.
+ *   Counting it as a payload made `NO_FEED_PAYLOAD` — the one warning that
+ *   announces "the DOM exception is in use" — permanently dead, because
+ *   `feed_ish` was never zero.
+ * - **`voyagerIdentityDashNotificationCards` and its siblings.** The
+ *   notification rail carries `urn:li:activity:` and `numComments` and loads on
+ *   every page, so a body-only test called it a feed payload on every run and
+ *   `PATTERN_MISMATCH` fired every run. A warning that is always on is a warning
+ *   nobody reads, and it buried the D110 signal that a genuinely unpredicted
+ *   feed endpoint would need to raise.
+ */
+export function carriesFeedPayload(body: string, url: string): boolean {
+  if (isFeedDocument(url)) return false;
+  if (isNonFeedRail(url)) return false;
+  return isFeedIsh(body);
 }

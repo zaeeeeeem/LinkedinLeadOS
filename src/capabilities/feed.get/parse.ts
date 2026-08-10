@@ -32,6 +32,7 @@ export type ParseFeedWarningCode =
   | "PARSE_AUTHOR_AMBIGUOUS"
   | "PARSE_AUTHOR_LINK_UNRESOLVED"
   | "PARSE_ITEM_URN_UNRESOLVED"
+  | "FEED_ITEM_NO_BODY"
   | "FEED_PARTIAL";
 
 export type FeedParseWarning = { code: ParseFeedWarningCode; n: number; field: string };
@@ -98,7 +99,16 @@ export type ParseFeedOptions = {
 
 export type ParseFeedResult = {
   ok: boolean;
-  container: { found: boolean; children: number; cards: number };
+  container: {
+    found: boolean;
+    children: number;
+    /** Every card under the container, whether or not `--limit` reached it. */
+    cards: number;
+    /** The cards this read actually looked at. Every ratio below is against
+     *  this number, not against `cards`: `--limit=2` on an 8-card page used to
+     *  report "0 of 8 unresolved", implying six checks that never ran (D288). */
+    examined: number;
+  };
   items: Sourced<FeedItem>[];
   /** Cards that carried a post body but whose author could not be resolved.
    *  Reported, never attributed by position (D325, D118). */
@@ -116,6 +126,22 @@ function tagged<T>(value: T): Sourced<T> {
 function viewProfileLabel(name: string): RegExp {
   const escaped = name.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
   return new RegExp(`^View ${escaped}['’]s profile$`);
+}
+
+/**
+ * A card's href, made absolute.
+ *
+ * LinkedIn renders both spellings — `https://www.linkedin.com/in/x/` and a bare
+ * `/in/x/` — and `vanityOf` only matches the first. A relative href therefore
+ * produced `author_vanity: null` *and* `is_operator: false` with `author_url`
+ * non-null, so the D119 tagging guard went inert on a row that looked fully
+ * resolved and raised no warning at all (D287). Normalized once, here, before
+ * any identity is read off it.
+ */
+export function absoluteHref(href: string | null): string | null {
+  if (href === null || href === "") return null;
+  if (/^https?:\/\//i.test(href)) return href;
+  return href.startsWith("/") ? `https://www.linkedin.com${href}` : null;
 }
 
 /** The `/company/<slug>` out of a url, query and trailing path removed. */
@@ -179,7 +205,7 @@ export function parseFeed(html: string, options: ParseFeedOptions): ParseFeedRes
     });
     return {
       ok: false,
-      container: { found: false, children: 0, cards: 0 },
+      container: { found: false, children: 0, cards: 0, examined: 0 },
       items: [],
       unresolved: 0,
       partial: true,
@@ -191,10 +217,12 @@ export function parseFeed(html: string, options: ParseFeedOptions): ParseFeedRes
   const wanted = Math.max(0, Math.min(options.limit, MAX_FEED_ITEMS));
   const items: Sourced<FeedItem>[] = [];
   let cards = 0;
+  let examined = 0;
   let unresolved = 0;
   let ambiguous = 0;
   let unlinked = 0;
   let withoutUrn = 0;
+  let withoutBody = 0;
 
   for (const node of children) {
     const card = node as Element;
@@ -209,10 +237,18 @@ export function parseFeed(html: string, options: ParseFeedOptions): ParseFeedRes
       .find((k) => CARD_COMPONENTKEY.test(k ?? ""));
     if (wrapperKey === undefined) continue;
     const keyed = CARD_COMPONENTKEY.exec(wrapperKey)!;
-    // A card with no post body is a rendered placeholder, not an item.
-    if ($card.find("[data-testid='expandable-text-box']").length === 0) continue;
     cards++;
     if (items.length >= wanted) continue;
+    examined++;
+
+    // A card with no `expandable-text-box` used to be dropped here as a
+    // placeholder. It is not one: an image-only or video-only post has no text
+    // box and is a real feed item, and dropping it removed the post from
+    // `items`, from `cards`, and from every warning at once — the read simply
+    // came back shorter with nothing saying why (D286). It is now returned with
+    // `text_chars: 0` and counted.
+    const bodyless = $card.find("[data-testid='expandable-text-box']").length === 0;
+    if (bodyless) withoutBody++;
 
     // ── comment scope ──────────────────────────────────────────────────────
     const commentRows = $card.find("[componentkey^='replaceableComment_']").get();
@@ -256,7 +292,7 @@ export function parseFeed(html: string, options: ParseFeedOptions): ParseFeedRes
         .filter((_, n) => wantedLabel.test($(n).attr("aria-label") ?? ""))
         .first()
         .closest("a[href]");
-      authorUrl = link.length > 0 ? link.attr("href") ?? null : null;
+      authorUrl = link.length > 0 ? absoluteHref(link.attr("href") ?? null) : null;
       if (authorUrl === null) {
         // A company author has no profile label. Resolved only when the card
         // holds exactly one company link, so a post *mentioning* four companies
@@ -264,10 +300,10 @@ export function parseFeed(html: string, options: ParseFeedOptions): ParseFeedRes
         const companies = [
           ...new Set(
             $card
-              .find("a[href*='/company/']")
+              .find("a[href*='/company/'], a[href^='/company/']")
               .get()
               .filter(outsideComments)
-              .map((el) => $(el).attr("href") ?? null)
+              .map((el) => absoluteHref($(el).attr("href") ?? null))
               .map((h) => (h === null ? null : h.split("?")[0]!))
               .filter((h): h is string => h !== null),
           ),
@@ -323,7 +359,8 @@ export function parseFeed(html: string, options: ParseFeedOptions): ParseFeedRes
       code: "PARSE_AUTHOR_UNRESOLVED",
       n: unresolved,
       field:
-        `${unresolved} of ${cards} cards carry no single "Open control menu for post by <name>" ` +
+        `${unresolved} of the ${examined} cards read carry no single ` +
+        `"Open control menu for post by <name>" ` +
         `label, so their author is reported unresolved rather than attributed by position (D325)`,
     });
   }
@@ -346,8 +383,17 @@ export function parseFeed(html: string, options: ParseFeedOptions): ParseFeedRes
       code: "PARSE_ITEM_URN_UNRESOLVED",
       n: withoutUrn,
       field:
-        `${withoutUrn} of ${cards} cards render no comment, which is the only place this ` +
+        `${withoutUrn} of the ${examined} cards read render no comment, which is the only place this ` +
         `surface exposes a post's own urn; those items have no cross-run identity`,
+    });
+  }
+  if (withoutBody > 0) {
+    warnings.push({
+      code: "FEED_ITEM_NO_BODY",
+      n: withoutBody,
+      field:
+        `${withoutBody} of the ${examined} cards read render no text box — an image-only or ` +
+        `video-only post. They are returned with text_chars 0 rather than dropped`,
     });
   }
   if (items.length < wanted) {
@@ -362,7 +408,7 @@ export function parseFeed(html: string, options: ParseFeedOptions): ParseFeedRes
 
   return {
     ok: true,
-    container: { found: true, children: children.length, cards },
+    container: { found: true, children: children.length, cards, examined },
     items,
     unresolved,
     partial: true,
