@@ -132,3 +132,33 @@ by reverting it). The residual — the launch path's discovery is unchanged, so 
 opens no window can still return `launched: true` on a context-less browser — is recorded in
 D164 rather than fixed, because changing launch-path discovery was explicitly out of this
 item's settled scope.
+
+## Expand a job's description before snapshotting it (2026-08-10, D323)
+
+`job.get` reads the description out of `[data-testid="expandable-text-box"]`, which LinkedIn
+renders **collapsed**. Measured on job 4434758293: the box held 940 characters of a description
+whose full text, read from `company.jobs`'s embedded JSON, is 3602. The reader is not wrong
+about where the description lives; it is reading a prefix and cannot tell.
+
+The store now keeps whichever text is longer (D323), so a truncated read no longer destroys a
+full one. That is a guard, not a fix — a job nothing else has ever listed still stores 26% of
+its description, and `job.get` is the only reader that will ever see a posting outside a
+company's own jobs tab.
+
+**The approach settled here:** expand before the snapshot, then read. Two things have to be
+settled first, and neither is settled now.
+
+1. **It is an interaction, not a read.** Everything the toolkit does today is wheel, pointer
+   movement and navigation. Clicking a control is a different class of action against the one
+   account, even a read-only one, and that is an operator call rather than an implementation
+   detail.
+2. **There is no anchor to click.** The archived snapshot carries the box and no control near
+   it — no button, no `role="button"`, nothing with a `data-testid` — so the trigger is
+   rendered by script outside the captured subtree. It has to be found on a live page before
+   any selector can be written, and it must be anchored on a test id rather than on LinkedIn's
+   per-build hashed classes, exactly as D305 requires for the rest of that surface.
+
+Until both are answered, the honest alternative is cheaper and may be enough: have `job.get`
+detect that the box is truncated and say so on the receipt, so a short description is reported
+as partial rather than as the whole — the same discipline D313 already applies to a partial
+comment read.

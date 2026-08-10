@@ -139,4 +139,10 @@ export type JobInput = {
   posted_at?: string | null; workplace_type?: string | null; description?: string | null;
 };
 export type JobsUpsertResult = { rows: number };
-export type JobUpsertResult = { id: string; rows: 1 };
+export type JobUpsertResult = {
+  id: string;
+  rows: 1;
+  /** Set only when the incoming description was shorter than the stored one and
+   *  was therefore dropped — a collapsed job page yields a prefix (D323). */
+  descriptionKept?: "stored";
+};

@@ -87,22 +87,62 @@ describe("upsertJob — list to detail enrichment", () => {
   it("merges detail into the same canonical id with no duplicate row", async () => {
     replies = [
       { status: 200, body: [{ id: "4450930857" }] },
+      // The description read that precedes a description write (D323): nothing
+      // stored yet, so the incoming text is not a truncation of anything.
+      { status: 200, body: [{ description: null }] },
       { status: 200, body: [{ id: "4450930857" }] },
     ];
     const store = client();
     await upsertJob({ id: "4450930857", title: "Full Stack Developer" }, { client: store, now: NOW });
     await upsertJob({ id: "4450930857", description: "Full description" }, { client: store, now: NOW + 1 });
 
-    expect(recorded).toHaveLength(2);
-    for (const request of recorded) {
+    const writes = recorded.filter((r) => r.method === "POST");
+    expect(writes).toHaveLength(2);
+    for (const request of writes) {
       expect(request.url).toContain("/jobs");
       expect(request.url).toContain("on_conflict=id");
       expect(request.prefer).toContain("resolution=merge-duplicates");
       expect(request.body).toMatchObject({ id: "4450930857" });
     }
-    expect(recorded[0]!.body).not.toHaveProperty("description");
-    expect(recorded[1]!.body).not.toHaveProperty("title");
-    expect(recorded[1]!.body).toHaveProperty("description", "Full description");
+    expect(writes[0]!.body).not.toHaveProperty("description");
+    expect(writes[1]!.body).not.toHaveProperty("title");
+    expect(writes[1]!.body).toHaveProperty("description", "Full description");
+  });
+
+  it("keeps the longer stored description when a collapsed page yields a prefix (D323)", async () => {
+    // Live, job 4434758293: company.jobs read 3602 characters from the embedded
+    // JSON, job.get read 940 from the collapsed expandable box, and the shorter
+    // one won purely because it was written second.
+    const full = "x".repeat(3602);
+    replies = [
+      { status: 200, body: [{ description: full }] },
+      { status: 200, body: [{ id: "4434758293" }] },
+    ];
+    const result = await upsertJob(
+      { id: "4434758293", description: "y".repeat(940), workplace_type: "Remote" },
+      { client: client(), now: NOW },
+    );
+
+    const write = recorded.find((r) => r.method === "POST")!;
+    expect(write.body).not.toHaveProperty("description");
+    // Everything else this observation did see is still written.
+    expect(write.body).toMatchObject({ workplace_type: "Remote" });
+    expect(result.descriptionKept).toBe("stored");
+  });
+
+  it("takes a longer description over a shorter stored one", async () => {
+    replies = [
+      { status: 200, body: [{ description: "short" }] },
+      { status: 200, body: [{ id: "4434758293" }] },
+    ];
+    const result = await upsertJob(
+      { id: "4434758293", description: "a much longer description than before" },
+      { client: client(), now: NOW },
+    );
+
+    const write = recorded.find((r) => r.method === "POST")!;
+    expect(write.body).toHaveProperty("description", "a much longer description than before");
+    expect(result.descriptionKept).toBeUndefined();
   });
 
   it("drops explicit nulls so a later sparse list observation cannot erase detail", async () => {

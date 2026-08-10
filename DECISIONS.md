@@ -3744,3 +3744,47 @@ skipped rather than salvaged by regex.
 Verified offline against the archived bodies of three live runs: the profile run, the activity
 run and the post run each now resolve exactly the operator (`zaeem-dev`, one profile urn and one
 member urn) and never the subject.
+
+## D323 — The longer job description wins, because a collapsed page yields a prefix (2026-08-10)
+
+Measured live on 2026-08-10, job posting 4434758293. `company.jobs` read 3602 characters of
+description out of the page's embedded JSON. `job.get` then read the same posting's
+`expandable-text-box`, which the page renders **collapsed** — nothing clicks "see more" — and
+stored 1438 characters, cutting the text mid-document at "What are we looking for?". Re-running
+`company.jobs` restored the full text. What the row held depended on which capability ran last.
+
+D272 promised that neither writer erases what the other stored, and until now that promise
+covered only whole fields: absent and null are dropped. A truncation is the same erasure, done
+partially, and it passed straight through.
+
+So `upsertJob` reads the stored description before writing one and keeps the longer of the two.
+The read is one extra Supabase round trip on a path that has already spent a page load, and it
+fails open — a failed read writes as before rather than refusing.
+
+The cost is that a genuinely shortened posting keeps its old text until something clears it
+explicitly. That is the same trade D272 already made for absent fields, in the same direction:
+stale detail is recoverable, destroyed detail is not.
+
+`upsertJobs`, the batch writer, now drops explicit nulls too. `company.jobs` omits rather than
+nulls today, so nothing changes in practice — but the monotonic promise rests on *both* writers
+keeping it, and a promise only one of two writers keeps is not one.
+
+Not fixed here, and deliberately: expanding the description before snapshotting means clicking
+"see more", which is an interaction rather than a read, and the snapshot carries no control to
+anchor that click on. Recorded in `BACKLOG.md`.
+
+## D324 — first_seen after last_seen is write latency, not clock skew (2026-08-10)
+
+A `company_posts` row carried `first_seen 01:13:11.886` and `last_seen 01:13:09.785` — first
+seen 2.1 seconds after last seen. `first_seen` is `default now()`, stamped by Postgres at
+commit; `last_seen` is computed in Node before the request leaves.
+
+Measured rather than argued: a throwaway upsert put the database's `now()` at
+`02:46:18.251127`, inside a Node window of `02:46:18.241` to `.262`, with a 21ms round trip.
+The clocks agree. The 2.1 second gap was the write itself being slow — a cold first write of the
+session — not a clock offset.
+
+Left as is. The inversion can only appear on a row's first insert, `first_seen` is
+informational, and freshness compares `last_seen` alone. Fixing it properly means a trigger, and
+a schema migration to correct a cosmetic field on one row is not a trade worth making. Recorded
+so the next person to see it does not re-derive it.
