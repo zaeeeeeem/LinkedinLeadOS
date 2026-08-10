@@ -1,7 +1,7 @@
 # Task 36 — Sales Navigator surface probe and fixtures (live)
 
 **Model:** Opus · **Depends on:** Task 35 · **Spec:** §7 (searches, search_results),
-§9 L2 · **Decisions owned:** D350–D359
+§9 L2 · **Decisions owned:** D351–D359 (D350 was taken at Task 35's merge — next free number wins)
 **Probe budget: max 6 page loads / 6 search pages** (leads search pages 1–2, accounts
 search page 1, saved-search list, plus spares). This is the seat check too.
 
