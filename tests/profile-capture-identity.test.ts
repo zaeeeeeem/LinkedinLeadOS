@@ -6,7 +6,9 @@ import {
   findSubjectUrn,
   isIdentityBody,
   isSessionBody,
+  sessionIdentityInDocument,
   sessionUrnsOf,
+  sessionVanitiesOf,
 } from "../src/capabilities/profile.capture/identity.js";
 import type { IdentityCapture } from "../src/capabilities/profile.capture/identity.js";
 import type { Capture } from "../src/core/tap/network-tap.js";
@@ -322,5 +324,92 @@ describe("sessionUrnsOf", () => {
       { url: IDENTITY_URL, body: identityBody(SUBJECT_URN) },
     ]);
     expect(urns).toEqual([OPERATOR_URN]);
+  });
+});
+
+/**
+ * D322. The activity surface never fetches `/voyager/api/me`, measured on
+ * 2026-08-10 — so `profile.posts` and `profile.activity` stored rows with the
+ * D119 guard holding an empty comparison set. The same record is on the page as
+ * a Big Pipe island, which D117 admits.
+ */
+const ACTIVITY_URL = "https://www.linkedin.com/in/tankots/recent-activity/all/";
+
+/** A document carrying the session island, escaped the way LinkedIn escapes it. */
+function documentWithSessionIsland(o: { operator: string; vanity: string; alsoOnPage: string }) {
+  const island = JSON.stringify({
+    data: { $type: "com.linkedin.voyager.common.Me", "*miniProfile": o.operator },
+    included: [{ dashEntityUrn: o.operator, publicIdentifier: o.vanity }],
+  })
+    .replaceAll("&", "&amp;")
+    .replaceAll('"', "&quot;");
+  return (
+    `<html><body>` +
+    `<code style="display: none" id="bpr-guid-669482">${island}</code>` +
+    // The subject's own urn, elsewhere in the same document. Reading urns from
+    // the document at large rather than from inside the island would sweep this
+    // up and make every real subject look like the operator.
+    `<div data-urn="${o.alsoOnPage}">the subject's own feed</div>` +
+    `</body></html>`
+  );
+}
+
+describe("sessionUrnsOf, on a surface that never fetches /me", () => {
+  it("reads the session out of the document island (D322)", () => {
+    const urns = sessionUrnsOf([
+      {
+        url: ACTIVITY_URL,
+        body: documentWithSessionIsland({
+          operator: OPERATOR_URN,
+          vanity: "zaeem-dev",
+          alsoOnPage: SUBJECT_URN,
+        }),
+      },
+    ]);
+    expect(urns).toEqual([OPERATOR_URN]);
+    expect(urns).not.toContain(SUBJECT_URN);
+  });
+
+  it("takes the vanity from the island too, for the DOM surfaces that have no urn", () => {
+    const vanities = sessionVanitiesOf([
+      {
+        url: ACTIVITY_URL,
+        body: documentWithSessionIsland({
+          operator: OPERATOR_URN,
+          vanity: "zaeem-dev",
+          alsoOnPage: SUBJECT_URN,
+        }),
+      },
+    ]);
+    expect(vanities).toEqual(["zaeem-dev"]);
+  });
+
+  it("ignores an island that does not say it is the session's own record", () => {
+    const notMe = JSON.stringify({ data: { $type: "com.linkedin.voyager.feed.Update" }, included: [{ dashEntityUrn: SUBJECT_URN }] })
+      .replaceAll('"', "&quot;");
+    const urns = sessionUrnsOf([
+      { url: ACTIVITY_URL, body: `<html><body><code id="bpr-guid-1">${notMe}</code></body></html>` },
+    ]);
+    expect(urns).toEqual([]);
+  });
+
+  it("ignores an island that will not parse rather than salvaging urns from it", () => {
+    const urns = sessionUrnsOf([
+      {
+        url: ACTIVITY_URL,
+        body:
+          `<html><body><code id="bpr-guid-1">` +
+          `{&quot;$type&quot;:&quot;com.linkedin.voyager.common.Me&quot;,&quot;a&quot;:${SUBJECT_URN}` +
+          `</code></body></html>`,
+      },
+    ]);
+    expect(urns).toEqual([]);
+  });
+
+  it("costs nothing on a body that never mentions the session type", () => {
+    expect(sessionIdentityInDocument("<html><body>nothing here</body></html>")).toEqual({
+      urns: [],
+      vanities: [],
+    });
   });
 });

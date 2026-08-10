@@ -133,6 +133,58 @@ export function isSessionBody(capture: IdentityCapture): boolean {
   return /\/voyager\/api\/me\b/.test(capture.url);
 }
 
+/**
+ * The `$type` that labels the session's own account record, in the API body and
+ * in the document island alike. It is what makes this a labeled read rather than
+ * a guess about which urn on the page is the viewer's.
+ */
+const SESSION_ISLAND_TYPE = "com.linkedin.voyager.common.Me";
+
+/**
+ * The session's own record as LinkedIn server-renders it into the page.
+ *
+ * `/voyager/api/me` is not fetched on every surface. Measured on 2026-08-10: the
+ * profile page fetches it, and `/in/<vanity>/recent-activity/all/` does not — so
+ * `profile.posts` and `profile.activity` ran with an empty session set and stored
+ * rows with the D119 guard inert, which is the one check standing between a
+ * prospect's row and the operator's own identity.
+ *
+ * The same payload is on those pages anyway, as a Big Pipe island in the initial
+ * document, which D117 admits as a captured body. This reads that one island and
+ * takes urns only from inside it — never from the document at large, where the
+ * *subject's* urns also live and would poison the comparison set into flagging
+ * every real subject as the operator (D322).
+ */
+export function sessionIdentityInDocument(body: string): { urns: string[]; vanities: string[] } {
+  // Cheap gate first: this runs over every captured body, and loading a 1MB
+  // document into cheerio to find nothing is not worth doing on any of them.
+  if (!body.includes(SESSION_ISLAND_TYPE)) return { urns: [], vanities: [] };
+
+  const urns = new Set<string>();
+  const vanities = new Set<string>();
+  const $ = cheerio.load(body);
+  $('code[id^="bpr-guid-"]').each((_, node) => {
+    const raw = $(node).text();
+    if (!raw.includes(SESSION_ISLAND_TYPE)) return;
+    let parsed: unknown;
+    try {
+      parsed = JSON.parse(raw);
+    } catch {
+      // An island that does not parse is not structured data. Skipped rather
+      // than salvaged: a regex over half-decoded text is how a stranger's urn
+      // ends up in the operator's set.
+      return;
+    }
+    const island = JSON.stringify(parsed);
+    // Belt and braces: the island has to *say* it is the Me record, not merely
+    // sit near one. A page could carry another island that mentions the type.
+    if (!island.includes(`"${SESSION_ISLAND_TYPE}"`)) return;
+    for (const urn of personUrnsIn(island)) urns.add(urn);
+    for (const m of island.matchAll(/"publicIdentifier"\s*:\s*"([^"]+)"/g)) vanities.add(m[1]!);
+  });
+  return { urns: [...urns], vanities: [...vanities] };
+}
+
 export type IdentityFinding = {
   /** How many `voyagerIdentityDashProfiles` bodies the run captured. */
   bodies: number;
@@ -253,7 +305,14 @@ export function checkDomIdentityScope(
 /** The session's own person urns, from the `/voyager/api/me` body the page
  *  fetched on its own. The comparison set for every `isSession` check. */
 export function sessionUrnsOf(captures: readonly IdentityCapture[]): string[] {
-  return [...new Set(captures.filter(isSessionBody).flatMap((c) => personUrnsIn(c.body)))];
+  const found = new Set<string>();
+  for (const capture of captures) {
+    if (isSessionBody(capture)) for (const urn of personUrnsIn(capture.body)) found.add(urn);
+    // And the same record where the page server-rendered it instead of fetching
+    // it, which is the only place the activity surface has it (D322).
+    else for (const urn of sessionIdentityInDocument(capture.body).urns) found.add(urn);
+  }
+  return [...found];
 }
 
 /**
@@ -268,9 +327,11 @@ export function sessionUrnsOf(captures: readonly IdentityCapture[]): string[] {
  */
 export function sessionVanitiesOf(captures: readonly IdentityCapture[]): string[] {
   const found = new Set<string>();
-  for (const capture of captures.filter(isSessionBody)) {
-    for (const m of capture.body.matchAll(/"publicIdentifier"\s*:\s*"([^"]+)"/g)) {
-      found.add(m[1]!);
+  for (const capture of captures) {
+    if (isSessionBody(capture)) {
+      for (const m of capture.body.matchAll(/"publicIdentifier"\s*:\s*"([^"]+)"/g)) found.add(m[1]!);
+    } else {
+      for (const vanity of sessionIdentityInDocument(capture.body).vanities) found.add(vanity);
     }
   }
   return [...found];

@@ -3716,3 +3716,31 @@ The gate now waits for whichever arrives first, the broad API pattern or this ta
 document pattern, and fails only when neither does. It is a readiness gate, not a safety gate:
 no rule is loosened, nothing new is requested, and the challenge gates on either side of it are
 untouched.
+
+## D322 — The session's own identity is read from the document island where `/me` is not fetched (2026-08-10)
+
+`profile.posts` and `profile.activity` both warned `SESSION_IDENTITY_UNAVAILABLE` on the live
+gate and stored their rows anyway — 14 `person_posts` among them. That warning means the D119
+guard ran with an empty comparison set: the check that stops a parser returning the operator's
+own identity for every prospect had nothing to compare against.
+
+Measured on 2026-08-10, not assumed. The profile surface fetches `/voyager/api/me` (archived as
+`0003` of run `01KZMMFNSMFJ8CKHV9R9JJZ1GY`). `/in/<vanity>/recent-activity/all/` never does —
+38 captures in run `01KZMMQATNPGB0Z9KW2HY0S5EQ` and not one of them is `/me`. The post
+permalink does fetch it, so this was never a post-surface problem.
+
+The same record is on the activity page anyway, server-rendered into the initial document as a
+Big Pipe island — `<code id="bpr-guid-669482">` carrying
+`"$type":"com.linkedin.voyager.common.Me"` — which D117 admits as a captured body. Nothing new
+is requested; this reads a body the page already served.
+
+Scope is the whole safety argument. Urns are taken **only from inside that one labeled island**,
+never from the document at large. The activity document also carries the *subject's* urns, and a
+document-wide sweep would put a prospect into the operator's own comparison set — at which point
+the D119 guard would flag every genuine subject as the operator and suppress real data. So the
+island must parse as JSON and must itself carry the `Me` type; an island that will not parse is
+skipped rather than salvaged by regex.
+
+Verified offline against the archived bodies of three live runs: the profile run, the activity
+run and the post run each now resolve exactly the operator (`zaeem-dev`, one profile urn and one
+member urn) and never the subject.
