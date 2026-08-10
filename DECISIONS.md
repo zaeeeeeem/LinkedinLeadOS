@@ -4264,3 +4264,33 @@ unknown.
 
 **Needs the operator.** One page load against a company-authored permalink would settle it. Until
 that capture exists, this half of Task 34 is deliberately unbuilt.
+
+## D335 — M5 plan approved shape: probe-first L2, paged-run contract, sub-caps (2026-08-10, plan-level)
+
+**Decision.** M5 (L2 Sales Navigator) is planned as `docs/plans/m5-l2-salesnav/` — README,
+CONTEXT, RECORDING, and six task files (35–40). It delivers three readers
+(`salesnav.savedsearch.list`, `salesnav.leads.list`, `salesnav.accounts.list`) plus the
+paged-run core and the `searches`/`search_results` write path. `salesnav.filters.build/apply`
+stay in M6 (spec §11); `classic.search.*` and `jobs.search` are deferred out of M5 with their
+home to be fixed at approval. D152 (probe-first mandatory) and D153 (per-capability sub-caps)
+extend to L2 unchanged.
+
+**Why.** Every expensive M1–M4 failure started from an assumed data shape; the probe-first
+sequence is kept structural. L2 adds two things L1 never needed — multi-page spend and resume —
+so a paged-run contract (spend→load→archive→checkpoint, resume verified against the archive)
+is fixed in core once (Task 35) before any capability spends a metered search page.
+
+**Ranges.** M5 uses explicit decision ranges D340–D399 (Task 35→D340s … Task 40→D390s),
+starting clear of the D330–D334 Task 34 already took. D18's arithmetic formula is retired for M5.
+
+## D336 — Search results are provenance, never entities (2026-08-10, plan-level)
+
+**Decision.** A `search_results` row never inserts or freshens a `persons`/`companies` row.
+Search rows are append-only provenance (search_id, page, position, urn/URL); entity enrichment
+is L1's job through the readers that actually load the entity. Re-running a search spends again
+by design — freshness does not apply to searches — so the M4 gate's "second run at zero loads"
+check deliberately does not apply to M5.
+
+**Why.** `last_seen` is a record's claim to be *complete* (D105); a search hit read nothing.
+Minting or bumping an entity from a search would mark it fresh while nothing was actually read,
+defeating the freshness cache the whole system leans on.

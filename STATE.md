@@ -1,5 +1,22 @@
 # STATE
 
+## Planned — M5 (L2 Sales Navigator) plan laid down (2026-08-10)
+
+The full M5 plan is written at `docs/plans/m5-l2-salesnav/` — README, CONTEXT, RECORDING,
+and six task files (35–40), same shape as m1-m3 and m4-l1-readers. Not started; pending
+operator approval. Delivers `salesnav.savedsearch.list`, `salesnav.leads.list`,
+`salesnav.accounts.list`, the paged-run spend/checkpoint/resume core (Task 35), and the
+`searches`/`search_results` write path (Task 38). `filters.build/apply` stay M6;
+`classic.search.*`/`jobs.search` deferred (home fixed at approval). Plan-level decisions
+D335–D336; task ranges D340–D399. See README "Preconditions" — M5 needs a Sales Navigator
+seat on the automation account (Task 36's first load is the honest seat check) and treats
+pagination-by-click as a `[DECISION NEEDED]`, not an assumption.
+
+**Removed:** `supabase/migrations/0012_pipeline_and_starring.sql` — it altered a `leads`
+table absent from this project's §7 schema, used a foreign naming convention, and would
+have broken `db reset`. It landed here by accident (another project's CRM migration) and
+was deleted 2026-08-10.
+
 ## In progress — Task 34 `post.get` author resolution (2026-08-10)
 
 **Offline half done, live gate not yet run.** `post.get` no longer stores nothing: the author
