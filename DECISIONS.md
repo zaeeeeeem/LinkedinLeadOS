@@ -4407,18 +4407,38 @@ field states for free.
 the comment-row scope, not an independent guard — loosening it alone breaks no test, because
 the scope already excludes the comment counts that would poison it. Kept as defence in depth.
 
-## D341 — The Ember page carries a labeled reactions body, and reactions still come from the DOM for now (2026-08-10, [DECISION NEEDED])
+## D341 — Reactions come from the labeled body when the page fetched one (2026-08-10, settled)
 
 **Measured.** The 13:27 run archived a 69,876-byte `voyagerSocialDashReactions` graphql
 response. The SDUI page fetched no such body on a cold load — that absence is part of what D312
 measured and D313 granted the DOM exception for.
 
-**Decision for now.** Reactions keep coming from the rendered facepile on this renderer, and
-stay opt-in and bounded exactly as D313 requires. Nothing was changed to consume the labeled
-body in this pass.
+**Decided by the operator, 2026-08-10: the labeled body wins.** `src/capabilities/post.get/
+reactions.ts` parses it; the DOM facepile stays the fallback for the renderer that fetches no
+such body, so neither path is dead code. Built offline against the archived response — zero
+page loads.
 
-**Why this needs your call.** The standing rule is that a labeled network body wins over a DOM
-read. That rule is written as a condition on the *feed and inbox* grants (D325/D326) and not on
-the post grant, so this is not a rule violation today — but it is the same argument, and a
-labeled body is strictly better evidence than an aria-label. Moving reactions onto it is a
-parser change against an already-archived fixture: **zero page loads.**
+**What the body gives that the facepile could not:**
+
+| | facepile (DOM) | body (labeled) |
+|---|---|---|
+| actor | display name out of `"View <name>'s, reacted with LIKE, graphic"` | `actorUrn` — `urn:li:fsd_profile:…` |
+| type | the middle of that same string | `reactionType`, an enum |
+| total | a rendered aria-label | `paging.total` |
+| scope | "it is in the facepile element" | the activity urn inside each row's own `entityUrn` |
+
+The scope is the real gain. Every row names the post it belongs to, so a body fetched for a
+neighbouring post contributes nothing and the count dropped is reported as
+`REACTIONS_FOREIGN_POST` rather than hidden.
+
+**Tagged apart, not merged.** Body rows carry `source: "voyager"`, DOM rows keep
+`"dom-snapshot"`, and the receipt states `read.reactions_source`. Nothing downstream can read
+an API field as a DOM read or the reverse.
+
+**D313's conditions are unchanged by the source moving.** Reactions stay opt-in — a default run
+does not consult the body even when it is sitting in the capture, pinned by a test — stay
+bounded by `--limit`, and **nothing follows `paginationToken`**. The body carries 10 of 1,052;
+reading the rest would be the loop D313 forbids.
+
+**Not a new request.** The body arrives on `activity.capture`'s existing `gql-social-reactions`
+watch, fetched by the page itself. D1 holds: nothing is forged.

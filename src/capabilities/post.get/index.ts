@@ -15,6 +15,13 @@ import { normalizeActivityUrl } from "../activity.capture/url.js";
 import { sessionUrnsOf, sessionVanitiesOf } from "../profile.capture/identity.js";
 import { authorWarning, resolveAuthor, type AuthorLookup } from "./author.js";
 import { parsePost, type ParsePostResult } from "./parse.js";
+import { parseReactionsBody } from "./reactions.js";
+
+/**
+ * The watch whose bodies carry reactions. Registered by `activity.capture`, so
+ * nothing here asks LinkedIn for anything the page did not already fetch (D1).
+ */
+const REACTIONS_PATTERN = "gql-social-reactions";
 
 /**
  * D313's conditions, expressed as defaults rather than as documentation.
@@ -54,6 +61,12 @@ type CaptureOutcome = {
   snapshotFile: string | null;
   sessionUrns: string[];
   sessionVanities: string[];
+  /**
+   * Bodies the page fetched on the `gql-social-reactions` watch. Empty on the
+   * SDUI renderer, which fetches none (D312) — so this is a capability the page
+   * either gave us or did not, never something requested on its own (D1).
+   */
+  reactionBodies: string[];
   result: CapabilityResult;
 };
 
@@ -86,6 +99,7 @@ const defaultDeps: PostGetDeps = {
       snapshotFile: snapshotFileOf(result),
       sessionUrns: sessionUrnsOf(captures),
       sessionVanities: sessionVanitiesOf(captures),
+      reactionBodies: captures.filter((c) => c.patterns.includes(REACTIONS_PATTERN)).map((c) => c.body),
     };
   },
   findAuthor: async (vanity) => {
@@ -167,6 +181,28 @@ export function createPostGetCapability(deps: PostGetDeps = defaultDeps) {
 
       const post = parsed.post.value;
 
+      // ── reactions: the labeled body wins over the rendered facepile (D341) ──
+      // Only when asked for, exactly as D313 requires — a default run reads
+      // neither source. The DOM stays the fallback for the renderer that fetches
+      // no such body, so neither path is dead code.
+      const reactionsFromBody =
+        ctx.args.reactions && captured.reactionBodies.length > 0
+          ? parseReactionsBody(captured.reactionBodies[0]!, {
+            expectedUrn: target.postUrn,
+            limit: ctx.args.reactionsLimit,
+          })
+          : null;
+      const usingBody = reactionsFromBody !== null && reactionsFromBody.rows.length > 0;
+      const reactionRows = usingBody
+        ? reactionsFromBody!.rows.map((r) => ({ source: r.source, value: r.value as Record<string, unknown> }))
+        : parsed.reactions.map((r) => ({ source: r.source, value: r.value as unknown as Record<string, unknown> }));
+      // `paging.total` is what LinkedIn says; the aria-label is what a page
+      // rendered. When both exist the labeled one is the number reported and
+      // stored.
+      const reactionsTotal = usingBody && reactionsFromBody!.total !== null
+        ? reactionsFromBody!.total
+        : post.reactions_total;
+
       // ── the author, and therefore whether anything may be written ──────────
       // `--no-store` touches the store for nothing at all, not even the lookup:
       // a run told not to store must not require a configured client to succeed.
@@ -186,7 +222,7 @@ export function createPostGetCapability(deps: PostGetDeps = defaultDeps) {
           person_urn: author.urn,
           text: post.text,
           posted_at: post.posted_at,
-          reactions: post.reactions_total,
+          reactions: reactionsTotal,
           comments: post.comments_total,
         });
       }
@@ -210,7 +246,20 @@ export function createPostGetCapability(deps: PostGetDeps = defaultDeps) {
         },
         warnings: [
           ...(captured.result.warnings ?? []),
-          ...parsed.warnings.map((w) => ({ code: w.code, n: w.n, field: w.field })),
+          // A DOM REACTIONS_PARTIAL counted the facepile against a rendered
+          // label. When the body won, both numbers were replaced, so the stale
+          // warning is dropped rather than left to contradict the receipt.
+          ...parsed.warnings
+            .filter((w) => !(usingBody && w.code === "REACTIONS_PARTIAL"))
+            .map((w) => ({ code: w.code, n: w.n, field: w.field })),
+          ...(usingBody && reactionsFromBody!.total !== null && reactionRows.length < reactionsFromBody!.total
+            ? [{
+              code: "REACTIONS_PARTIAL",
+              n: reactionsFromBody!.total - reactionRows.length,
+              field: `read ${reactionRows.length} of ${reactionsFromBody!.total} reactions the body reports; the page fetched one page and nothing here follows its pagination token`,
+            }]
+            : []),
+          ...(reactionsFromBody?.warnings ?? []).map((w) => ({ code: w.code, n: w.n, field: w.field })),
           ...(refusal === null ? [] : [refusal]),
           ...(timeless
             ? [{
@@ -235,17 +284,20 @@ export function createPostGetCapability(deps: PostGetDeps = defaultDeps) {
             urn: post.urn,
             author_vanity: post.author_vanity,
             posted_at: post.posted_at,
-            reactions_total: post.reactions_total,
+            reactions_total: reactionsTotal,
             comments_total: post.comments_total,
             reposts_total: post.reposts_total,
             text_chars: post.text?.length ?? 0,
           },
           read: {
             comments: parsed.comments.length,
-            reactions: parsed.reactions.length,
+            reactions: reactionRows.length,
+            // Which source the reactions came from, per row and in summary, so
+            // "voyager" and "dom-snapshot" are never conflated downstream (D341).
+            reactions_source: usingBody ? "voyager" : "dom-snapshot",
             // Stated plainly so a caller cannot read silence as completeness.
             comments_complete: post.comments_total === null ? null : parsed.comments.length >= post.comments_total,
-            reactions_complete: post.reactions_total === null ? null : parsed.reactions.length >= post.reactions_total,
+            reactions_complete: reactionsTotal === null ? null : reactionRows.length >= reactionsTotal,
           },
           // What the author lookup did, in the receipt rather than in a log —
           // a skipped write and a successful one must not look alike.

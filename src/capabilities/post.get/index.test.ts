@@ -65,11 +65,12 @@ function context(args: Record<string, unknown>, html = snapshotHtml()) {
   } as never;
 }
 
-function capture(html = snapshotHtml()) {
+function capture(html = snapshotHtml(), reactionBodies: string[] = []) {
   return vi.fn(async () => ({
     snapshotFile: "0026-abc.json.gz",
     sessionUrns: [],
     sessionVanities: ["zaeem-dev"],
+    reactionBodies,
     result: { counts: { requested: 1, captured: 1, usable: 1, skipped: 0 }, warnings: [], data: { snapshot: { archived: "0026-abc.json.gz" } } },
     html,
   }));
@@ -110,6 +111,56 @@ describe("post.get composition", () => {
     // Nothing was asked for, so nothing is reported partial.
     expect((receipt.warnings ?? []).map((w) => w.code)).not.toContain("COMMENTS_PARTIAL");
     expect((receipt.warnings ?? []).map((w) => w.code)).not.toContain("REACTIONS_PARTIAL");
+  });
+
+  it("prefers the labeled reactions body over the rendered facepile (D341)", async () => {
+    const body = JSON.stringify({
+      data: { data: { socialDashReactionsByReactionType: { paging: { total: 1052 } } } },
+      included: [{
+        $type: "com.linkedin.voyager.dash.social.Reaction",
+        actorUrn: "urn:li:fsd_profile:AAA",
+        reactionType: "PRAISE",
+        entityUrn: `urn:li:fsd_reaction:(urn:li:fsd_profile:AAA,${URN},0)`,
+        reactorLockup: { title: { text: "From The Body" }, navigationUrl: "https://www.linkedin.com/in/AAA" },
+      }],
+    });
+    const receipt = await make(capture(snapshotHtml(), [body])).run(
+      context({ url: PERMALINK, reactions: true }),
+    );
+    const data = receipt.data as { read: { reactions_source: string; reactions: number }; post: { reactions_total: number } };
+    expect(data.read.reactions_source).toBe("voyager");
+    expect(data.read.reactions).toBe(1);
+    // paging.total is what LinkedIn says; 1013 is what the fixture's label renders.
+    expect(data.post.reactions_total).toBe(1052);
+  });
+
+  it("falls back to the facepile when the page fetched no reactions body", async () => {
+    const receipt = await make(capture()).run(context({ url: PERMALINK, reactions: true }));
+    const data = receipt.data as { read: { reactions_source: string; reactions: number }; post: { reactions_total: number } };
+    expect(data.read.reactions_source).toBe("dom-snapshot");
+    expect(data.read.reactions).toBe(2);
+    expect(data.post.reactions_total).toBe(1013);
+  });
+
+  it("reads no reactions body at all unless reactions were asked for", async () => {
+    // A body with a real, in-scope row: if the default run consulted it at all,
+    // the total would move off the rendered label and the source would flip.
+    const body = JSON.stringify({
+      data: { data: { socialDashReactionsByReactionType: { paging: { total: 1052 } } } },
+      included: [{
+        $type: "com.linkedin.voyager.dash.social.Reaction",
+        actorUrn: "urn:li:fsd_profile:AAA",
+        reactionType: "LIKE",
+        entityUrn: `urn:li:fsd_reaction:(urn:li:fsd_profile:AAA,${URN},0)`,
+        reactorLockup: { title: { text: "Not Read" }, navigationUrl: "https://www.linkedin.com/in/AAA" },
+      }],
+    });
+    const receipt = await make(capture(snapshotHtml(), [body])).run(context({ url: PERMALINK }));
+    const data = receipt.data as { read: { reactions: number; reactions_source: string }; post: { reactions_total: number } };
+    expect(data.read.reactions).toBe(0);
+    // The body was present and deliberately not consulted: D313's default holds.
+    expect(data.read.reactions_source).toBe("dom-snapshot");
+    expect(data.post.reactions_total).toBe(1013);
   });
 
   it("names the renderer on the receipt, and parses an Ember snapshot through the same wiring", async () => {

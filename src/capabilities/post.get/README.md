@@ -75,6 +75,23 @@ Both exclusions are by identity, never by position: comment rows are found by th
 `posted_at` is derived from the activity snowflake, exactly as Task 27 does. Every time
 rendered on this page is relative (`"3d"`); none of it is read.
 
+## Where reactions come from (D341)
+
+Two sources, and the labeled one wins:
+
+- **`voyager`** — the `voyagerSocialDashReactions` body the Ember page fetches on its own. Gives
+  the reactor's **urn**, a `reactionType` enum, and `paging.total`. Each row names the post it
+  belongs to inside its `entityUrn`, so a body fetched for another post contributes nothing.
+- **`dom-snapshot`** — the rendered facepile, used when the page fetched no such body (the SDUI
+  renderer fetches none). Gives a display name parsed out of an aria-label.
+
+`data.read.reactions_source` says which one ran. Rows are tagged individually too, so an API
+field is never mistaken for a DOM read.
+
+D313's conditions do not move with the source: reactions stay opt-in — a default run does not
+consult the body even when it is present — stay bounded by `--reactions-limit`, and nothing
+follows the body's `paginationToken`.
+
 ## Comments and reactions: opt-in, bounded, and honest about it
 
 D313 granted this exception with a spending condition attached, and the condition is part of
@@ -82,8 +99,8 @@ the rule:
 
 - A default run reads **the post only**. No comments, no reactions.
 - `--comments` reads what the cold load rendered, up to `--comments-limit` (default 10).
-- `--reactions` reads the rendered facepile, up to `--reactions-limit` (default 10).
-  Reactions rank below comments and are never read unless named.
+- `--reactions` reads up to `--reactions-limit` (default 10) from whichever source is available,
+  labeled body first (D341). Reactions rank below comments and are never read unless named.
 - **Nothing loops "load more."** One bounded pass over what is present. Reading further is a
   new, explicitly-requested run.
 - **A partial read is always flagged.** When the page states a higher total than the number of

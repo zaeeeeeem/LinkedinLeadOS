@@ -118,16 +118,33 @@ and `inbox.*` parses it correctly.** Only the post surface switched. The three S
 were last measured 8–11 hours before the switch and show no sign of it; confirming them costs
 one supervised load each and is not evidence-backed work today.
 
+## Done — reactions moved onto the labeled body (2026-08-10, D341 settled)
+
+**Offline, zero page loads.** `post.get` now reads reactions from the
+`voyagerSocialDashReactions` body the Ember page fetches itself, with the DOM facepile as the
+fallback for the renderer that fetches none. 1459 tests across 94 files (was 1448), typecheck
+clean.
+
+The gain is identity, not convenience: the body gives `actorUrn`, a `reactionType` enum and
+`paging.total` where the facepile gave a display name scraped from
+`"View <name>'s, reacted with LIKE, graphic"`. Each row also names its own post, so a body
+fetched for a neighbouring post contributes nothing — `REACTIONS_FOREIGN_POST` counts what was
+dropped.
+
+Rows are tagged `source: "voyager"` against the DOM's `"dom-snapshot"`, and the receipt states
+`read.reactions_source`. Four guards mutation-verified: the foreign-post scope, the limit bound,
+the opt-in default (a default run does not consult a body that is present), and the preference
+itself.
+
 **Next — operator's call:**
 
 1. **One live `post.get` re-run** would close Task 34 properly: exit 0, `renderer: "ember"`, and
    a `person_posts` row for `tankots` verified by direct query. Author resolution (D330–D333)
    is still the one part of Task 34 never exercised against a real page. 1 page load.
-2. **D341** — the Ember page fetches a 69,876-byte `voyagerSocialDashReactions` body the SDUI
-   page never did. Moving reactions onto that labeled body is strictly better evidence than an
-   aria-label and costs zero page loads, since the body is already archived.
-3. **Three surfaces unconfirmed since the switch** (`profile.get`, `job.get`, `feed.get`). One
-   load each, or wait until they are next run for real.
+2. **Three surfaces unconfirmed since the switch** (`profile.get`, `job.get`, `feed.get`).
+   Operator decided 2026-08-10: **do not spend loads on this** — the disk sweep showed mercado
+   is not spreading, and the loads are saved for M5. They confirm themselves the next time they
+   run for real.
 
 **A promoter defect found on the way:** `npm run fixtures:promote` skipped both Ember snapshots
 as `duplicate_shape`. Every HTML body hashes to the same non-JSON shape constant, so the second
