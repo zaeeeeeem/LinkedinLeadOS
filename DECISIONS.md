@@ -4147,3 +4147,51 @@ The thread message's exact text value occurs zero times in the run receipt and e
 reads remain unconditionally `partial: true`, and both archives remain private and archive-only.
 The gate spent 2 of its maximum 4 page loads; no confirmation load is justified after the
 default thread read exited 0, so the remaining two stay unspent.
+
+## D298 — The scroller is chosen by name where a page has more than one (2026-08-10)
+
+**Decision.** `readLikeAHuman` accepts `preferScroller`, an ordered list of CSS selectors
+naming the box to read. The first that resolves to a genuinely-scrollable element wins; the
+tallest-element rule (D115) decides only when none matches, and a fall back to it is reported
+as `SCROLLER_SELECTOR_UNMATCHED` rather than passing silently. The chosen element's
+`getBoundingClientRect` is now measured, and the wheel is aimed inside that rect instead of at
+a fraction of the window.
+
+`inbox.list` reads `.msg-conversations-container__conversations-list`; `inbox.thread` reads
+`.msg-s-message-list-container`, then `.msg-s-message-list-content`. Both were measured from
+the archived DOM snapshot of run `01KZNFTXE2D1530BHYAFEGH7HV`, offline, at no page-load cost.
+They are LinkedIn's semantic BEM class names, not the per-build content-hashed kind D128 warns
+against.
+
+**Why.** D115 measured one page, and every surface since has had exactly one scroller, so
+"tallest wins" was never wrong until `/messaging/`. There the conversation rail (20 rows,
+`scrollHeight 1888`) is taller than the message pane, so both inbox reads scrolled the rail.
+`inbox.list` wanted the rail and was accidentally right. `inbox.thread` did not, and the
+2026-08-10 gate returned **1 message** with `layout.settled: true`, no warning, and a receipt
+that looked healthy — the scroll passes had paged the wrong box.
+
+The rect matters as much as the selector. A wheel event is delivered to whatever sits under
+the pointer, and the old placement drew `x` from `0.3–0.7 × window width`; on a 2000px window
+the low end is 600px, left of a message pane that starts at 620px. Measuring one box and
+scrolling another is the same defect wearing different clothes.
+
+**Cost.** `preferScroller` is opt-in and the no-preference expression is byte-identical to the
+old one, so profile, job, activity and feed reads are unchanged. The rect fallback keeps the
+old placement for any page or test double without one.
+
+## D299 — Correspondent names stay in the archive, like message text (2026-08-10)
+
+**Decision.** `inbox.list` emits `urn` and `is_operator` per participant. The display name is
+not on the receipt. It remains in the archived body, reachable offline, exactly as message
+text is under D326's grant.
+
+**Why.** The 2026-08-10 live run printed 20 real people's full names and profile urns to
+stdout, a log and a session transcript. Message text was correctly withheld, so the rule that
+was written held — and the rule was too narrow. A receipt naming who someone corresponds with,
+when, and how often identifies a real person as surely as the message body does, and the
+inbox's whole justification for archive-only storage (D294) is that this correspondence is
+private. Withholding the text while publishing the counterparty was an inconsistency, not a
+balance.
+
+A test pins it: the parsed receipt is serialized and asserted to contain none of the fixture's
+participant names, the same shape as the existing message-text leak test.

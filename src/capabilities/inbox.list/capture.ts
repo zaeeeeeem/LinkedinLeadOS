@@ -14,6 +14,7 @@ import {
 import {
   carriesInboxPayload, inboxDocumentPattern, INBOX_DOCUMENT_NAME, INBOX_PATTERNS,
 } from "./patterns.js";
+import { INBOX_LIST_SCROLLERS, INBOX_THREAD_SCROLLERS } from "./constants.js";
 
 export type InboxPayloadRef = { file: string; bytes: number };
 
@@ -104,6 +105,7 @@ export async function captureInbox(
       tab,
       cursor,
       passes: options.passes,
+      preferScroller: options.itemRef === "thread" ? INBOX_THREAD_SCROLLERS : INBOX_LIST_SCROLLERS,
       ...(args.layoutTimeoutMs === undefined ? {} : { layoutTimeoutMs: args.layoutTimeoutMs }),
     });
     run.log("render.wait", {
@@ -163,6 +165,15 @@ export async function captureInbox(
   if (reading !== null && !reading.layout.settled) warnings.push({
     code: "PAGE_NOT_LAID_OUT", n: 1,
     field: `the messaging scroller did not settle after ${reading.layout.polls} measurements`,
+  });
+  // A silent fall back to "tallest element" is exactly the D298 defect coming
+  // back: on /messaging/ that is the conversation rail, so a thread read would
+  // scroll the wrong box and still look healthy. Say so instead.
+  if (reading !== null && reading.viewport?.scroller != null
+    && (reading.viewport.scroller.matchedSelector ?? null) === null) warnings.push({
+    code: "SCROLLER_SELECTOR_UNMATCHED", n: 1,
+    field: `no ${options.itemRef} scroller selector matched; fell back to the tallest element `
+      + `(${reading.viewport.scroller.tag}, scrollHeight ${reading.viewport.scroller.scrollHeight})`,
   });
   if (snapshot?.archived == null) warnings.push({
     code: "DOM_SNAPSHOT_NOT_ARCHIVED", n: 1,

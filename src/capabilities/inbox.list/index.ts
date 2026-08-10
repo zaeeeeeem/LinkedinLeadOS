@@ -77,7 +77,16 @@ export function createInboxListCapability(deps: InboxListDeps = defaultDeps) {
             urn: row.urn,
             backend_urn: row.backend_urn,
             url: row.url,
-            participants: row.participants,
+            // Urn and operator flag only. The privacy argument that keeps
+            // message text in the archive applies to who the correspondent is:
+            // a receipt goes to stdout, a log and a transcript, and a name
+            // there identifies a real person as surely as the text would.
+            // The name stays in the archived body, where it is reachable
+            // offline. See D299.
+            participants: row.participants.map((participant) => ({
+              urn: participant.urn,
+              is_operator: participant.is_operator,
+            })),
             last_message: {
               sender_urn: row.last_message.sender_urn,
               sent_at: row.last_message.sent_at,

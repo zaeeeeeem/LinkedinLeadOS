@@ -82,3 +82,23 @@ describe("inbox.list — composition", () => {
     ).rejects.toBe(failure);
   });
 });
+
+describe("inbox.list — correspondent names stay in the archive (D299)", () => {
+  it("emits participant urns and the operator flag, never a name", async () => {
+    const result = await createInboxListCapability({ capture: async () => captured() })
+      .run(context()) as any;
+
+    const participants = result.data.conversations.flatMap((row: any) => row.participants);
+    expect(participants.length).toBeGreaterThan(0);
+    for (const participant of participants) {
+      expect(Object.keys(participant).sort()).toEqual(["is_operator", "urn"]);
+    }
+    // Exactly the check the message-text rule gets: the real names are in the
+    // fixture, so a serialized receipt that contains one is a leak.
+    const serialized = JSON.stringify(result);
+    for (const name of ["Alex", "Casey", "Morgan", "Operator", "Contact", "Example"]) {
+      expect(serialized).not.toContain(name);
+    }
+    for (const secret of SECRETS) expect(serialized).not.toContain(secret);
+  });
+});

@@ -134,3 +134,50 @@ describe("captureInbox — safety composition", () => {
     expect(JSON.stringify(result.payloads)).not.toContain(BODY);
   });
 });
+
+describe("captureInbox — which box it scrolls (D298)", () => {
+  const scrolled = (matched: string | null) => ({
+    ...reading,
+    viewport: {
+      scroller: {
+        tag: "div", id: null, role: null, componentkey: null,
+        scrollHeight: 1796, clientHeight: 626,
+        rect: { x: 620, y: 260, width: 680, height: 520 },
+        matchedSelector: matched,
+      },
+      scrollerCandidates: 2,
+    },
+  });
+
+  it("asks for the message pane on a thread and the rail on the list", async () => {
+    vi.mocked(readLikeAHuman).mockResolvedValue(scrolled(".msg-s-message-list-container") as never);
+    const { ctx } = harness([{ url: PAYLOAD_URL, body: BODY, bytes: 10, status: 200, archived: { file: "a.gz" }, patterns: ["gql-messenger-conversations"] }]);
+    await captureInbox(ctx, { url: "https://www.linkedin.com/messaging/thread/2-abc/", passes: 2, itemRef: "thread" });
+    expect(vi.mocked(readLikeAHuman).mock.calls[0]![0]!.preferScroller)
+      .toEqual([".msg-s-message-list-container", ".msg-s-message-list-content"]);
+
+    vi.mocked(readLikeAHuman).mockClear();
+    const list = harness([{ url: PAYLOAD_URL, body: BODY, bytes: 10, status: 200, archived: { file: "a.gz" }, patterns: ["gql-messenger-conversations"] }]);
+    await captureInbox(list.ctx, { url: "https://www.linkedin.com/messaging/", passes: 2, itemRef: "list" });
+    expect(vi.mocked(readLikeAHuman).mock.calls[0]![0]!.preferScroller)
+      .toEqual([".msg-conversations-container__conversations-list"]);
+  });
+
+  it("warns rather than silently scrolling the tallest box", async () => {
+    vi.mocked(readLikeAHuman).mockResolvedValue(scrolled(null) as never);
+    const { ctx } = harness([{ url: PAYLOAD_URL, body: BODY, bytes: 10, status: 200, archived: { file: "a.gz" }, patterns: ["gql-messenger-conversations"] }]);
+    const result = await captureInbox(
+      ctx, { url: "https://www.linkedin.com/messaging/thread/2-abc/", passes: 2, itemRef: "thread" },
+    );
+    expect(result.warnings.map((w) => w.code)).toContain("SCROLLER_SELECTOR_UNMATCHED");
+  });
+
+  it("stays silent when the preferred selector matched", async () => {
+    vi.mocked(readLikeAHuman).mockResolvedValue(scrolled(".msg-s-message-list-container") as never);
+    const { ctx } = harness([{ url: PAYLOAD_URL, body: BODY, bytes: 10, status: 200, archived: { file: "a.gz" }, patterns: ["gql-messenger-conversations"] }]);
+    const result = await captureInbox(
+      ctx, { url: "https://www.linkedin.com/messaging/thread/2-abc/", passes: 2, itemRef: "thread" },
+    );
+    expect(result.warnings.map((w) => w.code)).not.toContain("SCROLLER_SELECTOR_UNMATCHED");
+  });
+});
