@@ -10,6 +10,7 @@ import { summarizeCaptures } from "../profile.capture/patterns.js";
 import type { EndpointRow } from "../profile.capture/patterns.js";
 import { RECEIPT_ENDPOINT_CAP } from "../profile.capture/index.js";
 import { readLikeAHuman } from "../profile.capture/read.js";
+import { waitForAny } from "../../core/tap/ready.js";
 import { captureDomSnapshot } from "../profile.capture/snapshot.js";
 import type { DomSnapshotResult } from "../profile.capture/snapshot.js";
 import { sessionUrnsOf } from "../profile.capture/identity.js";
@@ -18,7 +19,8 @@ import {
 } from "../profile.capture/constants.js";
 import { absoluteTimeLeaves, buildActivityDomMap } from "../../core/fixtures/activitymap.js";
 import {
-  ACTIVITY_PATTERNS, BROAD_PATTERN_NAME, activityDocumentPatterns, isActivityIsh,
+  ACTIVITY_DOCUMENT_NAME, ACTIVITY_PATTERNS, BROAD_PATTERN_NAME, activityDocumentPatterns,
+  isActivityIsh,
   sessionUrnHits, urnInventory,
 } from "./patterns.js";
 import { ACTIVITY_SURFACES, normalizeActivityUrl, looksLikePostPermalink } from "./url.js";
@@ -172,8 +174,11 @@ export const capability = defineCapability({
       checkpointState.phase = "post-navigation-gate";
       await assertNoChallenge({ tab, run, state: checkpointState });
 
+      // Either the API or this surface's own document. The post reader parses
+      // the DOM snapshot (D313), so a page that answers server-rendered and
+      // issues no Voyager call is still a page it can read (D321).
       checkpointState.phase = "await-first-capture";
-      await tap.waitFor(BROAD_PATTERN_NAME, {
+      await waitForAny(tap, [BROAD_PATTERN_NAME, ACTIVITY_DOCUMENT_NAME], {
         since,
         timeoutMs: a.captureTimeoutMs ?? FIRST_CAPTURE_TIMEOUT_MS,
       });

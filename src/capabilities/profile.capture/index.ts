@@ -11,6 +11,7 @@ import {
 } from "./patterns.js";
 import type { EndpointRow } from "./patterns.js";
 import { normalizeProfileUrl } from "./url.js";
+import { waitForAny } from "../../core/tap/ready.js";
 import { readLikeAHuman, waitForDeferredSections } from "./read.js";
 import type { DeferredSections } from "./read.js";
 import { captureDomSnapshot } from "./snapshot.js";
@@ -148,21 +149,9 @@ export const capability = defineCapability({
       // 2026-08-10 — the document arrived, 1.0MB and fully populated, and the run
       // still failed CAPTURE_TIMEOUT and spent the page load for nothing (D321).
       checkpointState.phase = "await-first-capture";
-      const readyTimeoutMs = a.captureTimeoutMs ?? FIRST_CAPTURE_TIMEOUT_MS;
-      await Promise.any([
-        tap.waitFor(BROAD_PATTERN_NAME, { since, timeoutMs: readyTimeoutMs }),
-        tap.waitFor(DOCUMENT_PATTERN_NAME, { since, timeoutMs: readyTimeoutMs }),
-      ]).catch((cause: unknown) => {
-        // `Promise.any` rejects only when both did, so the page answered with
-        // neither. Reported as the API timeout it has always been, because that
-        // is the wait an operator will look for in the log.
-        const errors = cause instanceof AggregateError ? cause.errors : [cause];
-        const first = errors.find((e): e is CapabilityError => e instanceof CapabilityError);
-        throw first ?? transient(
-          "PROFILE_NO_RESPONSE",
-          `neither an api response nor the page's own document arrived within ${readyTimeoutMs}ms`,
-          `run=${run.runId}`,
-        );
+      await waitForAny(tap, [BROAD_PATTERN_NAME, DOCUMENT_PATTERN_NAME], {
+        since,
+        timeoutMs: a.captureTimeoutMs ?? FIRST_CAPTURE_TIMEOUT_MS,
       });
 
       checkpointState.phase = "read";

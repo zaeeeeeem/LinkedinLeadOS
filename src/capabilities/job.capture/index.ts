@@ -10,12 +10,14 @@ import { readLikeAHuman } from "../profile.capture/read.js";
 import { captureDomSnapshot } from "../profile.capture/snapshot.js";
 import type { DomSnapshotResult } from "../profile.capture/snapshot.js";
 import { sessionUrnsOf } from "../profile.capture/identity.js";
+import { waitForAny } from "../../core/tap/ready.js";
 import {
   FIRST_CAPTURE_TIMEOUT_MS, SETTLE_MS_MAX, SETTLE_MS_MIN, SNAPSHOT_TIMEOUT_MS,
 } from "../profile.capture/constants.js";
 import type { EndpointRow } from "../profile.capture/patterns.js";
 import {
-  BROAD_PATTERN_NAME, JOB_PATTERNS, isJobIsh, jobDocumentPattern, jobMarkerCounts,
+  BROAD_PATTERN_NAME, JOB_DOCUMENT_PATTERN_NAME, JOB_PATTERNS, isJobIsh, jobDocumentPattern,
+  jobMarkerCounts,
   summarizeJobCaptures,
 } from "./patterns.js";
 import { normalizeJobUrl } from "./url.js";
@@ -132,8 +134,12 @@ export const capability = defineCapability({
       checkpointState.phase = "post-navigation-gate";
       await assertNoChallenge({ tab, run, state: checkpointState });
 
+      // Either the API or this posting's own document. The job reader parses the
+      // DOM snapshot (D305), and `/jobs/view/<id>` answered with the document and
+      // no Voyager call at all on 2026-08-10 — a readable page the api-only wait
+      // threw away with the page load already spent (D321).
       checkpointState.phase = "await-first-capture";
-      await tap.waitFor(BROAD_PATTERN_NAME, {
+      await waitForAny(tap, [BROAD_PATTERN_NAME, JOB_DOCUMENT_PATTERN_NAME], {
         since,
         timeoutMs: a.captureTimeoutMs ?? FIRST_CAPTURE_TIMEOUT_MS,
       });
