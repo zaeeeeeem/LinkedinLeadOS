@@ -6,15 +6,19 @@ import { assertNoChallenge, recordChallenge } from "../../core/challenge/detect.
 import { classifyResponse } from "../../core/challenge/classify.js";
 import type { ChallengeDetection } from "../../core/challenge/classify.js";
 import { CHALLENGE_PRECEDENCE } from "../../core/challenge/classify.js";
-import { BROAD_PATTERN_NAME, PROFILE_PATTERNS, documentPattern, summarizeCaptures } from "./patterns.js";
+import {
+  BROAD_PATTERN_NAME, DOCUMENT_PATTERN_NAME, PROFILE_PATTERNS, documentPattern, summarizeCaptures,
+} from "./patterns.js";
 import type { EndpointRow } from "./patterns.js";
 import { normalizeProfileUrl } from "./url.js";
-import { readLikeAHuman } from "./read.js";
+import { readLikeAHuman, waitForDeferredSections } from "./read.js";
+import type { DeferredSections } from "./read.js";
 import { captureDomSnapshot } from "./snapshot.js";
 import type { DomSnapshotResult } from "./snapshot.js";
 import { checkDomIdentity, checkIdentity, sessionUrnsOf } from "./identity.js";
 import {
-  FIRST_CAPTURE_TIMEOUT_MS, SETTLE_MS_MAX, SETTLE_MS_MIN, SNAPSHOT_TIMEOUT_MS,
+  DEFERRED_SECTIONS_TIMEOUT_MS, FIRST_CAPTURE_TIMEOUT_MS, SETTLE_MS_MAX, SETTLE_MS_MIN,
+  SNAPSHOT_TIMEOUT_MS,
 } from "./constants.js";
 
 /**
@@ -127,24 +131,50 @@ export const capability = defineCapability({
     });
 
     let reading: Awaited<ReturnType<typeof readLikeAHuman>> | null = null;
+    let deferred: DeferredSections | null = null;
     let snapshot: DomSnapshotResult | null = null;
     try {
       // Gate one: what did we actually land on?
       checkpointState.phase = "post-navigation-gate";
       await assertNoChallenge({ tab, run, state: checkpointState });
 
-      // The page is LinkedIn's own; wait for its own first API response rather
-      // than for a fixed time. Fails transient, which is what it is.
+      // The page is LinkedIn's own; wait for its own first response rather than
+      // for a fixed time. Fails transient, which is what it is.
+      //
+      // Either response will do, and that is the point: this reader's source is
+      // the rendered DOM (D123 content, D130 identity), so a load that answers
+      // with the server-rendered document and no Voyager call at all is a load
+      // it can read. Waiting on the API alone threw two such pages away on
+      // 2026-08-10 — the document arrived, 1.0MB and fully populated, and the run
+      // still failed CAPTURE_TIMEOUT and spent the page load for nothing (D321).
       checkpointState.phase = "await-first-capture";
-      await tap.waitFor(BROAD_PATTERN_NAME, {
-        since,
-        timeoutMs: a.captureTimeoutMs ?? FIRST_CAPTURE_TIMEOUT_MS,
+      const readyTimeoutMs = a.captureTimeoutMs ?? FIRST_CAPTURE_TIMEOUT_MS;
+      await Promise.any([
+        tap.waitFor(BROAD_PATTERN_NAME, { since, timeoutMs: readyTimeoutMs }),
+        tap.waitFor(DOCUMENT_PATTERN_NAME, { since, timeoutMs: readyTimeoutMs }),
+      ]).catch((cause: unknown) => {
+        // `Promise.any` rejects only when both did, so the page answered with
+        // neither. Reported as the API timeout it has always been, because that
+        // is the wait an operator will look for in the log.
+        const errors = cause instanceof AggregateError ? cause.errors : [cause];
+        const first = errors.find((e): e is CapabilityError => e instanceof CapabilityError);
+        throw first ?? transient(
+          "PROFILE_NO_RESPONSE",
+          `neither an api response nor the page's own document arrived within ${readyTimeoutMs}ms`,
+          `run=${run.runId}`,
+        );
       });
 
       checkpointState.phase = "read";
       reading = await readLikeAHuman({
         tab,
         cursor,
+        // A profile ends, so it is read to its end rather than for a fixed number
+        // of passes. The page grows as it is read — it laid out at 2145px and
+        // finished at 7348px — so a pass count set before the read cannot express
+        // "all of it", and the randomized 3-6 stopped less than halfway down with
+        // every section below Activity still an empty placeholder (D320).
+        untilBottom: true,
         ...(a.scrolls === undefined ? {} : { passes: a.scrolls }),
         ...(a.layoutTimeoutMs === undefined ? {} : { layoutTimeoutMs: a.layoutTimeoutMs }),
       });
@@ -157,8 +187,23 @@ export const capability = defineCapability({
           passes: reading.passes,
           notches: reading.notches,
           scrolled: reading.scrolled,
+          travelled: reading.travelled,
+          scrollable: reading.scrollable,
+          reached_bottom: reading.reachedBottom,
           paused_ms: reading.pausedMs,
           measured: reading.viewport !== null,
+        },
+      });
+
+      // The deferred cards fetch on intersection, so the last one is still on the
+      // wire when the last scroll ends. Polled rather than slept: a fast page
+      // moves on, a slow one is waited for. Passive — nothing is requested here.
+      deferred = await waitForDeferredSections(tab, { timeoutMs: DEFERRED_SECTIONS_TIMEOUT_MS });
+      run.log("render.wait", {
+        phase: "capture",
+        detail: {
+          deferred_total: deferred?.total ?? null,
+          deferred_hydrated: deferred?.hydrated ?? null,
         },
       });
 
@@ -246,6 +291,35 @@ export const capability = defineCapability({
           `nothing on the page ever measured taller than the viewport within the layout ` +
           `window (${reading.layout.waitedMs}ms, ${reading.layout.polls} polls) — neither the ` +
           `document nor any inner scroller (D115); lazily-loaded sections will not have fetched`,
+      });
+    }
+
+    if (reading !== null && reading.reachedBottom === false) {
+      // Not fatal and not silent. The read ran out of passes with page left, so
+      // whatever sits below where it stopped never fetched — which on a profile
+      // is Experience, Education and Skills, the fields the reader exists for.
+      warnings.push({
+        code: "PAGE_NOT_READ_TO_BOTTOM",
+        n: 1,
+        field:
+          `the read hit its pass ceiling (${reading.passes}) with ` +
+          `${Math.max(0, (reading.scrollable ?? 0) - reading.travelled)}px still below it, so the ` +
+          `sections deferred past that point never fetched (D320)`,
+      });
+    }
+
+    if (deferred !== null && deferred.total > 0 && deferred.hydrated === 0) {
+      // Every deferred container on the page is still empty. The scroll may have
+      // reached the bottom and the fetches still not landed; either way the
+      // snapshot about to be archived holds placeholders where the sections go,
+      // and a parser reading it will report the fields missing rather than wrong.
+      warnings.push({
+        code: "DEFERRED_SECTIONS_EMPTY",
+        n: deferred.total,
+        field:
+          `all ${deferred.total} deferred containers below the Activity card were still empty ` +
+          `after ${DEFERRED_SECTIONS_TIMEOUT_MS}ms — Experience, Education and Skills live in ` +
+          `these and will be absent from this snapshot (D320)`,
       });
     }
 
@@ -396,11 +470,15 @@ export const capability = defineCapability({
               passes: reading.passes,
               notches: reading.notches,
               scrolled_px: reading.scrolled,
+              travelled_px: reading.travelled,
+              scrollable_px: reading.scrollable,
+              reached_bottom: reading.reachedBottom,
               paused_ms: reading.pausedMs,
               viewport: reading.viewport,
               layout: reading.layout,
             }
           : null,
+        deferred_sections: deferred,
         snapshot: {
           archived: snapshot?.archived?.file ?? null,
           bytes: snapshot?.archived?.bytes ?? 0,

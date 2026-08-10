@@ -142,6 +142,8 @@ which is a finding to report, not something to absorb quietly.
 | `SUBJECT_IDENTITY_IS_SESSION` | the identity resolved from the snapshot is the operator's own. Must never fire; if it does, stop and read the snapshot by hand (D119) |
 | `SUBJECT_CARD_NAMES_UNRECOGNISED` | card names this build has not seen. A couple means LinkedIn shipped a new card; many means the id boundary moved and the urn is wrong (D130) |
 | `PAGE_NOT_LAID_OUT` | the document never grew past the viewport inside the layout window, so nothing scrolled and the lazily-loaded sections never fetched. Treat the capture as incomplete — this is the failure the first live run hit (D114) |
+| `PAGE_NOT_READ_TO_BOTTOM` | the read hit its pass ceiling with page still below it, so whatever is deferred past that point never fetched. Treat the capture as a prefix of the profile (D320) |
+| `DEFERRED_SECTIONS_EMPTY` | every container below the Activity card was still an empty placeholder. **Experience, Education and Skills are absent from this snapshot** — a parser reading it will report them missing, not wrong (D320) |
 
 ## Failure modes
 

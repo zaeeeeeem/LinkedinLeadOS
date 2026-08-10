@@ -2,6 +2,7 @@ import { chance, defaultRng, randFloat, randInt } from "../../core/input/random.
 import type { Rng } from "../../core/input/random.js";
 import type { WheelResult } from "../../core/input/cursor.js";
 import {
+  BOTTOM_STABLE_READS,
   DWELL_MS_MAX,
   DWELL_MS_MIN,
   FALLBACK_VIEWPORT,
@@ -13,6 +14,7 @@ import {
   SCROLL_BACK_PROBABILITY,
   SCROLL_FRACTION_MAX,
   SCROLL_FRACTION_MIN,
+  SCROLL_PASSES_CEILING,
   SCROLL_PASSES_MAX,
   SCROLL_PASSES_MIN,
   SCROLL_PAUSE_MS_MAX,
@@ -116,6 +118,16 @@ export type ReadResult = {
   scrollable: number | null;
   /** Total time paused between and after the passes. */
   pausedMs: number;
+  /**
+   * Whether the read ended because the page was finished rather than because the
+   * pass budget was.
+   *
+   * `null` when the caller asked for a fixed number of passes — a fixed read makes
+   * no claim about the bottom, and a `false` there would read as a failure when it
+   * is the caller's own instruction. Only a bottom-seeking read (`untilBottom`)
+   * answers this, and `false` there means the ceiling was hit with page left.
+   */
+  reachedBottom: boolean | null;
   viewport: Viewport | null;
   layout: LayoutResult;
 };
@@ -211,6 +223,108 @@ export const VIEWPORT_EXPRESSION = `(() => {
   } catch (e) { return null; }
 })()`;
 
+/**
+ * How much of the page is still an unfilled placeholder.
+ *
+ * LinkedIn defers everything below the Activity card into numbered parts —
+ * `<div id="profileCardsBelowActivityPart3tankots">` — each carrying an
+ * `onComponentAppear` trigger at `visibilityRatio: 0` whose action is an
+ * `AsyncComponentRequest` for its own content. Read from the initial document of
+ * run `01KZMMFNSMFJ8CKHV9R9JJZ1GY`; the parts hold Experience, Education, Skills
+ * and the rest (D320).
+ *
+ * A part that is never scrolled into view never fetches, and stays an empty div.
+ * That is a render-confirmation read, which D1 permits everywhere: it counts
+ * containers and asks whether they are empty. It never reads a field out of one —
+ * the content is read offline from the archived snapshot, as D123 requires.
+ *
+ * Only the outer element carries an `id`; the inner mirrors carry the
+ * `componentkey` alone, so selecting on `id` counts each part once.
+ */
+export const DEFERRED_SECTIONS_EXPRESSION = `(() => {
+  try {
+    var nodes = document.querySelectorAll('[id^="profileCardsBelowActivity"]');
+    var hydrated = 0;
+    for (var i = 0; i < nodes.length; i++) {
+      var text = (nodes[i].textContent || '').trim();
+      if (text.length > 0) hydrated++;
+    }
+    return { total: nodes.length, hydrated: hydrated };
+  } catch (e) { return null; }
+})()`;
+
+/** Consecutive unreadable measurements before the deferred wait stops waiting. */
+export const UNREADABLE_READS_GIVE_UP = 3;
+
+export type DeferredSections = {
+  /** Deferred containers on the page. `0` means this page defers nothing. */
+  total: number;
+  /**
+   * How many have content. Never expected to equal `total`: a part whose section
+   * the person has nothing in stays legitimately empty — the live 2026-08-10 read
+   * finished at 6 of 7. `0` with a non-zero `total` is the failure this measures.
+   */
+  hydrated: number;
+};
+
+function isDeferredSections(v: unknown): v is DeferredSections {
+  if (v === null || typeof v !== "object") return false;
+  const o = v as Record<string, unknown>;
+  return typeof o["total"] === "number" && typeof o["hydrated"] === "number";
+}
+
+/** One measurement. `null` when the page could not be read, which during a
+ *  navigation means "not yet" rather than "broken". */
+export async function measureDeferredSections(tab: ReadTab): Promise<DeferredSections | null> {
+  try {
+    const probe = await tab.evaluate<unknown>(DEFERRED_SECTIONS_EXPRESSION);
+    return isDeferredSections(probe) ? probe : null;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Waits for the deferred parts the read brought into view to actually arrive.
+ *
+ * The request is issued by the page on intersection and answered over the
+ * network, so the last one is still in flight when the last scroll ends. Passive
+ * and bounded: it polls a count, requests nothing, and spends nothing but time.
+ * Returns the last measurement it managed, `null` if it never managed one.
+ */
+export async function waitForDeferredSections(
+  tab: ReadTab,
+  o: { timeoutMs: number; pollMs?: number; sleep?: (ms: number) => Promise<void> },
+): Promise<DeferredSections | null> {
+  const pollMs = o.pollMs ?? Math.max(10, Math.min(LAYOUT_POLL_MS, Math.floor(o.timeoutMs / 5)));
+  const sleep = o.sleep ?? ((ms: number) => new Promise<void>((r) => setTimeout(r, ms)));
+  const deadline = Date.now() + o.timeoutMs;
+  let last: DeferredSections | null = null;
+  let stable = 0;
+  let unreadable = 0;
+
+  for (;;) {
+    const measured = await measureDeferredSections(tab);
+    if (measured === null) {
+      // A page that will not answer this at all is not going to start: waiting
+      // out the full window buys nothing, and the snapshot gate downstream is
+      // what reports an unreadable page anyway.
+      if (++unreadable >= UNREADABLE_READS_GIVE_UP) return last;
+    } else {
+      unreadable = 0;
+      // A page that defers nothing is done before it starts.
+      if (measured.total === 0) return measured;
+      stable = last !== null && measured.hydrated === last.hydrated ? stable + 1 : 0;
+      last = measured;
+      // Something arrived and the count has stopped moving. `total` is never the
+      // bar: a part with no section behind it stays empty however long we wait.
+      if (measured.hydrated > 0 && stable >= LAYOUT_STABLE_READS) return measured;
+    }
+    if (Date.now() + pollMs > deadline) return last;
+    await sleep(pollMs);
+  }
+}
+
 function isViewport(v: unknown): v is Viewport {
   if (v === null || typeof v !== "object") return false;
   const o = v as Record<string, unknown>;
@@ -305,6 +419,18 @@ export async function readLikeAHuman(o: {
   cursor: ReadCursor;
   /** Explicit pass count. Omitted: a randomized 3–6. `0` scrolls not at all. */
   passes?: number;
+  /**
+   * Read to the bottom of the page instead of for a fixed number of passes,
+   * bounded by `maxPasses`.
+   *
+   * Opt-in, and deliberately not the default: it is right for a page that ends
+   * (a profile, a job) and wrong for one that does not (a feed), where it would
+   * mean "scroll until the ceiling" every time. Ignored when `passes` is given —
+   * an explicit count is an instruction, not a hint.
+   */
+  untilBottom?: boolean;
+  /** The ceiling on a bottom-seeking read. Omitted: `SCROLL_PASSES_CEILING`. */
+  maxPasses?: number;
   rng?: Rng;
   /** A layout already waited for. Omitted: this waits for one itself. */
   layout?: LayoutResult;
@@ -324,7 +450,13 @@ export async function readLikeAHuman(o: {
 
   const width = viewport?.width ?? FALLBACK_VIEWPORT.width;
   const height = viewport?.height ?? FALLBACK_VIEWPORT.height;
-  const passes = o.passes ?? randInt(rng, SCROLL_PASSES_MIN, SCROLL_PASSES_MAX);
+  // A bottom-seeking read still randomizes everything a watcher could see — the
+  // wheel magnitudes, the pauses, the back-passes, where the pointer sits. What
+  // it stops randomizing is when to give up on a page it has not finished, which
+  // is not a human tell: people read to the end of a profile.
+  const seeking = o.passes === undefined && o.untilBottom === true;
+  const ceiling = o.maxPasses ?? SCROLL_PASSES_CEILING;
+  const passes = o.passes ?? (seeking ? ceiling : randInt(rng, SCROLL_PASSES_MIN, SCROLL_PASSES_MAX));
 
   /**
    * How far there is left to go, from the *latest* measurement.
@@ -349,6 +481,9 @@ export async function readLikeAHuman(o: {
   let pausedMs = 0;
   let travelled = 0;
   let done = 0;
+  /** Consecutive measurements agreeing there is nothing left to scroll. */
+  let atBottom = 0;
+  let reachedBottom: boolean | null = seeking ? false : null;
 
   for (let i = 0; i < passes; i++) {
     const x = Math.round(width * randFloat(rng, POINTER_FRACTION_MIN, POINTER_FRACTION_MAX));
@@ -360,7 +495,27 @@ export async function readLikeAHuman(o: {
     let deltaY = back ? -Math.min(magnitude, travelled) : magnitude;
     if (!back) {
       const remaining = scrollable - travelled;
-      if (remaining <= 0) break; // already at the bottom; more wheel is noise
+      if (remaining <= 0) {
+        // Already at the bottom; more wheel is noise.
+        if (!seeking) break;
+        // A bottom-seeking read does not take the first such measurement as the
+        // end: the deferred section fetched by the pass that reached the bottom
+        // lands *after* it, and the page grows again (D320). Pause, re-measure,
+        // and only believe two in a row.
+        atBottom++;
+        pausedMs += await o.cursor.pause(SCROLL_PAUSE_MS_MIN, SCROLL_PAUSE_MS_MAX);
+        const grown = await measureViewport(o.tab);
+        if (grown !== null) {
+          viewport = grown;
+          scrollable = extentOf(grown);
+        }
+        if (scrollable - travelled <= 0 && atBottom >= BOTTOM_STABLE_READS) {
+          reachedBottom = true;
+          break;
+        }
+        continue;
+      }
+      atBottom = 0;
       deltaY = Math.min(magnitude, remaining);
     }
     if (deltaY === 0) break;
@@ -384,6 +539,11 @@ export async function readLikeAHuman(o: {
     }
   }
 
+  // A page shorter than the viewport was read the moment it was opened. Without
+  // this, a one-screen profile reports `reachedBottom: false` and earns a warning
+  // for being small.
+  if (seeking && reachedBottom === false && scrollable - travelled <= 0) reachedBottom = true;
+
   // The dwell happens whether or not anything scrolled — a one-screen profile
   // still gets looked at.
   pausedMs += await o.cursor.pause(DWELL_MS_MIN, DWELL_MS_MAX);
@@ -395,6 +555,7 @@ export async function readLikeAHuman(o: {
     travelled,
     scrollable: Number.isFinite(scrollable) ? scrollable : null,
     pausedMs,
+    reachedBottom,
     viewport,
     layout,
   };

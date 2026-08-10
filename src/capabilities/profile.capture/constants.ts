@@ -11,6 +11,30 @@
 export const SCROLL_PASSES_MIN = 3;
 export const SCROLL_PASSES_MAX = 6;
 
+/**
+ * The ceiling on a bottom-seeking read (`untilBottom`), which stops when the
+ * page is read rather than when a counter runs out.
+ *
+ * A pass count cannot express "read the whole profile": the page grows as it is
+ * read. Measured live on 2026-08-10 — `main#workspace` laid out at 2145px and
+ * grew to 7348px as the deferred cards hydrated, so the randomized 3-6 passes
+ * covered 3366px of a page that ended up more than twice that, and every section
+ * below Activity was still an empty placeholder at snapshot time (D320).
+ *
+ * 20 is a blast-radius bound, not a target: the same live read finished the
+ * whole profile in 12. A surface that keeps producing content — a feed — must
+ * never be read this way, and is not: `untilBottom` is opt-in and only the
+ * profile capture asks for it.
+ */
+export const SCROLL_PASSES_CEILING = 20;
+
+/**
+ * Consecutive measurements showing nothing left to scroll before a bottom-seeking
+ * read believes it. One is not enough: a deferred section fetched by the pass that
+ * reached the bottom lands after it, and the page grows again.
+ */
+export const BOTTOM_STABLE_READS = 2;
+
 /** One pass, as a fraction of the viewport height. Under 1.0 most of the time:
  *  a reader overlaps what they have already seen rather than jumping past it. */
 export const SCROLL_FRACTION_MIN = 0.55;
@@ -87,3 +111,13 @@ export const SNAPSHOT_TIMEOUT_MS = 30_000;
  */
 export const SETTLE_MS_MIN = 2_200;
 export const SETTLE_MS_MAX = 4_000;
+
+/**
+ * How long to wait for the deferred cards below Activity to arrive after the
+ * read brought them into view (D320).
+ *
+ * Same character as the settle above — passive, no request, no spend — but it
+ * polls a count instead of sleeping a random interval, so a fast page moves on
+ * and a slow one is still waited for.
+ */
+export const DEFERRED_SECTIONS_TIMEOUT_MS = 8_000;

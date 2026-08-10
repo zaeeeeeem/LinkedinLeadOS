@@ -6,7 +6,10 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 import { capability as profileCapture } from "../src/capabilities/profile.capture/index.js";
-import { VIEWPORT_EXPRESSION } from "../src/capabilities/profile.capture/read.js";
+import {
+  DEFERRED_SECTIONS_EXPRESSION, VIEWPORT_EXPRESSION,
+} from "../src/capabilities/profile.capture/read.js";
+import { DEFERRED_SECTIONS_TIMEOUT_MS } from "../src/capabilities/profile.capture/constants.js";
 import {
   DOM_SNAPSHOT_PATTERN, SNAPSHOT_EXPRESSION, isDomSnapshotEntry,
 } from "../src/capabilities/profile.capture/snapshot.js";
@@ -142,6 +145,12 @@ class FakeTab implements TabLike {
     width: 1440, height: 900, scrollHeight: 5000,
     innerScroller: true, scrollerHeight: 860, documentScrollHeight: 900,
   };
+  /**
+   * The deferred cards below the Activity section, hydrated by default (D320).
+   * Set `{ total: n, hydrated: 0 }` to stage the page whose Experience,
+   * Education and Skills never fetched — the live failure of 2026-08-10.
+   */
+  deferred: unknown = { total: 7, hydrated: 6 };
   /** A rendered profile by default. Set to a shell, or to an Error, to stage
    *  the not-rendered and unreadable branches of the DOM snapshot (D123). */
   snapshot: unknown = {
@@ -169,6 +178,9 @@ class FakeTab implements TabLike {
     }
     if (expression === VIEWPORT_EXPRESSION) {
       return this.viewport as T;
+    }
+    if (expression === DEFERRED_SECTIONS_EXPRESSION) {
+      return this.deferred as T;
     }
     if (expression === SNAPSHOT_EXPRESSION) {
       if (this.snapshot instanceof Error) throw this.snapshot;
@@ -554,6 +566,69 @@ describe("profile.capture — the gates", () => {
     const { receipt } = await outcome;
     if (!receipt.ok) throw new Error("expected ok");
     expect(receipt.warnings.map((w) => w.code)).not.toContain("PAGE_NOT_LAID_OUT");
+  });
+
+  it("warns when the cards below Activity never filled, so a null field is not read as absent (D320)", async () => {
+    // The live shape of run 01KZMMFNSMFJ8CKHV9R9JJZ1GY: 7 deferred containers,
+    // 0 of them filled, a clean exit 0, and a person stored with no employment.
+    const { outcome } = invoke({
+      args: { scrolls: undefined },
+      tune: (s) => {
+        s.tab.deferred = { total: 7, hydrated: 0 };
+      },
+    });
+    const { receipt, exit } = await outcome;
+
+    expect(exit).toBe(EXIT.OK);
+    if (!receipt.ok) throw new Error("expected ok");
+    expect(receipt.warnings.map((w) => w.code)).toContain("DEFERRED_SECTIONS_EMPTY");
+    const data = receipt.data as { deferred_sections: { total: number; hydrated: number } };
+    expect(data.deferred_sections).toEqual({ total: 7, hydrated: 0 });
+    // Longer than the default: this is the one path that waits out the whole
+    // DEFERRED_SECTIONS_TIMEOUT_MS window, because nothing ever arrives to end
+    // it early. That wait is the behaviour under test, not overhead around it.
+  }, DEFERRED_SECTIONS_TIMEOUT_MS + 5_000);
+
+  it("does not warn when the deferred cards arrived, even with one left legitimately empty", async () => {
+    const { outcome } = invoke({ tune: (s) => { s.tab.deferred = { total: 7, hydrated: 6 }; } });
+    const { receipt } = await outcome;
+    if (!receipt.ok) throw new Error("expected ok");
+    expect(receipt.warnings.map((w) => w.code)).not.toContain("DEFERRED_SECTIONS_EMPTY");
+  });
+
+  it("warns when the read ran out of passes with page still below it (D320)", async () => {
+    const { outcome } = invoke({
+      // No explicit scroll count, so the read seeks the bottom — of a page no
+      // ceiling can reach.
+      args: { scrolls: undefined },
+      tune: (s) => {
+        s.tab.viewport = {
+          width: 1333, height: 798, scrollHeight: 900_000,
+          innerScroller: true, scrollerHeight: 746, documentScrollHeight: 798,
+        };
+      },
+    });
+    const { receipt, exit } = await outcome;
+
+    expect(exit).toBe(EXIT.OK);
+    if (!receipt.ok) throw new Error("expected ok");
+    expect(receipt.warnings.map((w) => w.code)).toContain("PAGE_NOT_READ_TO_BOTTOM");
+    const data = receipt.data as { reading: { reached_bottom: boolean | null } };
+    expect(data.reading.reached_bottom).toBe(false);
+  });
+
+  it("reads a page that answered with its document and no api call at all (D321)", async () => {
+    // Measured twice live on 2026-08-10: the profile document arrived, 1.0MB and
+    // fully populated, and no Voyager call followed. Waiting on the api alone
+    // failed the run CAPTURE_TIMEOUT and spent the page load for nothing — while
+    // the reader's actual source, the rendered DOM, was sitting right there.
+    const { outcome } = invoke({
+      responses: [{ url: PROFILE_URL, body: "<html><body>a server-rendered profile</body></html>" }],
+    });
+    const { receipt, exit } = await outcome;
+
+    expect(exit).toBe(EXIT.OK);
+    if (!receipt.ok) throw new Error("expected ok");
   });
 
   it("warns when the tab could not be brought to the foreground", async () => {

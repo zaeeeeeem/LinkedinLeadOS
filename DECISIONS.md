@@ -3655,3 +3655,64 @@ D272's omission promise is extended to explicit `null`: the writer drops both nu
 This prevents a sparse `company.jobs` observation from erasing a description previously stored
 by `job.get`. Clearing a jobs field is not supported without a future explicit operation whose
 contract distinguishes deletion from absence.
+
+## D320 — A profile is read to its end, not for a fixed number of passes (2026-08-10)
+
+The live gate on 2026-08-10 stored Tanay Kothari with `current_company_urn: null` and zero
+experience rows, on a clean exit 0, from a profile whose headline is "CEO at Wispr Flow". The
+capability that qualifies leads returned a lead with no employer and warned once, quietly, in
+`parse.miss`.
+
+The cause is not the parser and not the scroll pacing. LinkedIn defers everything below the
+Activity card into seven numbered containers —
+`<div id="profileCardsBelowActivityPart3tankots">` — each carrying an `onComponentAppear`
+trigger at `visibilityRatio: 0` whose action is an `AsyncComponentRequest` for its own content.
+Read out of the initial document of run `01KZMMFNSMFJ8CKHV9R9JJZ1GY`. A container never
+scrolled into view never fetches, and stays an empty div. Experience, Education and Skills live
+in those containers.
+
+The page grows as it is read: `main#workspace` laid out at 2145px and finished at 7348px. A
+pass count fixed before the read therefore cannot express "all of it" — the randomized 3-6
+passes covered 3366px, and all seven containers were still empty at snapshot time. Every
+profile run ever recorded, back to 2026-08-08, has the same hole: no capture has ever archived
+an Experience card. This was never a regression; the field never worked, and the M3 gate passed
+without it.
+
+Measured, not assumed: a live read with `--scrolls=12` on the same profile hydrated 6 of the 7
+containers and archived 23 cards including `ExperienceTopLevelSection` and
+`EducationTopLevelSection`.
+
+So `readLikeAHuman` gains an opt-in `untilBottom`, which scrolls until the page stops having
+more, bounded by `SCROLL_PASSES_CEILING` (20). Only `profile.capture` asks for it. A feed does
+not end, and a bottom-seeking read of one would mean "scroll to the ceiling" every time, so
+`activity.capture`, `job.capture` and `company.probe` keep the fixed-pass behaviour they pass
+explicitly. An explicit `--scrolls` still wins everywhere: a count from the operator is an
+instruction, not a hint.
+
+Two silences are now warnings. `PAGE_NOT_READ_TO_BOTTOM` when the ceiling is reached with page
+below it. `DEFERRED_SECTIONS_EMPTY` when every deferred container is still empty after
+`DEFERRED_SECTIONS_TIMEOUT_MS` — counted by a render-confirmation DOM read, which D1 permits
+everywhere, that asks only whether containers are empty and never reads a field out of one.
+`hydrated === total` is deliberately *not* the bar: a container whose section the person has
+nothing in stays empty however long anyone waits.
+
+Verified live after the change: `cap profile.get` on default flags stored 6 experience rows and
+`current_company_urn: urn:li:fsd_company:79835899`, confirmed by direct Supabase query rather
+than by the receipt.
+
+## D321 — The profile readiness gate accepts the document, not only an API body (2026-08-10)
+
+Twice on 2026-08-10, on two different profiles, the page answered with its server-rendered
+document — 1.0MB, fully populated, captured and archived — and issued no Voyager call at all
+within the 25s window. `profile.capture` waited on the broad `linkedin-api` pattern alone, so
+both runs failed `CAPTURE_TIMEOUT` at exit 6 and spent the page load for nothing.
+
+Nothing was wrong with either page. This reader's source is the rendered DOM (D123 content,
+D130 identity); no Voyager endpoint carries a stranger's profile on a cold load, which is why
+the exception exists at all (D126). A load that answers with the document and nothing else is
+a load it can read.
+
+The gate now waits for whichever arrives first, the broad API pattern or this target's own
+document pattern, and fails only when neither does. It is a readiness gate, not a safety gate:
+no rule is loosened, nothing new is requested, and the challenge gates on either side of it are
+untouched.
