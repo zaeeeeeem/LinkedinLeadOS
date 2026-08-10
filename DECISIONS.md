@@ -4294,3 +4294,65 @@ check deliberately does not apply to M5.
 **Why.** `last_seen` is a record's claim to be *complete* (D105); a search hit read nothing.
 Minting or bumping an entity from a search would mark it fresh while nothing was actually read,
 defeating the freshness cache the whole system leans on.
+
+## D337 — The post surface is served by two different renderers, and the parser knows one (2026-08-10)
+
+**Measured, not inferred.** Two live `post.get` runs on 2026-08-10 at 13:27 and 13:29 returned
+a page that shares nothing structural with the one D312/D313 measured on the same URL eight
+hours earlier.
+
+| | 2026-08-10 01:38 / 03:01 (runs `01KZMN3XEZ…`, `01KZMSWXXF…`) | 2026-08-10 13:27 / 13:29 (runs `01KZNXNTPR…`, `01KZNXS9R6…`) |
+|---|---|---|
+| snapshot | 4,750,166 chars | 1,655,239 / 1,517,410 chars |
+| `data-testid` attributes | 14 | **0** |
+| `ReactionFacepileCollection` | 836 | **0** |
+| `data-urn="urn:li:activity:…"` | 0 | **1**, on `role="article"` |
+| `theme--mercado` | no | **yes** |
+
+The later pages are the legacy Ember/artdeco app; the earlier ones are the SDUI React app.
+`post.get` resolves identity from `data-testid="ReactionFacepileCollection-urn:li:activity:<id>"`
+(D313) and scopes everything else on `data-testid`, so on the Ember render it resolves nothing.
+
+**Decision.** `POST_GET_IDENTITY_UNRESOLVED` / exit 5 on the Ember render is **correct
+behaviour and stays**. The reader refuses rather than falling back to a second anchor. A
+fallback would have to be written against a renderer whose author, comment and reaction scopes
+have not been measured, and guessing scope is exactly how a "people also viewed" stranger gets
+stored as the subject (D123's reasoning, in a new spelling).
+
+**What this is not.** It is not a Task 34 failure. The author-resolution work (D330–D333) was
+never reached on either run — identity is refused first. Nothing was stored, nothing wrong was
+stored, and the receipt named the archived body both times.
+
+**Not URL-form specific.** Load 1 used `/posts/<slug>-activity-<id>-<hash>`, load 2 used
+`/feed/update/urn:li:activity:<id>/`. Both rendered Ember. So the variable is the account or the
+rollout, not the spelling.
+
+**Cost of the repair, when it is taken:** zero page loads. Both Ember snapshots are archived
+(`runs/01KZNXNTPRSTYJNF53GFYTTYVA/raw/0033-…`, `runs/01KZNXS9R6R13H10TVBABA0HGH/raw/0040-…`),
+one person-authored and one company-authored, so the second renderer can be mapped entirely
+offline. Whether to support both renderers or wait out the rollout is the operator's call —
+see STATE.md.
+
+## D338 — D334's company-authored measurement is taken, on the wrong renderer (2026-08-10)
+
+**Decision.** D334 (company-authored posts unstored until one is measured) **stays open.** The
+2026-08-10 13:29 load against `urn:li:activity:7485405402449379328` (Wispr Flow, company-authored,
+sourced from a stored `company_posts` row rather than by hand) archived a real company-authored
+permalink — but of the Ember render, whose anchors D313 never measured. It cannot answer whether
+the *SDUI* company page carries the same author anchors, which is what D334 asked.
+
+**What it did settle:** a company-authored permalink loads, exists, and is reachable from the
+store without a search. The snapshot is on disk for whichever renderer work happens first.
+
+**Standing rule unchanged:** a company-authored post still warns and writes nothing.
+
+## D339 — `docs/capabilities/` is retired; the per-directory README is the contract (2026-08-10)
+
+**Decision.** The recording table's `docs/capabilities/` row is replaced by
+`src/capabilities/<name>/README.md`. Existing files there are kept as history and are not to
+be extended.
+
+**Why.** Two rules described one artifact. Conventions already require a `README.md` per
+capability directory and all 21 have one; `docs/capabilities/` had 7 files for 21 capabilities
+and was read as a 14-item documentation debt that was never real. A contract that lives beside
+the code it describes is also the one that gets updated when the code changes.

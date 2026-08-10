@@ -163,10 +163,15 @@ Write it down the moment it happens. Do not trust memory across sessions.
 | `STATE.md` | Built / in progress / next | **At every checkpoint**, not at session end |
 | `BACKLOG.md` | Deferred work + the approach settled at capture time | When something is punted with a known plan |
 | `docs/specs/` | Approved designs | Per design cycle |
-| `docs/capabilities/` | One contract doc per capability | When a capability is added or changed |
+| `src/capabilities/<name>/README.md` | One contract doc per capability | When a capability is added or changed |
 
 `STATE.md` is updated at every checkpoint specifically so a session that dies mid-task still
 leaves an accurate state file behind.
+
+**`docs/capabilities/` is retired (2026-08-10, D339).** The contract doc for a capability is
+the `README.md` in its own directory, which the Conventions section already requires and
+which every capability has. The files still in `docs/capabilities/` are kept as history; do
+not add to them and do not treat their absence for a capability as a gap.
 
 ## Reference, not a base
 

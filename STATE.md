@@ -17,9 +17,9 @@ table absent from this project's §7 schema, used a foreign naming convention, a
 have broken `db reset`. It landed here by accident (another project's CRM migration) and
 was deleted 2026-08-10.
 
-## In progress — Task 34 `post.get` author resolution (2026-08-10)
+## Blocked — Task 34 `post.get` author resolution (2026-08-10)
 
-**Offline half done, live gate not yet run.** `post.get` no longer stores nothing: the author
+**Offline half done and merged; live gate run and blocked by renderer drift (D337).** `post.get` no longer stores nothing: the author
 vanity is resolved to a urn through `findPersonByVanity` and one row goes into `person_posts`
 (D330). 1428 tests across 93 files, typecheck clean, zero LinkedIn requests spent so far.
 
@@ -34,9 +34,43 @@ default cannot rot. Whether such a page carries the same anchors is unmeasured; 
 disk is person-authored. Settling it costs one page load against a company-authored permalink,
 which is the operator's call.
 
-**Next:** the live gate — one load against a post whose author is already stored (`tankots`,
-`urn:li:fsd_profile:ACoAABJLCOABl3WHDMGiReUZpWQ432xXbddzpUA`, from Task 27's gate), verified by
-querying `person_posts` directly rather than by trusting the receipt.
+**Live gate run 2026-08-10, 2 loads, both exit 5 — and the reason is not Task 34 (D337).**
+Merged to `main` as `2e46aba` first, then gated on `main`.
+
+- Load 1, run `01KZNXNTPRSTYJNF53GFYTTYVA`, `/posts/tankots_…-activity-7491197577439141888-dqLl`.
+  `POST_GET_IDENTITY_UNRESOLVED`, exit 5, 1 page load, nothing stored.
+- Load 2, run `01KZNXS9R6R13H10TVBABA0HGH`, `/feed/update/urn:li:activity:7485405402449379328/`
+  — company-authored, urn taken from a stored `company_posts` row. Same code, exit 5, 1 load.
+
+**The post surface changed renderer between 03:01 and 13:27 on 2026-08-10.** Both loads returned
+the legacy Ember/`theme--mercado` app: **0 `data-testid` attributes and 0
+`ReactionFacepileCollection` occurrences**, against 14 and 836 in the SDUI snapshots archived
+eight hours earlier from the same URL. `post.get` anchors identity and every scope on
+`data-testid` (D313), so it resolves nothing and refuses. Both URL spellings rendered Ember, so
+this is the account or the rollout, not the spelling. Measured offline from the archives, at
+zero further cost — full table in D337.
+
+**Author resolution is therefore still unproven live.** Identity is refused before the author
+step is reached, so D330–D333 were never exercised against a real page. The offline proof
+stands; the live confirmation does not exist yet.
+
+**D334 stays open (D338).** Load 2 archived a real company-authored permalink, which is new —
+but of the Ember render, whose anchors were never measured. It cannot answer what D334 asked
+about the SDUI page.
+
+**Nothing was stored and nothing wrong was stored.** Exit 5 with the archived body named on the
+receipt is the designed behaviour for parse drift, and it is what happened, twice.
+
+**Next — operator's call, both offline-first:**
+
+1. Map the Ember renderer from the two archived snapshots (person- and company-authored, both on
+   disk). Zero page loads. Then decide whether `post.get` supports both renderers or waits out
+   the rollout.
+2. Re-check whether the other DOM readers are exposed to the same switch. `profile.get`,
+   `job.get`, `feed.get` and the inbox readers all anchor on DOM attributes; only `post.get` has
+   been re-run since the switch. This is a read of archived snapshots plus, at most, one
+   supervised load per surface — **it should happen before M5**, since a renderer switch under
+   L1 would surface as L2 "parse drift" and cost far more to diagnose there.
 
 ## Checkpoint 7 — Task 33 review fixes, live-verified (2026-08-10)
 
