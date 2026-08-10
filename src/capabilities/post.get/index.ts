@@ -4,9 +4,16 @@ import { z } from "zod";
 import { defineCapability, type CapabilityContext, type CapabilityResult } from "../../cli/types.js";
 import { CapabilityError, EXIT } from "../../core/run/receipt.js";
 import { receiptPath } from "../../core/run/paths.js";
+import {
+  findPersonByVanity,
+  getStore,
+  upsertPostRows,
+  type OwnedPostProjection,
+} from "../../core/store/index.js";
 import { capability as activityCapture } from "../activity.capture/index.js";
 import { normalizeActivityUrl } from "../activity.capture/url.js";
 import { sessionUrnsOf, sessionVanitiesOf } from "../profile.capture/identity.js";
+import { authorWarning, resolveAuthor, type AuthorLookup } from "./author.js";
 import { parsePost, type ParsePostResult } from "./parse.js";
 
 /**
@@ -52,6 +59,9 @@ type CaptureOutcome = {
 
 export type PostGetDeps = {
   capture(ctx: Context, captureArgs: { url: string; scrolls: number }): Promise<CaptureOutcome>;
+  /** A store read. Never a page load, and never a profile open (D330). */
+  findAuthor: AuthorLookup;
+  store(row: OwnedPostProjection<"person_urn">): Promise<number>;
 };
 
 /**
@@ -78,6 +88,12 @@ const defaultDeps: PostGetDeps = {
       sessionVanities: sessionVanitiesOf(captures),
     };
   },
+  findAuthor: async (vanity) => {
+    const found = await findPersonByVanity(vanity, { client: getStore(), withExperience: false });
+    if (found === null) return null;
+    return { urn: found.person.urn, vanityMatches: found.vanityMatches ?? 1 };
+  },
+  store: (row) => upsertPostRows("person_urn", [row], { client: getStore() }),
 };
 
 function invalidTarget(): CapabilityError {
@@ -147,6 +163,31 @@ export function createPostGetCapability(deps: PostGetDeps = defaultDeps) {
       if (!parsed.ok || parsed.post === null) throw identityRefused(parsed, snapshotPath);
 
       const post = parsed.post.value;
+
+      // ── the author, and therefore whether anything may be written ──────────
+      // `--no-store` touches the store for nothing at all, not even the lookup:
+      // a run told not to store must not require a configured client to succeed.
+      const author = ctx.flags.noStore
+        ? null
+        : await resolveAuthor(post.author_vanity, deps.findAuthor);
+      const refusal = author === null ? null : authorWarning(author);
+
+      // `person_posts.posted_at` is nullable in SQL, but the shared projection
+      // types it as a string and a post whose snowflake would not parse is drift,
+      // not a row. Refuse the write rather than widening the projection.
+      const timeless = author?.status === "resolved" && post.posted_at === null;
+      let storedRows: number | null = null;
+      if (author?.status === "resolved" && post.posted_at !== null) {
+        storedRows = await deps.store({
+          urn: post.urn,
+          person_urn: author.urn,
+          text: post.text,
+          posted_at: post.posted_at,
+          reactions: post.reactions_total,
+          comments: post.comments_total,
+        });
+      }
+
       ctx.run.log("parse.ok", {
         phase: "post.get",
         detail: {
@@ -167,7 +208,18 @@ export function createPostGetCapability(deps: PostGetDeps = defaultDeps) {
         warnings: [
           ...(captured.result.warnings ?? []),
           ...parsed.warnings.map((w) => ({ code: w.code, n: w.n, field: w.field })),
+          ...(refusal === null ? [] : [refusal]),
+          ...(timeless
+            ? [{
+              code: "POST_AUTHOR_NOT_STORED",
+              n: 1,
+              field: `author resolved but posted_at did not, from ${post.urn}; no post row was written`,
+            }]
+            : []),
         ],
+        ...(storedRows === null
+          ? {}
+          : { stored: { table: "person_posts", run_ref: ctx.run.runId, rows: storedRows } }),
         data: {
           // Every field below came from the rendered DOM, and says so.
           source: "dom-snapshot",
@@ -187,13 +239,32 @@ export function createPostGetCapability(deps: PostGetDeps = defaultDeps) {
             comments_complete: post.comments_total === null ? null : parsed.comments.length >= post.comments_total,
             reactions_complete: post.reactions_total === null ? null : parsed.reactions.length >= post.reactions_total,
           },
-          storage: { mode: "archive-only" },
+          // What the author lookup did, in the receipt rather than in a log —
+          // a skipped write and a successful one must not look alike.
+          author: {
+            vanity: post.author_vanity,
+            urn: author?.status === "resolved" ? author.urn : null,
+            status: author === null ? "not-looked-up" : author.status,
+          },
+          storage:
+            storedRows === null
+              ? {
+                mode: "archive-only",
+                reason: ctx.flags.noStore
+                  ? "--no-store"
+                  : timeless
+                    ? "posted_at unresolved"
+                    : `author ${author?.status ?? "unknown"}`,
+              }
+              : { mode: "stored", table: "person_posts", rows: storedRows },
           snapshot: snapshotPath,
         },
         next:
-          post.comments_total !== null && parsed.comments.length < post.comments_total
-            ? `re-run with --comments --comments-limit=<n> to read more of the ${post.comments_total} comments; nothing is loaded implicitly`
-            : "read the archived snapshot for anything this receipt does not carry",
+          storedRows !== null && author?.status === "resolved"
+            ? `select * from person_posts where urn = '${post.urn.replaceAll("'", "''")}'`
+            : post.comments_total !== null && parsed.comments.length < post.comments_total
+              ? `re-run with --comments --comments-limit=<n> to read more of the ${post.comments_total} comments; nothing is loaded implicitly`
+              : "read the archived snapshot for anything this receipt does not carry",
       };
     },
   });
