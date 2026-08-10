@@ -602,6 +602,16 @@ describe("sub-cap overrides can only lower a sub-cap", () => {
     }
   });
 
+  it("both inbox readers have explicit low sub-caps with no search or profile allowance", () => {
+    for (const name of ["inbox.list", "inbox.thread"]) {
+      expect(CAPABILITY_SUB_CAPS[name]).toEqual({
+        pageLoadsPerDay: 12,
+        searchPagesPerDay: 0,
+        distinctProfilesPerDay: 0,
+      });
+    }
+  });
+
   it("every sub-cap is strictly inside the global limit it sits under", () => {
     for (const caps of [DEFAULT_CAPABILITY_SUB_CAPS, ...Object.values(CAPABILITY_SUB_CAPS)]) {
       expect(caps.pageLoadsPerDay).toBeLessThan(DEFAULT_BUDGET_LIMITS.pageLoadsPerDay);

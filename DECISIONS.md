@@ -4057,3 +4057,30 @@ boundary, so choosing a private destination does not mean promoting all private 
 
 Rejected: adding `--allow-private` to shared promotion. That would make D118's denial one flag
 away from failure again, which is exactly the state D327 says remains unchanged.
+
+## D291 — Inbox parsing starts from the labeled conversation body, and receipts redact text (2026-08-10)
+
+The real `messengerConversations` body already archived by run
+`01KZH9VVPKB5JEVEBW7G2JJ6F3` contains 20 conversation rows. All 20 examined rows have two
+participants, one latest-message record, an absolute `deliveredAt`, a sender host-identity urn,
+message text and unread state. The exact paths are pinned by the two committed FIELD-MAPs and a
+synthetic fixture; the real body stays under `.fixtures-private/`.
+
+That labeled Voyager body therefore wins over D326's DOM fallback. The parsers can read text to
+measure and classify the archived record, but the receipt projection replaces it with
+`text_chars`, and event logs receive counts only. A composition test serializes both the result
+and every log call and asserts that none of three synthetic message values appears.
+
+Rejected: returning the snippet for `inbox.list` because it is a list field. D326's stronger
+privacy condition says message text never reaches stdout, and a receipt is stdout.
+
+## D292 — Each inbox reader is capped at 12 page loads per day (2026-08-10)
+
+`inbox.list` and `inbox.thread` each spend exactly one page load and zero search pages/profile
+opens. Each gets a daily 12/0/0 capability sub-cap, low enough that accidental polling stops at
+the ledger while leaving room for supervised use. The task's four-load live budget is tighter
+and remains a manual task limit; it is not widened by these daily ceilings.
+
+Rejected: one shared 24-load capability name. The ledger keys by the running capability, so a
+shared name would require hiding which reader spent the load or changing a cross-task ledger
+interface.

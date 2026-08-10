@@ -1,0 +1,101 @@
+{
+  "data": {
+    "messengerConversationsBySyncToken": {
+      "elements": [
+        {
+          "entityUrn": "urn:li:msg_conversation:(urn:li:fsd_profile:OPERATOR,synthetic-a)",
+          "backendUrn": "urn:li:messagingThread:synthetic-a",
+          "conversationUrl": "/messaging/thread/c3ludGhldGljLWE=/",
+          "conversationParticipants": [
+            {
+              "hostIdentityUrn": "urn:li:fsd_profile:OPERATOR",
+              "participantType": { "member": { "firstName": { "text": "Alex" }, "lastName": { "text": "Operator" } } }
+            },
+            {
+              "hostIdentityUrn": "urn:li:fsd_profile:CONTACT_A",
+              "participantType": { "member": { "firstName": { "text": "Casey" }, "lastName": { "text": "Contact" } } }
+            }
+          ],
+          "createdAt": 1786290000000,
+          "lastActivityAt": 1786291200000,
+          "lastReadAt": 1786290600000,
+          "read": false,
+          "unreadCount": 2,
+          "messages": {
+            "elements": [
+              {
+                "entityUrn": "urn:li:msg_message:synthetic-2",
+                "backendUrn": "urn:li:messagingMessage:synthetic-2",
+                "backendConversationUrn": "urn:li:messagingThread:synthetic-a",
+                "sender": {
+                  "entityUrn": "urn:li:msg_messagingParticipant:contact-a",
+                  "hostIdentityUrn": "urn:li:fsd_profile:CONTACT_A"
+                },
+                "body": { "text": "SYNTHETIC_PRIVATE_MESSAGE_ALPHA" },
+                "deliveredAt": 1786291200000
+              },
+              {
+                "entityUrn": "urn:li:msg_message:synthetic-1",
+                "backendUrn": "urn:li:messagingMessage:synthetic-1",
+                "backendConversationUrn": "urn:li:messagingThread:synthetic-a",
+                "sender": {
+                  "entityUrn": "urn:li:msg_messagingParticipant:operator",
+                  "hostIdentityUrn": "urn:li:fsd_profile:OPERATOR"
+                },
+                "body": { "text": "SYNTHETIC_PRIVATE_MESSAGE_BETA" },
+                "deliveredAt": 1786290600000
+              },
+              {
+                "entityUrn": "urn:li:msg_message:synthetic-empty",
+                "backendUrn": "urn:li:messagingMessage:synthetic-empty",
+                "backendConversationUrn": "urn:li:messagingThread:synthetic-a",
+                "sender": {
+                  "entityUrn": "urn:li:msg_messagingParticipant:contact-a",
+                  "hostIdentityUrn": "urn:li:fsd_profile:CONTACT_A"
+                },
+                "body": {},
+                "deliveredAt": 1786290000000
+              }
+            ]
+          }
+        },
+        {
+          "entityUrn": "urn:li:msg_conversation:(urn:li:fsd_profile:OPERATOR,synthetic-b)",
+          "backendUrn": "urn:li:messagingThread:synthetic-b",
+          "conversationUrl": "https://www.linkedin.com/messaging/thread/c3ludGhldGljLWI=/",
+          "conversationParticipants": [
+            {
+              "hostIdentityUrn": "urn:li:fsd_profile:OPERATOR",
+              "participantType": { "member": { "firstName": { "text": "Alex" }, "lastName": { "text": "Operator" } } }
+            },
+            {
+              "hostIdentityUrn": "urn:li:fsd_profile:CONTACT_B",
+              "participantType": { "member": { "firstName": { "text": "Morgan" }, "lastName": { "text": "Example" } } }
+            }
+          ],
+          "createdAt": 1786200000000,
+          "lastActivityAt": 1786200300000,
+          "lastReadAt": 1786200300000,
+          "read": true,
+          "unreadCount": 0,
+          "messages": {
+            "elements": [
+              {
+                "entityUrn": "urn:li:msg_message:synthetic-b-1",
+                "backendUrn": "urn:li:messagingMessage:synthetic-b-1",
+                "backendConversationUrn": "urn:li:messagingThread:synthetic-b",
+                "sender": {
+                  "entityUrn": "urn:li:msg_messagingParticipant:operator",
+                  "hostIdentityUrn": "urn:li:fsd_profile:OPERATOR"
+                },
+                "body": { "text": "SYNTHETIC_PRIVATE_MESSAGE_GAMMA" },
+                "deliveredAt": 1786200300000
+              }
+            ]
+          }
+        }
+      ],
+      "metadata": { "syncToken": "synthetic-token" }
+    }
+  }
+}

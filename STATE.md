@@ -15,6 +15,16 @@ clean. Next: meaning-check the measured paths, create the redacted committed fix
 the pure parsers and capture composition. The operator-supervised messaging page load remains
 unspent.
 
+Checkpoint 2 (offline, zero LinkedIn contact): both pure parsers, tested FIELD-MAPs and the
+committed synthetic fixture now exist. The measured Voyager envelope supplies all required
+fields, so it wins over the DOM fallback (D291). `inbox.list` returns bounded conversation
+summaries with text lengths; `inbox.thread` tags sender direction through the supplied session
+urn set and emits textless messages with a counted warning. Both compositions parse archived
+bytes, expose counts/metadata only, state archive-only-pending-decision, and carry 12/0/0 ledger
+sub-caps (D292). The thread receipt explicitly says opening it may mark it read. Focused
+verification: 70 tests pass; typecheck clean. Next: capture-layer failure-path tests, registry
+reachability, full suite/review, then stop for operator approval before any messaging page load.
+
 ## In progress — Task 32 `feed.get` (2026-08-10)
 
 Checkpoint 1 (offline, zero LinkedIn contact): the feed surface now exists as a promotion
