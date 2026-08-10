@@ -4195,3 +4195,102 @@ balance.
 
 A test pins it: the parsed receipt is serialized and asserted to contain none of the fixture's
 participant names, the same shape as the existing message-text leak test.
+
+## D330 — The post's author urn comes from the store, never from a second page load (2026-08-10)
+
+**Decision.** `post.get` resolves its author by looking the parsed vanity up in `persons` via
+`findPersonByVanity`, and writes `person_posts` only when that lookup returns exactly one row.
+The urn written is always one the store handed back. Nothing about this step opens a page.
+
+**Why.** D314 measured the problem: the permalink's DOM carries no author urn anywhere, so the
+post was read, reported and archived but never saved. The vanity is the only identifier the page
+does carry. Recovering the urn from a row `profile.get` already stored costs one Postgres select;
+"resolving" it by opening the author's profile would turn one metered read into two, silently,
+and is refused for that reason — the cost function still asserts `page_loads: 1,
+profile_opens: 0`.
+
+**Cost.** A post is storable only after its author has been fetched at least once. That is the
+intended ordering, not a limitation to work around.
+
+## D331 — An ambiguous vanity is a refusal, not the most recent row (2026-08-10)
+
+**Decision.** `vanityMatches > 1` writes nothing, warns `POST_AUTHOR_AMBIGUOUS` naming the count,
+and exits 0.
+
+**Why.** `persons.vanity` is deliberately not unique, because LinkedIn reassigns handles — the
+count exists precisely so a caller cannot pretend the collision away. `order by last_seen desc
+limit 1` would resolve every ambiguity to an answer, and roughly half of them to the wrong
+person. Attributing a post to the wrong human is the expensive direction of this error; an
+unwritten row is the cheap one, and it is recoverable by re-running after the urn is
+disambiguated.
+
+## D332 — A missing author row is ordinary, and exits 0 (2026-08-10)
+
+**Decision.** A vanity with no `persons` row writes nothing, warns `POST_AUTHOR_NOT_STORED`
+naming the vanity and the `profile.get` URL that would fix it, and exits 0. The post is still on
+the receipt and still in the archive.
+
+**Why.** Most posts a reader encounters are by people never fetched. If that were a non-zero
+exit, the common case would look like a failure, and the exit codes stop carrying a failure class
+the moment they fire on ordinary outcomes. Two narrower cases join it on the same path: a
+snapshot the parser refused to name an author for (`no-vanity`), and an author that resolved
+while `posted_at` did not — the shared projection types `posted_at` as a string, and a post whose
+snowflake will not parse is drift, not a row.
+
+`--no-store` skips the lookup entirely rather than performing it and discarding the answer, so a
+run told not to store does not require a configured store client to succeed.
+
+## D333 — The post write reuses Task 27's projection, adding no columns (2026-08-10)
+
+**Decision.** `post.get` calls `upsertPostRows("person_urn", [row])` — the same shared projection
+`profile.posts` writes, upserting on `urn`. No `vanity` column, no new column, no schema change.
+
+**Why.** Two writers to one table with two shapes is how the columns drift apart. The vanity is
+an input to the lookup, not a fact about the post worth persisting; the resolved urn already
+carries the identity, and re-deriving the vanity is a join away. Re-reading a post that
+`profile.posts` already stored updates the same row rather than creating a second one.
+
+## D334 — Company-authored posts stay unstored until one is measured (2026-08-10, [DECISION NEEDED])
+
+**Decision.** No `company_posts` write from `post.get`. A company-authored permalink yields no
+`/in/` vanity, so it warns `PARSE_AUTHOR_UNRESOLVED` and writes nothing — the safe default, pinned
+by a test, and explicitly not a finished feature.
+
+**Why.** The parser resolves person links only, and the single post fixture on disk is
+person-authored. D152 forbids writing the company half against an assumption about anchors nobody
+has measured: whether a company-authored post page carries `/company/<slug>/` in the same position
+the person link occupies, and whether the reaction facepile and comment scopes behave the same, is
+unknown.
+
+**Needs the operator.** One page load against a company-authored permalink would settle it. Until
+that capture exists, this half of Task 34 is deliberately unbuilt.
+
+## D335 — M5 plan approved shape: probe-first L2, paged-run contract, sub-caps (2026-08-10, plan-level)
+
+**Decision.** M5 (L2 Sales Navigator) is planned as `docs/plans/m5-l2-salesnav/` — README,
+CONTEXT, RECORDING, and six task files (35–40). It delivers three readers
+(`salesnav.savedsearch.list`, `salesnav.leads.list`, `salesnav.accounts.list`) plus the
+paged-run core and the `searches`/`search_results` write path. `salesnav.filters.build/apply`
+stay in M6 (spec §11); `classic.search.*` and `jobs.search` are deferred out of M5 with their
+home to be fixed at approval. D152 (probe-first mandatory) and D153 (per-capability sub-caps)
+extend to L2 unchanged.
+
+**Why.** Every expensive M1–M4 failure started from an assumed data shape; the probe-first
+sequence is kept structural. L2 adds two things L1 never needed — multi-page spend and resume —
+so a paged-run contract (spend→load→archive→checkpoint, resume verified against the archive)
+is fixed in core once (Task 35) before any capability spends a metered search page.
+
+**Ranges.** M5 uses explicit decision ranges D340–D399 (Task 35→D340s … Task 40→D390s),
+starting clear of the D330–D334 Task 34 already took. D18's arithmetic formula is retired for M5.
+
+## D336 — Search results are provenance, never entities (2026-08-10, plan-level)
+
+**Decision.** A `search_results` row never inserts or freshens a `persons`/`companies` row.
+Search rows are append-only provenance (search_id, page, position, urn/URL); entity enrichment
+is L1's job through the readers that actually load the entity. Re-running a search spends again
+by design — freshness does not apply to searches — so the M4 gate's "second run at zero loads"
+check deliberately does not apply to M5.
+
+**Why.** `last_seen` is a record's claim to be *complete* (D105); a search hit read nothing.
+Minting or bumping an entity from a search would mark it fresh while nothing was actually read,
+defeating the freshness cache the whole system leans on.

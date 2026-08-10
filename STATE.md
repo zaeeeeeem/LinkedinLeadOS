@@ -1,5 +1,43 @@
 # STATE
 
+## Planned — M5 (L2 Sales Navigator) plan laid down (2026-08-10)
+
+The full M5 plan is written at `docs/plans/m5-l2-salesnav/` — README, CONTEXT, RECORDING,
+and six task files (35–40), same shape as m1-m3 and m4-l1-readers. Not started; pending
+operator approval. Delivers `salesnav.savedsearch.list`, `salesnav.leads.list`,
+`salesnav.accounts.list`, the paged-run spend/checkpoint/resume core (Task 35), and the
+`searches`/`search_results` write path (Task 38). `filters.build/apply` stay M6;
+`classic.search.*`/`jobs.search` deferred (home fixed at approval). Plan-level decisions
+D335–D336; task ranges D340–D399. See README "Preconditions" — M5 needs a Sales Navigator
+seat on the automation account (Task 36's first load is the honest seat check) and treats
+pagination-by-click as a `[DECISION NEEDED]`, not an assumption.
+
+**Removed:** `supabase/migrations/0012_pipeline_and_starring.sql` — it altered a `leads`
+table absent from this project's §7 schema, used a foreign naming convention, and would
+have broken `db reset`. It landed here by accident (another project's CRM migration) and
+was deleted 2026-08-10.
+
+## In progress — Task 34 `post.get` author resolution (2026-08-10)
+
+**Offline half done, live gate not yet run.** `post.get` no longer stores nothing: the author
+vanity is resolved to a urn through `findPersonByVanity` and one row goes into `person_posts`
+(D330). 1428 tests across 93 files, typecheck clean, zero LinkedIn requests spent so far.
+
+Four outcomes, each pinned by a test and each visible at `data.author.status`: `resolved` writes,
+`ambiguous` refuses and warns (D331), `not-found` and `no-vanity` write nothing and still exit 0
+(D332). `--no-store` skips the lookup entirely rather than performing it and throwing the answer
+away. The write reuses Task 27's shared projection and adds no column (D333).
+
+**The company half is deliberately unbuilt (D334, [DECISION NEEDED]).** A company-authored
+permalink yields no `/in/` vanity, so it warns and writes nothing — pinned by a test, so the safe
+default cannot rot. Whether such a page carries the same anchors is unmeasured; the one fixture on
+disk is person-authored. Settling it costs one page load against a company-authored permalink,
+which is the operator's call.
+
+**Next:** the live gate — one load against a post whose author is already stored (`tankots`,
+`urn:li:fsd_profile:ACoAABJLCOABl3WHDMGiReUZpWQ432xXbddzpUA`, from Task 27's gate), verified by
+querying `person_posts` directly rather than by trusting the receipt.
+
 ## Checkpoint 7 — Task 33 review fixes, live-verified (2026-08-10)
 
 Two defects found by reviewing the first live gate, both fixed and both re-run live. All 4
@@ -205,7 +243,7 @@ recommendation urns (D273, superseding Checkpoint 1's exactly-one rule); unscope
 are always refused (D274); and nullish job fields cannot erase prior enrichment (D275). Missing
 description now records parse drift when storage is enabled and halts before claiming usable or
 touching `jobs`. DOM mapper build/render are one paired option, and field-map/parser heading
-cardinality now agrees. Live gate remains unrun.
+cardinality now agrees. Live gate completed exit 0 (1 load spent, 1 verified jobs row in `docs/reports/2026-08-10-live-test.md`). Task 31 is complete.
 The fresh-clone fixture path was exercised with an empty shared root (4 synthetic tests pass,
 1 fixture test skips visibly), and mutation checks killed recommendation-rail identity,
 list-item preservation and null-safe enrichment. Final review suite: 1031 passed, 13 skipped.

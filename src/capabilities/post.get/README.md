@@ -69,20 +69,36 @@ the page rendered, and never a request to extend it.
 
 ## Storage
 
-**Archive-only for now.** The post row is deliberately not written, and the reason is a
-measurement rather than a preference: the snapshot carries no author urn anywhere. Twelve
-`urn:li:member:<id>` values appear in follow-state components, none anchored to the author, and
-there is no urn within 3,000 characters of the author's own link.
+**One row into `person_posts`, when — and only when — the author resolves.**
 
-`person_posts.person_urn` and `company_posts.company_urn` are both `not null`, so writing a row
-would mean inventing an author key — which the rules forbid, and which the task file already
-anticipated with "refusing an unresolvable author". The receipt therefore reports the post and
-leaves the raw snapshot on disk for reparse.
+The snapshot carries no author urn anywhere (D314): twelve `urn:li:member:<id>` values in
+follow-state components, none anchored to the author, and no urn within 3,000 characters of the
+author's own link. The one identifier the page does carry is the **vanity slug**, so the urn is
+recovered from a `persons` row this toolkit already stored — `findPersonByVanity`, a store read
+costing **zero page loads and zero profile opens** (D330).
 
-The route that would work is a vanity lookup (`findPersonByVanity`) against a `persons` row
-this toolkit has already stored, refusing when absent. It is **not implemented** — it is a
-storage decision with an ambiguity case (`vanityMatches > 1`) that deserves its own decision
-entry rather than being slipped in here.
+Four outcomes, all on the receipt at `data.author.status`:
+
+| status | what happened | write | exit |
+|---|---|---|---|
+| `resolved` | exactly one stored person holds that vanity | one row, keyed on the post urn | 0 |
+| `not-found` | nobody has been fetched with `profile.get` yet | none, `POST_AUTHOR_NOT_STORED` | 0 |
+| `ambiguous` | `vanityMatches > 1` — LinkedIn reassigns handles | none, `POST_AUTHOR_AMBIGUOUS` | 0 |
+| `no-vanity` | the parser refused to name an author | none, `POST_AUTHOR_NOT_STORED` | 0 |
+
+None of them is an error. A miss is the ordinary case, and ambiguity is refused rather than
+resolved to the most recent row, because attributing a post to the wrong person is the expensive
+direction of this error (D331, D332). The urn written is always one the store handed back;
+nothing here invents an author key.
+
+`--no-store` touches the store for nothing at all — not even the lookup — and reports
+`author.status: "not-looked-up"`. The archive is written either way.
+
+**Company-authored posts are not stored.** The parser resolves `/in/` links only, so a post
+authored by a company page yields no vanity, warns `PARSE_AUTHOR_UNRESOLVED`, and writes nothing
+to either table. Whether such a permalink carries the same anchors is **unmeasured** — the one
+fixture on disk is person-authored — so `company_posts` stays untouched until a company-authored
+capture exists (D334).
 
 ## Cost
 
