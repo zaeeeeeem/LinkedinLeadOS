@@ -146,6 +146,9 @@ export const CAPABILITY_SUB_CAPS: Readonly<Record<string, CapabilitySubCaps>> = 
   // The job probe, same reasoning: listed rather than left to the reader
   // fallback, and zero profile opens because it never opens a person.
   "job.capture": { pageLoadsPerDay: 12, searchPagesPerDay: 0, distinctProfilesPerDay: 0 },
+  "job.get": { pageLoadsPerDay: 150, searchPagesPerDay: 0, distinctProfilesPerDay: 0 },
+  "profile.posts": { pageLoadsPerDay: 150, searchPagesPerDay: 0, distinctProfilesPerDay: 60 },
+  "profile.activity": { pageLoadsPerDay: 150, searchPagesPerDay: 0, distinctProfilesPerDay: 60 },
 };
 
 /** The daily sub-caps in force for one capability. Never returns uncapped. */

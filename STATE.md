@@ -243,7 +243,7 @@ recommendation urns (D273, superseding Checkpoint 1's exactly-one rule); unscope
 are always refused (D274); and nullish job fields cannot erase prior enrichment (D275). Missing
 description now records parse drift when storage is enabled and halts before claiming usable or
 touching `jobs`. DOM mapper build/render are one paired option, and field-map/parser heading
-cardinality now agrees. Live gate remains unrun.
+cardinality now agrees. Live gate completed exit 0 (1 load spent, 1 verified jobs row in `docs/reports/2026-08-10-live-test.md`). Task 31 is complete.
 The fresh-clone fixture path was exercised with an empty shared root (4 synthetic tests pass,
 1 fixture test skips visibly), and mutation checks killed recommendation-rail identity,
 list-item preservation and null-safe enrichment. Final review suite: 1031 passed, 13 skipped.
