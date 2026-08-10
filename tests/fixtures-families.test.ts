@@ -37,6 +37,56 @@ describe("familyOf", () => {
     expect(familyOf("company.get")).toBe("profile");
     expect(familyOf("")).toBe("profile");
   });
+
+  it("routes the feed capabilities to their own family", () => {
+    expect(familyOf("feed.get")).toBe("feed");
+    // Not the activity family, whose relevance predicate and subject rule both
+    // assume one person's page.
+    expect(familyOf("profile.activity")).toBe("activity");
+  });
+});
+
+describe("the feed family", () => {
+  it("has no subject, because a feed has no single one", () => {
+    // Every item has a different author. A subject filter here would drop the
+    // whole page except one person's items (D325).
+    expect(subjectFor("feed", "https://www.linkedin.com/feed/")).toBeNull();
+    expect(subjectFor("feed", "tankots")).toBeNull();
+  });
+
+  it("counts a body as relevant only when it carries an update urn", () => {
+    const relevant = relevanceOf("feed");
+    expect(relevant(JSON.stringify({ urn: "urn:li:activity:7492274794852220928" }))).toBe(true);
+    expect(relevant(JSON.stringify({ numComments: 3 }))).toBe(true);
+    // A person urn alone is not enough: every feed body names its authors, so a
+    // person marker would call every body relevant on every run.
+    expect(relevant(PERSON_BODY)).toBe(false);
+  });
+
+  it("asks the JSON bodies the same questions the activity family does", () => {
+    expect(probesOf("feed")).toBe(probesOf("activity"));
+  });
+
+  it("maps a feed snapshot with the feed builder and renderer", () => {
+    const html =
+      '<html><body><div data-testid="mainFeed">' +
+      '<div><div componentkey="expandedTRACK1FeedType_MAIN_FEED_RELEVANCE">' +
+      '<div componentkey="TRACK1">' +
+      '<button aria-label="Open control menu for post by Jane Doe"></button>' +
+      '<a href="https://www.linkedin.com/in/janedoe/"><svg aria-label="View Jane Doe\u2019s profile"></svg></a>' +
+      '<span data-testid="expandable-text-box">hello</span>' +
+      "</div></div></div></div></body></html>";
+    const map = domMapOf("feed", html, { sessionVanities: ["zaeem-dev"] });
+    expect(map.container.found).toBe(true);
+    expect(map.items).toHaveLength(1);
+    expect(map.items[0]!.authorLabelled).toBe(true);
+    expect(map.items[0]!.authorLinked).toBe(true);
+    expect(map.items[0]!.sessionOwned).toBe(false);
+
+    const rendered = renderDomMapOf("feed", { file: "f.html", bytes: 10, sourceRun: "RUN", map });
+    expect(rendered).toContain("rendered DOM snapshot (feed surface)");
+    expect(rendered).toContain("mainFeed");
+  });
 });
 
 describe("job DOM-map routing", () => {

@@ -129,6 +129,15 @@ export const CAPABILITY_SUB_CAPS: Readonly<Record<string, CapabilitySubCaps>> = 
   // issues a search, so a search spend under this name means it is doing
   // something it was not built to do (D221).
   "activity.capture": { pageLoadsPerDay: 30, searchPagesPerDay: 0, distinctProfilesPerDay: 20 },
+  // The operator's own feed. One page load per run, no search page, and no
+  // profile open — the items are other people's content, but no profile is
+  // visited to obtain them. Both zeroes are assertions in the same sense as
+  // company.probe's: a spend of either kind recorded under this name would mean
+  // this reader is doing something it was not built to do, and zero turns that
+  // into exit 7 rather than a habit that grows. The page-load ceiling is well
+  // under the fallback's 150 because a feed is re-read, not enumerated: a
+  // reader that wanted 60 loads of one page in a day is a loop, not a read.
+  "feed.get": { pageLoadsPerDay: 24, searchPagesPerDay: 0, distinctProfilesPerDay: 0 },
   // The job probe, same reasoning: listed rather than left to the reader
   // fallback, and zero profile opens because it never opens a person.
   "job.capture": { pageLoadsPerDay: 12, searchPagesPerDay: 0, distinctProfilesPerDay: 0 },

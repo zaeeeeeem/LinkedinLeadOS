@@ -1,5 +1,44 @@
 # STATE
 
+## In progress — Task 32 `feed.get` (2026-08-10)
+
+Checkpoint 1 (offline, zero LinkedIn contact): the feed surface now exists as a promotion
+family. `src/core/fixtures/families.ts` gains `feed` — relevance `isFeedIsh`, the shared
+`ACTIVITY_PROBES` set, `buildFeedDomMap`/`renderFeedDomMap`, and an explicit `null` subject
+because a feed has no single subject (D325). `src/core/fixtures/feed-dommap.ts` is a
+shape-based measurement: it discovers candidate item-boundary rules by attribute/urn-family
+and reports, per candidate, nesting, distinct urns, and how many items have **no** resolvable
+author link — the count that must be reported unresolved rather than guessed. The promoter's
+session identity now runs through `identity.ts` (D322-aware) and yields vanities as well as
+urns, one body at a time. `feed.get` is capped 24/0/0. `src/capabilities/feed.get/` holds
+constants, patterns and the bounded capture; `index.ts` is the probe and **parses nothing**
+(D152). Typecheck clean. Next: `health.check`, then one live `/feed/` capture.
+
+Checkpoint 2 (1 page load spent of 3). `health.check` ok, then one default-flags
+`feed.get` probe run `01KZMZ5BQD2MKSN8EV7WRG38P0`, exit 0. **The measurement (D280): no
+labeled body carries feed items.** 26 responses, zero hits on all six watched feed endpoints,
+and the 5.2MB `/feed/` document has zero Big Pipe islands (RSC flight tree only). So D325's
+fallback is in use because it had to be, and the probe stays on every receipt. The DOM map was
+rewritten against what was measured: container `[data-testid="mainFeed"]`, 13 children of which
+8 are cards, card scope `componentkey="expanded<TRACK>FeedType_<TYPE>"` plus the bare `<TRACK>`.
+`parse.ts` reads the author from `aria-label="Open control menu for post by <name>"` — 3 of 8
+cards hold multiple `/in/` links and the first is the wrong person on all three (D281) — and the
+post urn only from a comment's parent, 3 of 8 (D282). Storage is archive-only (D283); promotion
+now resolves session identity through `identity.ts` (D284). 32 feed tests plus 5 family tests;
+full suite **1354 passed across 83 files**, typecheck clean. Next: the default-flags live gate
+with an independent count of the archived items.
+
+Checkpoint 3 / done offline (2 page loads spent of 3). **Live gate passed on default flags**:
+`cap feed.get` run `01KZN04CZGRXCN16GA8M4E4T5Y`, exit 0, 1 page load, 8 items, 0 unresolved
+authors. Verified independently of the receipt by grepping the archived snapshot: 8 distinct
+`expanded<TRACK>FeedType_` wrappers, 8 `Open control menu for post by` labels whose names match
+the receipt's eight authors one for one, and 2 distinct comment-parent urns matching the
+receipt's `with_urn: 2`. One card (MAXHUB) named an author whose link could not be resolved and
+was reported, not guessed. The receipt's feed-API hit count now excludes the document watch, so
+the number means what D280 claims. Full suite **1354 passed across 83 files**, typecheck clean.
+Open: the storage `[DECISION NEEDED]` — add a `feed_items` table, or keep archive-only (D283's
+default).
+
 ## In progress — Task 31 `job.get` (2026-08-09)
 
 Checkpoint 1: fixture promotion now routes DOM maps by family (D270). Job maps anchor on

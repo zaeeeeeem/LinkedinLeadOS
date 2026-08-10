@@ -3861,3 +3861,110 @@ Consequences that follow, and are part of the decision:
   waived; it is satisfied by the synthetic copy.
 - `.fixtures-private/` is git-ignored at the repo root, alongside `/runs/` and `/fixtures/`, and
   anchored the same way for the reason D301 records.
+
+## D280 — The feed carries no labeled body, so the DOM grant is used rather than preferred (2026-08-10)
+
+D325 granted `feed.get` the fourth DOM exception **ahead of** the measurement, on one
+condition: the probe still measures, and a labeled network body still wins. This records what
+the probe found, because a grant used without its measurement is a habit, not a decision.
+
+Run `01KZMZ5BQD2MKSN8EV7WRG38P0`, one page load, default flags, 2026-08-10:
+
+- **26 responses archived. Zero hits on all six watched feed endpoints** —
+  `voyagerFeedDashUpdates`, `voyagerFeedDashMainFeedUpdates`, `voyagerFeedDashFeedUpdatesV2`,
+  `voyagerSocialDashSocialActivityCounts`, `voyagerSocialDashSocialDetails` and
+  `/voyager/api/feed/updates`. The first two were already watched by `activity.capture` and
+  were the reason to expect a JSON answer here; they were not fetched at all.
+- **The `/feed/` document is 5.2MB and carries no Big Pipe island.** Zero
+  `code[id^="bpr-guid-"]`, zero `application/json` scripts, 14 `type="module"` scripts. So
+  D117's embedded-structured-data route is closed on this surface exactly as it is on the post
+  permalink (D313), and for the same reason: the payload crosses the network as an RSC flight
+  tree.
+- Only two captured bodies were feed-ish at all: that document, and
+  `voyagerIdentityDashNotificationCards` — which is the notification rail, not the feed, and is
+  never promoted (D118).
+
+So the DOM snapshot is the only source, and the exception is in use because it had to be. The
+measurement is not retired now that it has an answer: `data.probe.specific_pattern_hits` and
+`data.probe.feed_ish_bodies` are on **every** `feed.get` receipt, so the day LinkedIn starts
+answering with JSON, it stops being true loudly rather than quietly.
+
+## D281 — A feed card's author is read from a label, never from a link position (2026-08-10)
+
+Measured on the same snapshot: **3 of 8 cards carry more than one distinct `/in/` link**, and
+on every one of those three the *first* link is not the author's. Two render social proof —
+"Fayaz AfriDi likes this" above a post by Hania Zainab, "Hammad Malik commented" above a post
+by Hammad Ishaq — and one renders a mention inside the post body. "The first profile link in
+the card" is wrong on 3 of 8 and looks right on the other 5, which is the worst possible
+failure shape and is exactly D118.
+
+The card's own SDUI namespace is the scope: `componentkey="expanded<TRACKING_ID>FeedType_<TYPE>"`
+on the wrapper and the bare `<TRACKING_ID>` on the card's container — the feed's counterpart to
+the profile card-ref namespace of D127. Within it, authorship comes from what LinkedIn *labels*:
+
+- `aria-label="Open control menu for post by <name>"` names the author. Present on 8 of 8 cards.
+- `aria-label="View <name>’s profile"` for that same name resolves it to a url. The label sits
+  on the avatar `<svg>` **inside** the anchor, not on the anchor — looking for it on the `<a>`
+  found nothing on all eight cards, which is why the labelled element is found first and the
+  enclosing link taken from it.
+- A company author has no profile label, and is resolved only when the card names exactly one
+  company. A post *mentioning* four companies resolves none of them.
+
+A card with no single such label is **reported unresolved** and never attributed. The row is
+still returned, with `author_name: null` and a `PARSE_AUTHOR_UNRESOLVED` count on the receipt:
+an item nobody can attribute is data about the page, and dropping it would hide the failure.
+
+## D282 — A feed item's urn comes from a comment's parent, or from nowhere (2026-08-10)
+
+No attribute anywhere on the feed page carries an `activity`, `ugcPost`, `share` or
+`fsd_update` urn. The single urn-valued attribute in the whole snapshot is an `href` — and it
+is a link **inside one card's post text, pointing at a different post**. Reading it as that
+card's identity would key the item to a stranger's content, silently, on a card that looks
+perfectly normal.
+
+The one reliable source is a rendered comment: `replaceableComment_urn:li:comment:(<parent>,<id>)`,
+where the parent is by definition the post the comment sits under. Taken only when every
+comment on the card agrees, which is D127's agreement rule in this surface's spelling.
+
+That resolves **3 of 8 cards**. The other five have no cross-run identity and are returned with
+`urn: null`, counted in `PARSE_ITEM_URN_UNRESOLVED`. Nothing is invented to fill the gap, and
+nothing loads more comments to create one — that would be the unbounded read D313 forbids.
+
+Two consequences, recorded so they are not re-derived:
+
+- `ref` is the card's tracking id and is **page-local**. LinkedIn mints it per impression, so
+  it identifies a card in one snapshot and nothing beyond it. It is not offered as a urn.
+- `posted_at` is derived from an `urn:li:activity` snowflake only. A `ugcPost` urn yields
+  `null`, because the same encoding has not been measured for that family and a guessed
+  conversion is worse than an absent field. Every time the page *renders* is relative (`10h`);
+  none of it is read.
+
+## D283 — `feed.get` ships archive-only, and no feed table is invented (2026-08-10)
+
+§7 defines no feed table. `feed.get` therefore returns per-item rows on the receipt, archives
+the snapshot raw, and writes nothing to Supabase — the same call `post.get` made (D313) and for
+the same reason: a schema invented by the capability that needs it is a schema nobody reviewed.
+
+The receipt carries `text_chars`, never the post body. Ten post bodies on stdout is a large
+result, and receipts do not carry those (§4.1).
+
+Whether a `feed_items` table is worth having is an open operator decision, presented at the end
+of Task 32. Until it is taken, archive-only is the answer and `data.storage.mode` says so on
+every receipt.
+
+## D284 — Promotion resolves session identity through `identity.ts`, on every surface (2026-08-10)
+
+`scripts/promote-fixtures.ts` built its own comparison set with a local regex over
+`/voyager/api/me`. That is the pre-D322 rule: the activity surface never fetches `/me` and
+carries the same record as a document island instead, so promoting an activity or feed archive
+built an **empty** operator set — and the field map's "this path is the operator's own urn"
+marking, which exists to stop a parser being written against D119's trap, silently marked
+nothing.
+
+Promotion now calls `sessionUrnsOf` / `sessionVanitiesOf`, the one implementation of "who is
+the operator" (D133), one archived body at a time so memory does not grow with the page. It
+also yields **vanities**, which the DOM surfaces need: a rendered card names its author by
+`/in/` link, not by urn, so without them the operator's own row in a feed is indistinguishable
+from a stranger's.
+
+The private-endpoint exclusion is untouched and is still applied before any body is read.

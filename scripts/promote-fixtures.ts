@@ -7,6 +7,7 @@
  *   npm run fixtures:promote -- --latest
  *   npm run fixtures:promote -- --latest --all        # every JSON body, not just profiles
  *   npm run fixtures:promote -- --run=<id> --capability=job.get   # a job probe's archive
+ *   npm run fixtures:promote -- --run=<id> --capability=feed.get  # the operator's own feed
  *
  * Nothing here touches LinkedIn or the browser: it reads files a capture already
  * wrote. Safe to re-run — promotion is idempotent, deduplicated by shape hash,
@@ -20,7 +21,8 @@ import { join, resolve } from "node:path";
 import { RawArchive } from "../src/core/archive/raw.js";
 import { domMapOf, familyOf, probesOf, relevanceOf, renderDomMapOf, subjectFor } from "../src/core/fixtures/families.js";
 import type { Family } from "../src/core/fixtures/families.js";
-import { isPrivateEndpoint, personUrnsIn, promoteFixtures } from "../src/core/fixtures/promote.js";
+import { isPrivateEndpoint, promoteFixtures } from "../src/core/fixtures/promote.js";
+import { sessionUrnsOf, sessionVanitiesOf } from "../src/capabilities/profile.capture/identity.js";
 import type { PromoteSubject } from "../src/core/fixtures/promote.js";
 import { defaultRunsDir } from "../src/core/run/paths.js";
 import { repoRoot } from "../src/core/run/root.js";
@@ -81,31 +83,49 @@ function readRunUrl(runsDir: string, runId: string): string | null {
 }
 
 /**
- * The session's own person urns, read out of the `/voyager/api/me` body the
- * page fetched anyway. Not a filter — the field map marks paths that resolve to
- * these, so a parser is never written against the operator's own identity while
- * looking like it found the subject's (D119).
+ * The session's own identity — person urns and vanity slugs — read out of the
+ * bodies the page fetched or server-rendered anyway. Not a filter: the field map
+ * marks paths that resolve to these, so a parser is never written against the
+ * operator's own identity while looking like it found the subject's (D119).
+ *
+ * Resolved through `identity.ts` rather than by a local regex over
+ * `/voyager/api/me`, because that endpoint is not fetched on every surface. The
+ * activity page never fetches it and carries the same record as a Big Pipe
+ * island in its document instead (D322) — a promotion that only looked at `/me`
+ * built an empty comparison set on exactly the surfaces where the trap is live.
+ *
+ * Vanities matter on the DOM surfaces specifically: a rendered card names its
+ * author by `/in/` link, not by urn, so without them the operator's own row in
+ * a feed is indistinguishable from a stranger's (D313's spelling of D119).
+ *
+ * Private endpoints are skipped before their bodies are read at all — that
+ * exclusion has no override anywhere, and it does not gain one here.
  */
-async function sessionUrnsOf(archiveDir: string): Promise<string[]> {
+async function sessionIdentityOf(archiveDir: string): Promise<{ urns: string[]; vanities: string[] }> {
   const archive = new RawArchive(archiveDir);
   const urns = new Set<string>();
+  const vanities = new Set<string>();
+  // One body at a time, and never a list of them: a feed run archives dozens of
+  // bodies and each can be a megabyte, so holding them all to answer one
+  // question would make promotion's memory grow with the page.
   for (const entry of await archive.list()) {
-    if (!/\/voyager\/api\/me\b/.test(entry.url)) continue;
     if (isPrivateEndpoint(entry.url)) continue;
     try {
-      for (const urn of personUrnsIn(await archive.readText(entry))) urns.add(urn);
+      const one = [{ url: entry.url, body: await archive.readText(entry) }];
+      for (const urn of sessionUrnsOf(one)) urns.add(urn);
+      for (const vanity of sessionVanitiesOf(one)) vanities.add(vanity);
     } catch {
       // An unreadable body here costs a marking, not the promotion.
     }
   }
-  return [...urns];
+  return { urns: [...urns], vanities: [...vanities] };
 }
 
 function usage(message: string): never {
   process.stderr.write(`${message}\n\n`);
   process.stderr.write(
     "usage: npm run fixtures:promote -- (--run=<runId> | --latest) " +
-      "[--capability=profile.get] [--surface=profile|activity|job] [--subject=<vanity>] [--all] " +
+      "[--capability=profile.get] [--surface=profile|activity|job|feed] [--subject=<vanity>] [--all] " +
       "[--runs-dir=<dir>] [--fixtures-dir=<dir>]\n",
   );
   process.exit(1);
@@ -133,8 +153,8 @@ function parse(argv: string[]): Options {
       case "all": o.all = true; break;
       case "subject": o.subject = value ?? usage("--subject needs a vanity slug or profile url"); break;
       case "surface":
-        if (value !== "profile" && value !== "activity" && value !== "job")
-          usage("--surface must be profile, activity or job");
+        if (value !== "profile" && value !== "activity" && value !== "job" && value !== "feed")
+          usage("--surface must be profile, activity, job or feed");
         o.surface = value;
         break;
       case "runs-dir": o.runsDir = resolve(value ?? usage("--runs-dir needs a path")); break;
@@ -171,7 +191,7 @@ async function main(): Promise<void> {
 
   const family = o.surface ?? familyOf(o.capability);
   const subject = subjectOf(o.runsDir, runId, o.subject, family);
-  const sessionUrns = await sessionUrnsOf(archiveDir);
+  const { urns: sessionUrns, vanities: sessionVanities } = await sessionIdentityOf(archiveDir);
   const probes = probesOf(family);
 
   const result = await promoteFixtures({
@@ -185,7 +205,7 @@ async function main(): Promise<void> {
     ...(probes === undefined ? {} : { probes }),
     sessionUrns,
     domMapper: {
-      build: (html) => domMapOf(family, html, { sessionUrns }),
+      build: (html) => domMapOf(family, html, { sessionUrns, sessionVanities }),
       render: (input) => renderDomMapOf(family, input),
     },
   });

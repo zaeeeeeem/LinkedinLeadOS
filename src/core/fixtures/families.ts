@@ -3,12 +3,14 @@ import { normalizeProfileUrl } from "../../capabilities/profile.capture/url.js";
 import { JOB_FIELD_PROBES, isJobIsh } from "../../capabilities/job.capture/patterns.js";
 import { normalizeJobUrl } from "../../capabilities/job.capture/url.js";
 import { isActivityIsh } from "../../capabilities/activity.capture/patterns.js";
+import { isFeedIsh } from "../../capabilities/feed.get/patterns.js";
 import { ACTIVITY_PROBES } from "./activity-probes.js";
 import type { FieldProbe } from "./fieldmap.js";
 import type { PromoteSubject } from "./promote.js";
 import { buildDomFieldMap, renderDomFieldMap } from "./dommap.js";
 import { buildActivityDomMap, renderActivityDomMap } from "./activitymap.js";
 import { buildJobDomFieldMap, renderJobDomFieldMap } from "./job-dommap.js";
+import { buildFeedDomMap, renderFeedDomMap } from "./feed-dommap.js";
 
 /**
  * Which page surface a capability's fixtures come from, and the three things
@@ -27,7 +29,7 @@ import { buildJobDomFieldMap, renderJobDomFieldMap } from "./job-dommap.js";
  * as tight as it was, and a mis-typed `--capability` promotes less rather than
  * more.
  */
-export type Family = "profile" | "activity" | "job";
+export type Family = "profile" | "activity" | "job" | "feed";
 
 /** The capability prefixes that read the person-activity / post surface rather
  *  than the profile top card. Listed rather than sniffed: these three share one
@@ -37,6 +39,7 @@ const ACTIVITY_CAPABILITIES = ["activity.", "post.", "profile.posts", "profile.a
 
 export function familyOf(capability: string): Family {
   if (capability.startsWith("job.")) return "job";
+  if (capability.startsWith("feed.")) return "feed";
   if (ACTIVITY_CAPABILITIES.some((prefix) => capability.startsWith(prefix))) return "activity";
   return "profile";
 }
@@ -44,6 +47,7 @@ export function familyOf(capability: string): Family {
 /** What counts as a body worth promoting, per family. */
 export function relevanceOf(family: Family): (body: string) => boolean {
   if (family === "job") return isJobIsh;
+  if (family === "feed") return isFeedIsh;
   return family === "activity" ? isActivityIsh : isProfileIsh;
 }
 
@@ -51,22 +55,42 @@ export function relevanceOf(family: Family): (body: string) => boolean {
  *  `buildFieldMap`'s own default, which is the profile set. */
 export function probesOf(family: Family): readonly FieldProbe[] | undefined {
   if (family === "job") return JOB_FIELD_PROBES;
-  return family === "activity" ? ACTIVITY_PROBES : undefined;
+  // The feed asks the JSON bodies exactly the questions the activity set
+  // already asks — post urn, author urn, body text, an absolute vs relative
+  // `posted_at`, the reaction and comment counts, and how the surface pages.
+  // A second copy under a different name would be the same probes with a
+  // different chance of drifting, so the set is shared rather than forked.
+  return family === "activity" || family === "feed" ? ACTIVITY_PROBES : undefined;
 }
 
 /** DOM snapshots are surface-specific too. Profile card refs have no meaning on
  * a job SDUI document; job scope is the normalized URL plus job-posting urn and
  * its content anchors are data-testid attributes (D305). The activity map is
  * Task 26's shape-based measurement, which has no card-ref namespace to assume
- * and so needs the session's own urns to mark the operator's rows. */
-export function domMapOf(family: "job", html: string, o?: { sessionUrns?: readonly string[] }): ReturnType<typeof buildJobDomFieldMap>;
-export function domMapOf(family: "activity", html: string, o?: { sessionUrns?: readonly string[] }): ReturnType<typeof buildActivityDomMap>;
-export function domMapOf(family: "profile", html: string, o?: { sessionUrns?: readonly string[] }): ReturnType<typeof buildDomFieldMap>;
-export function domMapOf(family: Family, html: string, o?: { sessionUrns?: readonly string[] }): ReturnType<typeof buildJobDomFieldMap> | ReturnType<typeof buildActivityDomMap> | ReturnType<typeof buildDomFieldMap>;
-export function domMapOf(family: Family, html: string, o: { sessionUrns?: readonly string[] } = {}) {
+ * and so needs the session's own urns to mark the operator's rows. The feed map
+ * wraps that one and adds the question a list surface raises and no single-subject
+ * page did: which element is one item, and whether each item's author can be
+ * resolved from inside it (D325). It takes the session's vanities as well as its
+ * urns, because on a feed the operator's own items are tagged rather than refused
+ * and a rendered card names its author by `/in/` link, not by urn.
+ */
+export type DomMapOptions = { sessionUrns?: readonly string[]; sessionVanities?: readonly string[] };
+
+export function domMapOf(family: "job", html: string, o?: DomMapOptions): ReturnType<typeof buildJobDomFieldMap>;
+export function domMapOf(family: "activity", html: string, o?: DomMapOptions): ReturnType<typeof buildActivityDomMap>;
+export function domMapOf(family: "feed", html: string, o?: DomMapOptions): ReturnType<typeof buildFeedDomMap>;
+export function domMapOf(family: "profile", html: string, o?: DomMapOptions): ReturnType<typeof buildDomFieldMap>;
+export function domMapOf(family: Family, html: string, o?: DomMapOptions): ReturnType<typeof buildJobDomFieldMap> | ReturnType<typeof buildActivityDomMap> | ReturnType<typeof buildFeedDomMap> | ReturnType<typeof buildDomFieldMap>;
+export function domMapOf(family: Family, html: string, o: DomMapOptions = {}) {
   if (family === "job") return buildJobDomFieldMap(html);
   if (family === "activity") {
     return buildActivityDomMap(html, o.sessionUrns === undefined ? {} : { sessionUrns: o.sessionUrns });
+  }
+  if (family === "feed") {
+    return buildFeedDomMap(html, {
+      ...(o.sessionUrns === undefined ? {} : { sessionUrns: o.sessionUrns }),
+      ...(o.sessionVanities === undefined ? {} : { sessionVanities: o.sessionVanities }),
+    });
   }
   return buildDomFieldMap(html);
 }
@@ -81,6 +105,9 @@ export function renderDomMapOf(
   if (family === "activity") {
     return renderActivityDomMap({ ...o, map: o.map as ReturnType<typeof buildActivityDomMap> });
   }
+  if (family === "feed") {
+    return renderFeedDomMap({ ...o, map: o.map as ReturnType<typeof buildFeedDomMap> });
+  }
   return renderDomFieldMap({ ...o, map: o.map as ReturnType<typeof buildDomFieldMap> });
 }
 
@@ -93,6 +120,15 @@ export function renderDomMapOf(
  * (D118).
  */
 export function subjectFor(family: Family, raw: string): PromoteSubject | null {
+  // A feed has no subject, and that is a fact about the surface rather than a
+  // failure to read one (D325). Every item has a different author, so any
+  // subject filter here would drop the whole page except the items belonging to
+  // whoever the filter named. The promoter falls back to "any relevant body",
+  // which on this surface is the correct filter and not the D118 accident —
+  // `isFeedIsh` requires an update urn, and the private-endpoint exclusion that
+  // caused D118 is unchanged and has no override.
+  if (family === "feed") return null;
+
   if (family === "job") {
     // A posting has no vanity slug. Both spellings are supplied because bodies
     // use both: the canonical urn, and the bare numeric id inside urls and
