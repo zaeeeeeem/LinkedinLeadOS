@@ -4042,3 +4042,18 @@ fixture cannot close on its own.
 `--limit`, but reported "N of {every card on the page}". `--limit=2` on an 8-card feed implied six
 checks that never ran. Both now cite `examined`, which is also on the receipt as
 `read.cards_examined` beside `read.cards_rendered`.
+## D290 — Private promotion is a separate operation, not a shared-promoter switch (2026-08-10)
+
+Task 33 adds `promotePrivateFixtures`, with a required per-surface endpoint predicate and no
+`all` option. The existing `promoteFixtures` entry point still refuses every D118 private
+endpoint before reading its body, including with `all: true`; a regression test runs both
+operations over the same archive and pins that separation.
+
+The CLI derives the destination from the capability family: `inbox.*` writes only under the
+repo-root `.fixtures-private/<capability>/`, and rejects `--fixtures-dir`. This makes the
+privacy choice a reviewed capability property rather than an invocation flag somebody can
+mistype. The private operation also refuses every endpoint outside the family's explicit
+boundary, so choosing a private destination does not mean promoting all private rails.
+
+Rejected: adding `--allow-private` to shared promotion. That would make D118's denial one flag
+away from failure again, which is exactly the state D327 says remains unchanged.

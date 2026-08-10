@@ -1,5 +1,20 @@
 # STATE
 
+## In progress — Task 33 `inbox.list` + `inbox.thread` (2026-08-10)
+
+Checkpoint 1 (offline, zero LinkedIn contact): private fixture promotion now has a separate
+`promotePrivateFixtures` entry point with a required endpoint boundary and no `all` option;
+shared promotion still refuses the same D118 endpoints. `inbox.*` is routed automatically to
+repo-root `.fixtures-private/` and cannot take `--fixtures-dir` (D290). The inbox family has
+URL-aware payload classification plus field probes for participants, latest-message preview,
+timestamp, unread state, sender, text and sent time. Replaying real run
+`01KZH9VVPKB5JEVEBW7G2JJ6F3` promoted one 339,617-byte `messengerConversations` body privately
+and skipped 23 out-of-bound bodies; this spent 0 page loads and put the first real inbox fixture
+on disk, lifting D152 for the network parser. Focused verification: 46 tests pass; typecheck
+clean. Next: meaning-check the measured paths, create the redacted committed fixture, then TDD
+the pure parsers and capture composition. The operator-supervised messaging page load remains
+unspent.
+
 ## In progress — Task 32 `feed.get` (2026-08-10)
 
 Checkpoint 1 (offline, zero LinkedIn contact): the feed surface now exists as a promotion

@@ -8,6 +8,7 @@
  *   npm run fixtures:promote -- --latest --all        # every JSON body, not just profiles
  *   npm run fixtures:promote -- --run=<id> --capability=job.get   # a job probe's archive
  *   npm run fixtures:promote -- --run=<id> --capability=feed.get  # the operator's own feed
+ *   npm run fixtures:promote -- --run=<id> --capability=inbox.list # always .fixtures-private/
  *
  * Nothing here touches LinkedIn or the browser: it reads files a capture already
  * wrote. Safe to re-run — promotion is idempotent, deduplicated by shape hash,
@@ -22,6 +23,8 @@ import { RawArchive } from "../src/core/archive/raw.js";
 import { domMapOf, familyOf, probesOf, relevanceOf, renderDomMapOf, subjectFor } from "../src/core/fixtures/families.js";
 import type { Family } from "../src/core/fixtures/families.js";
 import { isPrivateEndpoint, promoteFixtures } from "../src/core/fixtures/promote.js";
+import { promotePrivateFixtures } from "../src/core/fixtures/promote.js";
+import { isInboxFixtureEndpoint } from "../src/capabilities/inbox.list/patterns.js";
 import { sessionUrnsOf, sessionVanitiesOf } from "../src/capabilities/profile.capture/identity.js";
 import type { PromoteSubject } from "../src/core/fixtures/promote.js";
 import { defaultRunsDir } from "../src/core/run/paths.js";
@@ -125,7 +128,7 @@ function usage(message: string): never {
   process.stderr.write(`${message}\n\n`);
   process.stderr.write(
     "usage: npm run fixtures:promote -- (--run=<runId> | --latest) " +
-      "[--capability=profile.get] [--surface=profile|activity|job|feed] [--subject=<vanity>] [--all] " +
+      "[--capability=profile.get] [--surface=profile|activity|job|feed|inbox] [--subject=<vanity>] [--all] " +
       "[--runs-dir=<dir>] [--fixtures-dir=<dir>]\n",
   );
   process.exit(1);
@@ -153,8 +156,8 @@ function parse(argv: string[]): Options {
       case "all": o.all = true; break;
       case "subject": o.subject = value ?? usage("--subject needs a vanity slug or profile url"); break;
       case "surface":
-        if (value !== "profile" && value !== "activity" && value !== "job" && value !== "feed")
-          usage("--surface must be profile, activity, job or feed");
+        if (value !== "profile" && value !== "activity" && value !== "job" && value !== "feed" && value !== "inbox")
+          usage("--surface must be profile, activity, job, feed or inbox");
         o.surface = value;
         break;
       case "runs-dir": o.runsDir = resolve(value ?? usage("--runs-dir needs a path")); break;
@@ -187,28 +190,37 @@ async function main(): Promise<void> {
 
   // Repo root, not cwd: the fixture library is gitignored and shared, so promoting
   // from a worktree has to land in the one library every other checkout reads (D301).
-  const fixturesDir = o.fixturesDir ?? resolve(repoRoot(), "fixtures", o.capability);
-
   const family = o.surface ?? familyOf(o.capability);
+  if (family === "inbox" && o.fixturesDir !== null) {
+    usage("inbox fixtures always use the repo's .fixtures-private/ root; --fixtures-dir is not accepted");
+  }
+  const fixturesDir = o.fixturesDir ?? resolve(
+    repoRoot(),
+    family === "inbox" ? ".fixtures-private" : "fixtures",
+    o.capability,
+  );
   const subject = subjectOf(o.runsDir, runId, o.subject, family);
   const { urns: sessionUrns, vanities: sessionVanities } = await sessionIdentityOf(archiveDir);
   const probes = probesOf(family);
 
-  const result = await promoteFixtures({
+  const common = {
     archiveDir,
     fixturesDir,
     capability: o.capability,
     sourceRun: runId,
-    all: o.all,
     isRelevant: relevanceOf(family),
     ...(subject === null ? {} : { subject }),
     ...(probes === undefined ? {} : { probes }),
     sessionUrns,
     domMapper: {
-      build: (html) => domMapOf(family, html, { sessionUrns, sessionVanities }),
-      render: (input) => renderDomMapOf(family, input),
+      build: (html: string) => domMapOf(family, html, { sessionUrns, sessionVanities }),
+      render: (input: { file: string; bytes: number; sourceRun: string; map: unknown }) =>
+        renderDomMapOf(family, input),
     },
-  });
+  };
+  const result = family === "inbox"
+    ? await promotePrivateFixtures({ ...common, isEligibleEndpoint: isInboxFixtureEndpoint })
+    : await promoteFixtures({ ...common, all: o.all });
 
   // Counts and paths only. Never a body, never a url with a query string.
   process.stdout.write(
@@ -241,7 +253,7 @@ async function main(): Promise<void> {
     ) + "\n",
   );
 
-  if (subject === null) {
+  if (subject === null && family !== "feed" && family !== "inbox") {
     process.stderr.write(
       "no subject could be read from this run, so promotion fell back to " +
         "\"any body carrying person data\" — which promotes other people's data too. " +

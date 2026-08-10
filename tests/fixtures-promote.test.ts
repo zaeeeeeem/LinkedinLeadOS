@@ -5,7 +5,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { RawArchive } from "../src/core/archive/raw.js";
-import { promoteFixtures } from "../src/core/fixtures/promote.js";
+import { promoteFixtures, promotePrivateFixtures } from "../src/core/fixtures/promote.js";
 import type { FixtureIndex } from "../src/core/fixtures/promote.js";
 import { CapabilityError } from "../src/core/run/receipt.js";
 import { isActivityIsh } from "../src/capabilities/activity.capture/patterns.js";
@@ -284,6 +284,51 @@ describe("promoteFixtures", () => {
     } finally {
       chmodSync(readOnly, 0o700);
     }
+  });
+});
+
+describe("promotePrivateFixtures — D327 destination boundary", () => {
+  const MESSAGING_URL =
+    "https://www.linkedin.com/voyager/api/voyagerMessagingGraphQL/graphql?queryId=messengerConversations.0d";
+  const PRIVATE_BODY = JSON.stringify({
+    data: { messengerConversationsBySyncToken: { elements: [{ unreadCount: 1, messages: { elements: [] } }] } },
+  });
+
+  it("promotes an explicitly eligible private body without weakening shared promotion", async () => {
+    await seed([
+      { body: PRIVATE_BODY, url: MESSAGING_URL },
+      { body: PROFILE_BODY, url: GQL },
+    ]);
+    const privateDir = join(root, ".fixtures-private", "inbox.list");
+    const privateResult = await promotePrivateFixtures({
+      archiveDir,
+      fixturesDir: privateDir,
+      capability: "inbox.list",
+      sourceRun: "01PRIVATE",
+      isEligibleEndpoint: (url) => url.includes("messengerConversations"),
+      isRelevant: (body) => body.includes("messengerConversationsBySyncToken"),
+    });
+    expect(privateResult.promoted).toHaveLength(1);
+    expect(privateResult.skipped.non_private_endpoint).toBe(1);
+    expect(readFileSync(join(privateDir, privateResult.promoted[0]!.file), "utf8")).toBe(PRIVATE_BODY);
+
+    const sharedResult = await run({ all: true });
+    expect(sharedResult.skipped.private_endpoint).toBe(1);
+    expect(sharedResult.promoted).toHaveLength(1);
+  });
+
+  it("has no all escape hatch and refuses every endpoint outside its named boundary", async () => {
+    await seed([{ body: PRIVATE_BODY, url: MESSAGING_URL }]);
+    const result = await promotePrivateFixtures({
+      archiveDir,
+      fixturesDir: join(root, ".fixtures-private", "inbox.list"),
+      capability: "inbox.list",
+      sourceRun: "01PRIVATE",
+      isEligibleEndpoint: () => false,
+      isRelevant: () => true,
+    });
+    expect(result.promoted).toHaveLength(0);
+    expect(result.skipped.non_private_endpoint).toBe(1);
   });
 });
 

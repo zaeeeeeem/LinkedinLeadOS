@@ -44,6 +44,15 @@ describe("familyOf", () => {
     // assume one person's page.
     expect(familyOf("profile.activity")).toBe("activity");
   });
+
+  it("routes both inbox capabilities to the private inbox family", () => {
+    expect(familyOf("inbox.list")).toBe("inbox");
+    expect(familyOf("inbox.thread")).toBe("inbox");
+    expect(subjectFor("inbox", "https://www.linkedin.com/messaging/")).toBeNull();
+    expect(probesOf("inbox")?.map((p) => p.name)).toEqual(expect.arrayContaining([
+      "participants", "last_message_snippet", "unread", "sender", "message_text", "sent_at",
+    ]));
+  });
 });
 
 describe("the feed family", () => {

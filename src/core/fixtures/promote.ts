@@ -52,6 +52,8 @@ export type PromoteResult = {
     duplicate_shape: number;
     /** The operator's own private correspondence. Never promoted, `--all` or not. */
     private_endpoint: number;
+    /** Outside the endpoint boundary explicitly named by a private fixture family. */
+    non_private_endpoint: number;
     /** Carries person data, but not *this* subject's, and `--all` was not given. */
     not_subject: number;
     /** Not carrying person data, and `--all` was not given. */
@@ -80,7 +82,7 @@ export type PromoteInput = {
    *  Does **not** reach private endpoints — that exclusion has no override. */
   all?: boolean;
   /** Decides which bodies are worth promoting. Default: carries a person urn. */
-  isRelevant?: (body: string) => boolean;
+  isRelevant?: (body: string, url: string) => boolean;
   /** Who this capture was of. Given, it is the filter: a body that does not
    *  name this person is not a fixture for parsing this person (D118). */
   subject?: PromoteSubject;
@@ -96,6 +98,12 @@ export type PromoteInput = {
   };
   probes?: readonly FieldProbe[];
   now?: () => Date;
+};
+
+export type PrivatePromoteInput = Omit<PromoteInput, "all"> & {
+  /** The private surface's explicit endpoint/document boundary. Required: a
+   * private destination is not a flag that disables D118's shared deny-list. */
+  isEligibleEndpoint(url: string): boolean;
 };
 
 /** Who a capture was of, in whichever form the run recorded. */
@@ -200,7 +208,11 @@ async function readIndex(indexPath: string, capability: string): Promise<Fixture
  * than skipped silently — a fixture set that is quietly short is how a parser
  * ends up proven against half the shapes it will meet.
  */
-export async function promoteFixtures(input: PromoteInput): Promise<PromoteResult> {
+type PromotionMode =
+  | { kind: "shared" }
+  | { kind: "private"; isEligibleEndpoint(url: string): boolean };
+
+async function promoteFixtureSet(input: PromoteInput, mode: PromotionMode): Promise<PromoteResult> {
   const now = input.now ?? (() => new Date());
   const isRelevant =
     input.isRelevant ??
@@ -223,7 +235,8 @@ export async function promoteFixtures(input: PromoteInput): Promise<PromoteResul
   const promoted: FixtureEntry[] = [];
   const unreadable: PromoteResult["unreadable"] = [];
   const skipped = {
-    duplicate_shape: 0, private_endpoint: 0, not_subject: 0, not_profile: 0, not_json: 0,
+    duplicate_shape: 0, private_endpoint: 0, non_private_endpoint: 0,
+    not_subject: 0, not_profile: 0, not_json: 0,
     unreadable: 0, snapshot_not_subject: 0,
   };
 
@@ -239,8 +252,12 @@ export async function promoteFixtures(input: PromoteInput): Promise<PromoteResul
     // First, and before the body is even read: a private endpoint is not a
     // fixture candidate under any flag. A snapshot has no endpoint — its url is
     // synthetic — so this is not asked of it.
-    if (!isSnapshot && isPrivateEndpoint(entry.url)) {
+    if (mode.kind === "shared" && !isSnapshot && isPrivateEndpoint(entry.url)) {
       skipped.private_endpoint++;
+      continue;
+    }
+    if (mode.kind === "private" && !mode.isEligibleEndpoint(entry.url)) {
+      skipped.non_private_endpoint++;
       continue;
     }
 
@@ -309,7 +326,7 @@ export async function promoteFixtures(input: PromoteInput): Promise<PromoteResul
       promoted.push({
         file, shape_hash: entry.shapeHash, path: pathOf(entry.url), query_id: null,
         status: entry.status, bytes: entry.bytes, source_run: input.sourceRun,
-        promoted_at: now().toISOString(), profile_ish: isRelevant(body),
+        promoted_at: now().toISOString(), profile_ish: isRelevant(body, entry.url),
         subject_match: input.subject ? namesSubject(body, input.subject) : true,
         embedded_document: true,
       });
@@ -323,7 +340,7 @@ export async function promoteFixtures(input: PromoteInput): Promise<PromoteResul
       continue;
     }
 
-    const relevant = isRelevant(body);
+    const relevant = isRelevant(body, entry.url);
     // A subject narrows "carries person data" to "carries *this* person's data".
     // Without one, promotion falls back to the old heuristic — which is why the
     // script always supplies one from the run's own arguments.
@@ -460,4 +477,20 @@ export async function promoteFixtures(input: PromoteInput): Promise<PromoteResul
     skipped,
     unreadable,
   };
+}
+
+/** Shared fixture promotion. D118's private-endpoint refusal remains absolute,
+ * including when `all` is true. */
+export function promoteFixtures(input: PromoteInput): Promise<PromoteResult> {
+  return promoteFixtureSet(input, { kind: "shared" });
+}
+
+/** Private fixture promotion is a separate operation with a required endpoint
+ * boundary and no `all` option. It cannot weaken shared promotion because it
+ * never calls it and never writes to its destination by default (D327). */
+export function promotePrivateFixtures(input: PrivatePromoteInput): Promise<PromoteResult> {
+  return promoteFixtureSet(input, {
+    kind: "private",
+    isEligibleEndpoint: input.isEligibleEndpoint,
+  });
 }
