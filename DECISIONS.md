@@ -4603,3 +4603,153 @@ all: a deploy or an OOM left its run row reading "running" forever.
 the cap that refused named in the evidence, every proved page still claimed, and the run
 resumable with `--run-id` once the window clears. A refusal on the *first* page is not
 dressed up as a partial run — the refusal itself is the whole story and propagates unchanged.
+
+## D350 — Sales Navigator result rows come from a labeled body; the DOM exception list does not grow (2026-08-10)
+
+Measured on a live leads search, run `01KZP693DEWVP0S90K7C7XQ997`: a cold load of
+`/sales/search/people?query=…` fetches `GET /sales-api/salesApiLeadSearch`, 154 KB,
+carrying all 24 result rows as JSON with 59 `fs_salesProfile` urns.
+
+**This overturned the working prior.** M5 CONTEXT rule 7 expected labeled bodies but the
+reference worker was evidence against: it read Sales Nav rows out of the DOM
+(`ol.artdeco-list`, `data-anonymize`) and only ever captured `salesApiProfiles` after
+*clicking a lead panel open*. On this build the search page fetches its own rows on a cold
+load, with no interaction.
+
+So **CLAUDE.md's DOM exception list stays closed at five.** Task 38 parses bodies. The DOM
+snapshot is still archived per surface as corroboration and as the parse-drift tripwire,
+never as a source.
+
+## D351 — Sales Navigator paginates by click, not by url; page 2 is not spent (2026-08-10)
+
+Measured on leads page 1: the pager renders **12 `button` elements and 0 anchors**. Zero
+hrefs carry `page=N`. The landed url carries no `page` parameter. Its own a11y text reads
+page 1 of 100.
+
+The reference worker recorded that the url carried `?page=N` and refused to use it on
+live-risk grounds ("jumping it is the teleporting pattern that gets flagged"). On this
+build the question is moot in the other direction: **the url does not carry it and the
+address bar never produces it.**
+
+Reaching page 2 therefore requires clicking a pager button — a class of action this toolkit
+has never taken. Per M5 CONTEXT rule 4 that is an operator decision (the D323 precedent),
+not an implementation detail, and it is **not taken here**.
+
+The probe **did not spend page 2.** `mayLoadPageTwo` refused it, unspent, with the reason
+on the receipt. Tasks 39 and 40 are blocked until the decision lands.
+
+Recorded for whoever takes it: `paging.start` / `paging.count` in the body mean the API
+itself pages by offset, so once the UI is driven to page 2 by whatever means is approved,
+the body says unambiguously which page arrived — which is exactly what the Task 35 paged
+loop needs for its cursor. This is **not** permission to forge the request; CLAUDE.md's
+"never forge a request LinkedIn's own UI did not already issue" is unchanged.
+
+## D352 — A search url keeps its query; every other target in this repo drops it (2026-08-10)
+
+`normalizeProfileUrl` and `normalizeCompanyUrl` strip all query parameters on D113's
+reasoning: no profile or company page needs one to decide what it renders.
+
+A search is the opposite. `query=`, `savedSearchId=` and `sessionId=` **are** the target,
+and stripping them would silently probe a different search than the operator named.
+`normalizeSalesNavUrl` therefore preserves the query and drops only the fragment.
+
+The `ref` is deliberately *not* the whole query blob — it is `salesnav:<vertical>` plus the
+saved-search id when there is one. The blob is long, changes per session, and the ref
+reaches the run log.
+
+## D353 — `objectUrn` is the dedupe key, not `entityUrn` (2026-08-10)
+
+A row's `entityUrn` is compound:
+`urn:li:fs_salesProfile:(<profileId>,<searchContext>,<token>)`. Only the first member is
+the person; the second is the search context and the third a per-execution token. **The raw
+`entityUrn` is therefore not stable across searches and must never be a dedupe key.**
+
+`objectUrn` (`urn:li:member:<numericId>`) is present on all 24 measured rows, is stable,
+and was unique across the page. It is the key.
+
+D126's refusal is unchanged: a row whose identity resolves to the session urn or to nothing
+stores nothing. `sessionUrnsOf` reported 0 session urns across the probe run.
+
+## D354 — `companyUrn` is optional per position; a row is joinable, a position is not (2026-08-10)
+
+Measured: 27 of 29 positions carry `companyUrn`; all 29 carry `companyName` and `title`.
+Every one of the 24 rows has at least one position that does carry a urn.
+
+Two positions name a company with no urn — what a company with no LinkedIn page looks like.
+Task 38 must treat `companyUrn` as optional per position and must not key a `search_results`
+row on it; a `companyName` with no urn is a real, storable state, not a parse failure.
+
+**Recorded because the first draft of the FIELD-MAP asserted 29/29 and was wrong.** The
+pinning test caught it, not a re-reading of the body — which is the argument for writing the
+pinning test before trusting the map.
+
+## D355 — The seat verdict is three-valued and never guesses (2026-08-10)
+
+`/sales/` either renders the app or an upsell. The probe returns `true`, `false` or
+**`null`**, and `null` is the point: a surface that could not be measured is not called
+seatless. An unmeasurable page is a different failure and gets its own warning
+(`SALESNAV_SEAT_UNDETERMINED`, which marks every later verdict provisional).
+
+A missing seat is `SALESNAV_NO_SEAT`, **exit 1, not exit 2**: it is a product state, not a
+defence, and nothing about it is solved by a screenshot and a retry. It halts, notifies, and
+leaves the decision — acquire a seat, or pivot M5 to the classic search family — to the
+operator.
+
+**Measured 2026-08-10: the automation account has an active seat.** Corroborated from the
+network, not the render: `salesApiEntitlements`, `salesApiAccess` and
+`salesApiTreatment?…lixAcceptIdType=CONTRACT_AND_SEAT` all returned 200. The plan README's
+precondition 1 is satisfied and `BACKLOG.md` B1 does not block M5.
+
+## D356 — The probe never navigates a url the UI did not produce (2026-08-10)
+
+The unfiltered defaults `/sales/search/people` and `/sales/search/company` render an
+**empty search-entry state with zero rows** — measured, and useless as a fixture. The
+temptation is then to synthesize a filter url.
+
+Refused. M6 owns filter building (`salesnav.filters.build`), and a probe of an invented
+query measures a page the product does not itself produce. The measured run instead used a
+persona-filter search url **read out of the already-archived `/sales/home` snapshot** — a
+link the Sales Navigator UI itself rendered. That cost zero additional page loads and is
+the pattern to repeat.
+
+`searchPageUrl()` renders a `page=N` candidate but building it is not permission to
+navigate it; D351's gate decides that.
+
+## D357 — The Sales Nav search surface has no `data-testid` and no `componentkey` (2026-08-10)
+
+Measured on leads page 1: zero `data-testid` attributes inside row scope, zero
+`componentkey`, zero `bpr-guid` islands, zero embedded `ld+json` or `application/json`.
+
+The D305/D313 discipline — anchor DOM scope on `data-testid` rather than LinkedIn's
+per-build hashed classes — **has nothing to anchor on here.** It does not matter today
+because D350 says the rows come from a body, and it is recorded so that any future DOM work
+on this surface knows it needs its own anchor decision first rather than discovering the
+absence mid-task.
+
+The scroller *was* measurable and is **`div#search-results-container`** (4673 / 627 px) —
+not the document, not `main#workspace`. D115 again: measure it, never assume it.
+
+## D358 — A search has no single subject, so subject-scoped promotion does not apply (2026-08-10)
+
+`fixtures:promote` scopes an archive to one subject (D118/D119) and warns when it cannot
+find one. On a search surface there is no subject to find — every row is a different person
+— so it correctly falls back to "any body carrying person data".
+
+That is the right behaviour here and is **not** a defect to fix. It is why the salesnav
+fixtures stay gitignored while `FIELD-MAP.md` and `tests/salesnav-fieldmap.test.ts` are what
+land in git, and why the pinning test skips itself when the fixture is absent rather than
+failing.
+
+`salesApiNavChrome` carries the operator's own `fs_salesProfile` and is excluded as a
+private endpoint; the promoter skipped 8 such bodies on the measured run.
+
+## D359 — `sessionId` pins the result set, and a changed one is a different search (2026-08-10)
+
+The requested url carried no `sessionId`; the landed url did. LinkedIn mints one per search
+execution and pins the result set — and the instant its filters were evaluated — to it.
+
+Page numbers therefore only mean the same thing **within one `sessionId`**. Task 39's resume
+must treat a changed `sessionId` as a different search rather than a continuation, not as a
+cursor to carry forward. `normalizeSalesNavUrl` extracts it into `SalesNavTarget.sessionId`
+for exactly that check, reading it from either the query string or the percent-encoded
+`query=` blob, because it occurs in both.

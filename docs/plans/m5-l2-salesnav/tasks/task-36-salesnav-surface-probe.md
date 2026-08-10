@@ -5,6 +5,19 @@
 **Probe budget: max 6 page loads / 6 search pages** (leads search pages 1–2, accounts
 search page 1, saved-search list, plus spares). This is the seat check too.
 
+**Status: done, 2026-08-10** — with one deliverable short, stated rather than absorbed.
+`src/capabilities/salesnav.probe/` + `FIELD-MAP.md`, 95 tests, D350–D359, `STATE.md`
+checkpointed. **Spent 5 page loads / 3 search pages of 6 / 6.**
+
+Verdicts: **seat yes** (D355) · **rows in a labeled body, so the CLAUDE.md DOM exception
+list does not grow** (D350) · **pagination is click-only, `[DECISION NEEDED]`, and page 2
+was deliberately not spent** (D351).
+
+**Short: the accounts search is unmeasured.** Its run died on a `CDP_CONNECTION_CLOSED`
+fault (2 of 4 runs, undiagnosed, core CDP rather than this surface — see `STATE.md`) and
+the daily sub-cap was reached before it could be retried. Tasks 38/40 must treat every
+accounts-side field as unmeasured; the leads side is complete.
+
 ## Objective
 
 Measure — never assume — where every field the leads and accounts capabilities need

@@ -1,5 +1,81 @@
 # STATE
 
+## Complete — Task 36, the Sales Navigator surface probe (2026-08-10, live, operator-authorized)
+
+`src/capabilities/salesnav.probe/` plus `FIELD-MAP.md`. Branch
+`task-36-salesnav-surface-probe`, cut from `task-35-paged-run-core`, **neither merged**.
+**Tests: 1607 pass, typecheck clean** (83 new offline + 12 fixture-pinning).
+
+### The three verdicts
+
+**Seat: yes.** Corroborated from the network, not the render — `salesApiEntitlements`,
+`salesApiAccess` and `salesApiTreatment?…lixAcceptIdType=CONTRACT_AND_SEAT` all 200 (D355).
+Plan README precondition 1 satisfied; `BACKLOG.md` B1 does not block M5.
+
+**Source: labeled body. The DOM exception list does not grow** (D350). A cold load of
+`/sales/search/people?query=…` fetches `salesApiLeadSearch` — 154 KB, all 24 rows as JSON.
+This **overturned the prior**: the reference worker read rows out of the DOM and only saw
+`salesApiProfiles` after clicking a lead panel. Task 38 parses bodies.
+
+**Pagination: click-only. `[DECISION NEEDED]`** (D351). The pager is **12 buttons, 0
+anchors, 0 hrefs carrying `page=N`**; the landed url has no `page` parameter. The reference
+worker's `?page=N` form is not offered by this build. Reaching page 2 needs a **click** — a
+class of action this toolkit has never taken (D323 precedent). **Page 2 was not spent**: the
+gate refused it, unspent, with the reason on the receipt. **Tasks 39 and 40 are blocked on
+this decision.**
+
+### Spend — budgeted 6 page loads / 6 search pages, used 5 / 3
+
+| run | surfaces | loads | search pages | outcome |
+|---|---|---|---|---|
+| `01KZP5YAC7HQQ1Y23DH3462JQH` | home | 1 | 0 | exit 2 — CDP socket dropped, see below |
+| `01KZP61QK0N7CMNJ38PFTB8PSC` | home | 1 | 0 | exit 0, seat confirmed |
+| `01KZP63CX5X5BR64E3ZJ4WBYBM` | leads, leads2, accounts | 2 | 2 | exit 6 — CDP socket dropped on `accounts` |
+| `01KZP693DEWVP0S90K7C7XQ997` | leads, leads2 | 1 | 1 | exit 0, both verdicts |
+
+Ledger `page_load` lines 5, distinct pages archived 5, pages the receipts claim 5 — three
+numbers from three places, equal. `search_page` 3 likewise. The two failed runs each spent
+before they died, which is the contract's designed direction (over-count, never under).
+
+### [BUG] `CDP_CONNECTION_CLOSED` — 2 of 4 runs, not diagnosed
+
+The browser-level CDP socket closed mid-run, twice, on the same Chrome instance (same
+websocket id before and after, so Chrome did not restart). Both deaths followed a body fetch
+on `salesApiNavChrome`. Keepalive is 30 s and the runs died at ~22 s and ~43 s, so keepalive
+never fired; `MAX_FRAME_BYTES` is 512 MB, so it is not a frame cap.
+
+**It cost 2 metered search pages.** Everything downstream failed honestly — the layout probe
+timed out, the snapshot failed, the seat verdict returned `null` rather than `false`, and the
+pre-success gate denied by default. The rails worked; the socket is the defect. Not fixed
+here: it is core CDP, not this task's surface, and fixing it blind would be guessing.
+
+### Also measured
+
+- Scroller is **`div#search-results-container`** (4673 / 627 px) — not the document, not
+  `main#workspace` (D357). D115 again.
+- **No `data-testid`, no `componentkey`, no `bpr-guid`** anywhere on this surface, so the
+  D305/D313 "anchor scope on `data-testid`" discipline has nothing to anchor on (D357).
+- `objectUrn` is the dedupe key, **not** `entityUrn` — the latter is compound and its search
+  context and token are per-execution (D353).
+- `companyUrn` is **27/29 positions**, not universal (D354). Caught by the pinning test after
+  the FIELD-MAP's first draft asserted otherwise — which is the argument for the test.
+- `sessionId` is minted per execution and pins the result set; a changed one is a different
+  search, not a continuation (D359). Task 39's resume turns on this.
+- The unfiltered default search urls render an **empty state with zero rows**. The measured
+  run used a search url read out of the already-archived `/sales/home` snapshot — a link the
+  UI itself rendered, at zero extra page loads (D356).
+
+### Not done
+
+- **The accounts search is unmeasured.** Its run died on the CDP fault and the daily probe
+  sub-cap was reached. Tasks 38/40 must treat every accounts-side field as unmeasured.
+- Page 2 of anything — deliberately, per D351.
+
+**Decisions: D350–D359**, the range the plan reserved, all free when taken.
+
+**Next:** the click decision (D351) unblocks 39/40. Task 38 can start now on the leads side
+only — its accounts half needs one more probe page once the sub-cap window clears.
+
 ## Complete — Task 35, the paged-run core (2026-08-10, offline, zero LinkedIn contact)
 
 `src/core/paged/` — the spend/checkpoint/resume contract Tasks 36/39/40 consume instead of
