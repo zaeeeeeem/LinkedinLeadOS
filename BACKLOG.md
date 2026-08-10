@@ -162,3 +162,29 @@ Until both are answered, the honest alternative is cheaper and may be enough: ha
 detect that the box is truncated and say so on the receipt, so a short description is reported
 as partial rather than as the whole — the same discipline D313 already applies to a partial
 comment read.
+
+## Fixture promotion drops every DOM snapshot after the first (2026-08-10, D340's fallout)
+
+Captured while promoting the two Ember post snapshots. `npm run fixtures:promote --
+--run=<id> --capability=post.get` reported `duplicate_shape: 1` and promoted the initial
+document instead of the `pattern: "dom-snapshot"` body.
+
+The cause: `shapeHashOfBody` returns the `NON_JSON_SHAPE` constant for anything that is not
+JSON, so **every** HTML snapshot in the repo carries the same shape hash
+(`438312a3d613045a`). Promotion deduplicates by shape hash, so the first DOM snapshot a
+capability ever promotes permanently shadows all later ones — including a snapshot of a
+different post, a different profile, or, as here, an entirely different renderer.
+
+The impact is silent: the promoter exits 0 and the run's snapshot never reaches `fixtures/`,
+so the parser tests keep passing against the stale page while the live page has moved.
+
+**The approach settled here:** dedupe DOM snapshots on `(shape hash, source url)` rather than
+shape hash alone, or give a snapshot a content hash of its own bytes instead of the non-JSON
+constant. Naming the file from the url the snapshot came from would also make the fixture
+directory readable, which it currently is not — `438312a3d613045a-dom-snapshot.html` says
+nothing about which page it is.
+
+Not fixed here: promotion is Task 16's module, the two fixtures this work needed were
+extracted directly, and changing the dedupe rule affects every capability's fixture
+directory. Belongs with whoever next touches promotion, with a test that promotes two
+snapshots of different urls and asserts both land.

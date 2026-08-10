@@ -24,15 +24,42 @@ for the post**. Zero `bpr-guid` data islands, zero `socialActivityCounts`, no `u
 and zero hits on all four social watches on a cold load. There is nothing else to read.
 
 The shape is inherited, not re-derived: an `outerHTML` snapshot, archived raw, parsed
-**offline**, every row tagged `source: "dom-snapshot"`, scope anchored on `data-testid` rather
-than container position or LinkedIn's per-build hashed classes.
+**offline**, every row tagged `source: "dom-snapshot"`, scope anchored on names LinkedIn chose
+rather than container position or LinkedIn's per-build hashed classes.
+
+## Two renderers (D340)
+
+LinkedIn serves this surface from two different apps, and the reader parses both:
+
+| | `sdui` | `ember` |
+|---|---|---|
+| what it is | the React app D312/D313 measured | the legacy `theme--mercado` app, seen from 2026-08-10 |
+| `data-testid` attributes | 14 | **0** |
+| identity anchor | `data-testid="ReactionFacepileCollection-<urn>"` | `data-urn` on `.feed-shared-update-v2` |
+| author | profile links minus comments, facepile and session | `.update-components-actor__meta-link`, corroborated by the control-menu label |
+| text | `[data-testid='expandable-text-box']` | `.update-components-update-v2__commentary` |
+
+Detection turns on those anchors, **not** on the theme class — `/messaging/` has always been
+`theme--mercado` and is a different surface entirely. The renderer is named on every receipt at
+`data.renderer`, and leads a refusal's evidence, so a future switch shows up in the receipt
+instead of costing page loads to diagnose. A snapshot that is neither refuses.
+
+The two parsers are separate and neither tolerates the other's markup: the pages share no
+anchor, so a merged parser would be mixing scopes from two page models, which is how someone
+else's data ends up under the subject's key.
 
 ## Identity, resolved or refused
 
-The post's urn comes from `data-testid="ReactionFacepileCollection-urn:li:activity:<id>"` and
-must equal the urn the caller asked for. A snapshot of a different post is refused with
+On `sdui` the post's urn comes from `data-testid="ReactionFacepileCollection-urn:li:activity:<id>"`;
+on `ember` from `data-urn` on the one `.feed-shared-update-v2` card. Either way it must equal
+the urn the caller asked for. A snapshot of a different post is refused with
 `POST_GET_IDENTITY_UNRESOLVED` (exit 5) rather than reconciled — a redirect that lands
 elsewhere has to fail loudly.
+
+On `ember`, a **company-authored** post is positively identified rather than inferred: the
+actor link is `/company/<vanity>`, which raises `PARSE_AUTHOR_COMPANY` and writes nothing
+(D334's behaviour, now measured). The card may also embed a reshared update whose actor is a
+person — that actor is excluded by scope, so the post is never stored under the resharer.
 
 The **author** is resolved by elimination, and the elimination is the interesting part. The
 post page renders the operator's own profile in its left rail, so the naive "first profile

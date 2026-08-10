@@ -61,16 +61,56 @@ about the SDUI page.
 **Nothing was stored and nothing wrong was stored.** Exit 5 with the archived body named on the
 receipt is the designed behaviour for parse drift, and it is what happened, twice.
 
-**Next — operator's call, both offline-first:**
+## Done — both renderers supported, and the surface sweep (2026-08-10, D340/D341)
 
-1. Map the Ember renderer from the two archived snapshots (person- and company-authored, both on
-   disk). Zero page loads. Then decide whether `post.get` supports both renderers or waits out
-   the rollout.
-2. Re-check whether the other DOM readers are exposed to the same switch. `profile.get`,
-   `job.get`, `feed.get` and the inbox readers all anchor on DOM attributes; only `post.get` has
-   been re-run since the switch. This is a read of archived snapshots plus, at most, one
-   supervised load per surface — **it should happen before M5**, since a renderer switch under
-   L1 would surface as L2 "parse drift" and cost far more to diagnose there.
+**`post.get` now parses the Ember page too, and says which one it read.** Written entirely
+offline against the two snapshots the gate archived — **zero further page loads**. 1448 tests
+across 93 files (was 1428), typecheck clean.
+
+The two parsers are separate and dispatched by anchor detection, never merged (D340): the pages
+share no anchor, so a merged parser would mix scopes from two page models. `data.renderer`
+appears on every receipt and leads a refusal's evidence.
+
+Both real snapshots are pinned: person-authored reads author `tankots`, 1049/73/5 totals, 10
+comment rows, 9 facepile reactions; company-authored reads its text and refuses the author with
+`PARSE_AUTHOR_COMPANY` naming `wisprflow`. Five guards were mutation-verified to bite — nested
+reshare exclusion (without it the company's post stores under `sudha-ranganathan`), comment-row
+exclusion, control-menu corroboration, session-own refusal, and identity. One residual is stated
+rather than hidden: the strict `^N reactions$` anchor is redundancy behind the scope, not an
+independent guard.
+
+**The renderer sweep is done, and it corrects the earlier read of this.** Every DOM snapshot on
+disk was classified by sidecar `pattern: "dom-snapshot"` rather than by file size:
+
+| Surface | Last snapshot | `data-testid` | `theme--mercado` |
+|---|---|---|---|
+| `/in/<vanity>` (`profile.get`) | 08-10 02:35 | 81 | no |
+| `/jobs/view/<id>` (`job.get`) | 08-10 02:57 | 16 | no |
+| `/feed/` (`feed.get`) | 08-10 05:24 | 35 | no |
+| `/messaging/` (`inbox.*`) | 08-10 09:54 | 0 | **always** |
+| `/posts/`, `/feed/update/` (`post.get`) | 08-10 03:01 → 13:27 | 30 → **0** | no → **yes** |
+
+**Mercado is not new to the account and not spreading — `/messaging/` has always been mercado
+and `inbox.*` parses it correctly.** Only the post surface switched. The three SDUI DOM readers
+were last measured 8–11 hours before the switch and show no sign of it; confirming them costs
+one supervised load each and is not evidence-backed work today.
+
+**Next — operator's call:**
+
+1. **One live `post.get` re-run** would close Task 34 properly: exit 0, `renderer: "ember"`, and
+   a `person_posts` row for `tankots` verified by direct query. Author resolution (D330–D333)
+   is still the one part of Task 34 never exercised against a real page. 1 page load.
+2. **D341** — the Ember page fetches a 69,876-byte `voyagerSocialDashReactions` body the SDUI
+   page never did. Moving reactions onto that labeled body is strictly better evidence than an
+   aria-label and costs zero page loads, since the body is already archived.
+3. **Three surfaces unconfirmed since the switch** (`profile.get`, `job.get`, `feed.get`). One
+   load each, or wait until they are next run for real.
+
+**A promoter defect found on the way:** `npm run fixtures:promote` skipped both Ember snapshots
+as `duplicate_shape`. Every HTML body hashes to the same non-JSON shape constant, so the second
+DOM snapshot a capability ever promotes is always dropped as a duplicate of the first. The two
+fixtures here were extracted directly instead. Not fixed — it is Task 16's module and belongs
+with whoever next touches it.
 
 ## Checkpoint 7 — Task 33 review fixes, live-verified (2026-08-10)
 

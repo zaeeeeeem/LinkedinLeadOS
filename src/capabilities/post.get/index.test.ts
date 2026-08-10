@@ -112,6 +112,28 @@ describe("post.get composition", () => {
     expect((receipt.warnings ?? []).map((w) => w.code)).not.toContain("REACTIONS_PARTIAL");
   });
 
+  it("names the renderer on the receipt, and parses an Ember snapshot through the same wiring", async () => {
+    // The receipt says which app it read (D340). A silent switch is what made
+    // the 2026-08-10 gate cost two page loads to diagnose.
+    const sdui = await make(capture()).run(context({ url: PERMALINK }));
+    expect((sdui.data as { renderer: string }).renderer).toBe("sdui");
+
+    const ember = `<html><body>
+      <div class="feed-shared-update-v2" data-urn="${URN}">
+        <a class="update-components-actor__meta-link" href="https://www.linkedin.com/in/tankots?miniProfileUrn=x">Tanay Kothari</a>
+        <div aria-label="Open control menu for post by Tanay Kothari"></div>
+        <div class="update-components-update-v2__commentary">the post body</div>
+        <span aria-label="1,049 reactions"></span>
+        <span aria-label="73 comments on Tanay Kothari's post"></span>
+      </div>
+    </body></html>`;
+    const receipt = await make(capture(ember)).run(context({ url: PERMALINK }, ember));
+    const data = receipt.data as { renderer: string; post: { author_vanity: string; reactions_total: number } };
+    expect(data.renderer).toBe("ember");
+    expect(data.post.author_vanity).toBe("tankots");
+    expect(data.post.reactions_total).toBe(1049);
+  });
+
   it("reads comments only when asked, and states plainly that the read is partial", async () => {
     const cap = make(capture());
     const receipt = await cap.run(context({ url: PERMALINK, comments: true, commentsLimit: 2 }));

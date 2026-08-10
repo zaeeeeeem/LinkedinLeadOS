@@ -4356,3 +4356,69 @@ be extended.
 capability directory and all 21 have one; `docs/capabilities/` had 7 files for 21 capabilities
 and was read as a 14-item documentation debt that was never real. A contract that lives beside
 the code it describes is also the one that gets updated when the code changes.
+
+## D340 — `post.get` parses both renderers, primary-then-fallback, never a merged parser (2026-08-10)
+
+**Decision.** `post.get` detects which app the snapshot is and dispatches to a parser written
+for it: `sdui` (the React app of D312/D313) or `ember` (the legacy `theme--mercado` app the
+surface began serving on 2026-08-10, D337). Neither parser is widened to tolerate the other's
+markup, and `unknown` resolves nothing and refuses.
+
+**Why not one parser with fallback selectors.** The two apps do not share a single anchor.
+The Ember page carries **zero** `data-testid` attributes, so every SDUI scope is absent rather
+than moved. A parser with two selector sets per field would silently mix scopes from two page
+models the first time LinkedIn shipped a hybrid, and mixing scopes is how a stranger's data
+gets stored under the subject's key. Detect once, then commit.
+
+**Detection turns on the anchors, not the theme.** SDUI wins when
+`[data-testid^="ReactionFacepileCollection-"]` is present; Ember when
+`.feed-shared-update-v2[data-urn^='urn:li:activity:']` is. `theme--mercado` is deliberately
+**not** the test: `/messaging/` has always carried that class (measured 2026-08-10 across four
+inbox snapshots) and has nothing to do with this surface.
+
+**The Ember anchors, all measured on two real snapshots** (person-authored
+`urn:li:activity:7491197577439141888`, company-authored `urn:li:activity:7485405402449379328`):
+
+| Field | Anchor |
+|---|---|
+| identity | `data-urn` on `.feed-shared-update-v2`, exactly one, matched against the requested urn |
+| author | `.update-components-actor__meta-link` outside the embedded-update and comment scopes |
+| author corroboration | `aria-label="Open control menu for post by <Name>"` must agree |
+| text | `.update-components-update-v2__commentary`, same scoping |
+| totals | aria-labels `N reactions` / `N comments on …` / `N reposts of …` |
+| comments | `.comments-comment-entity[data-id]` matching `urn:li:comment:((activity\|ugcPost):N,M)` |
+| reactions | `.social-details-reactors-facepile__list-item`, `View <Name>'s, reacted with <TYPE>, graphic` |
+
+**Two scopes, both by identity.** A comment names its own comment urn; an embedded reshared
+update sits in `.feed-shared-update-v2__update-content-wrapper`. Neither exclusion is a
+position. The nested one is load-bearing and measured: the company snapshot's card contains a
+reshared post whose actor is a person, so "the only `/in/` link in the card" would have stored
+a company's post under `sudha-ranganathan`.
+
+**Author needs two anchors to agree.** The actor link and the control-menu label must name the
+same author or the post is refused as ambiguous. One anchor is a guess; two that agree is a
+measurement.
+
+**On the receipt.** `data.renderer` names the app on every run, and a refusal's evidence leads
+with `renderer=`. The 2026-08-10 gate spent two page loads discovering by hand what a receipt
+field states for free.
+
+**Residual, stated rather than hidden.** The strict `^N reactions$` anchor is redundancy behind
+the comment-row scope, not an independent guard — loosening it alone breaks no test, because
+the scope already excludes the comment counts that would poison it. Kept as defence in depth.
+
+## D341 — The Ember page carries a labeled reactions body, and reactions still come from the DOM for now (2026-08-10, [DECISION NEEDED])
+
+**Measured.** The 13:27 run archived a 69,876-byte `voyagerSocialDashReactions` graphql
+response. The SDUI page fetched no such body on a cold load — that absence is part of what D312
+measured and D313 granted the DOM exception for.
+
+**Decision for now.** Reactions keep coming from the rendered facepile on this renderer, and
+stay opt-in and bounded exactly as D313 requires. Nothing was changed to consume the labeled
+body in this pass.
+
+**Why this needs your call.** The standing rule is that a labeled network body wins over a DOM
+read. That rule is written as a condition on the *feed and inbox* grants (D325/D326) and not on
+the post grant, so this is not a rule violation today — but it is the same argument, and a
+labeled body is strictly better evidence than an aria-label. Moving reactions onto it is a
+parser change against an already-archived fixture: **zero page loads.**

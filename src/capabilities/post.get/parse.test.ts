@@ -125,3 +125,185 @@ withFixture("post.get — against the promoted snapshot", () => {
     expect(r.warnings.find((w) => w.code === "PARSE_AUTHOR_AMBIGUOUS")).toBeUndefined();
   });
 });
+
+// ─────────────────────────────────────────────────────────────────────────────
+// The second renderer (D340). On 2026-08-10 the post surface began serving the
+// legacy Ember/`theme--mercado` app, which carries **zero** `data-testid`
+// attributes — so every anchor the SDUI parser above uses is absent, and it
+// refused. These pin the fallback against two real snapshots: one person-authored
+// and one company-authored, both archived by the 13:27/13:29 live gate.
+// ─────────────────────────────────────────────────────────────────────────────
+
+const EMBER_PERSON_URN = "urn:li:activity:7491197577439141888";
+const EMBER_COMPANY_URN = "urn:li:activity:7485405402449379328";
+
+function emberSnapshot(name: string): string | null {
+  const path = join(repoRoot(), "fixtures", "post.get", name);
+  return existsSync(path) ? readFileSync(path, "utf8") : null;
+}
+
+const ember = emberSnapshot("ember-person-dom-snapshot.html");
+const emberCompany = emberSnapshot("ember-company-dom-snapshot.html");
+const withEmber = ember === null || emberCompany === null ? describe.skip : describe;
+
+if (ember === null || emberCompany === null) {
+  console.log("[skip] post.get Ember fixture tests — fixtures/post.get/ember-*-dom-snapshot.html are absent.");
+}
+
+describe("post.get — renderer detection", () => {
+  it("calls a snapshot with no anchor of either renderer unknown", () => {
+    const r = parsePost("<html><body><p>nothing</p></body></html>", { expectedUrn: EMBER_PERSON_URN });
+    expect(r.ok).toBe(false);
+    expect(r.renderer).toBe("unknown");
+    expect(r.warnings.map((w) => w.code)).toEqual(["PARSE_IDENTITY_UNRESOLVED"]);
+  });
+});
+
+withEmber("post.get — the Ember renderer, person-authored", () => {
+  it("names the renderer it actually parsed", () => {
+    expect(parsePost(ember!, { expectedUrn: EMBER_PERSON_URN, sessionVanities: OPERATOR }).renderer).toBe("ember");
+    // And the SDUI fixture is still parsed as SDUI — the fallback never takes
+    // over a page the primary can read.
+    expect(parsePost(html!, { expectedUrn: URN, sessionVanities: OPERATOR }).renderer).toBe("sdui");
+  });
+
+  it("resolves identity from data-urn on the post card", () => {
+    const r = parsePost(ember!, { expectedUrn: EMBER_PERSON_URN, sessionVanities: OPERATOR });
+    expect(r.ok).toBe(true);
+    expect(r.post!.source).toBe(DOM_SOURCE);
+    expect(r.post!.value.urn).toBe(EMBER_PERSON_URN);
+  });
+
+  it("refuses a snapshot of a different post rather than reconciling it", () => {
+    const r = parsePost(ember!, { expectedUrn: "urn:li:activity:1", sessionVanities: OPERATOR });
+    expect(r.ok).toBe(false);
+    expect(r.post).toBeNull();
+    expect(r.warnings.map((w) => w.code)).toEqual(["PARSE_IDENTITY_MISMATCH"]);
+  });
+
+  it("reads the post's own fields", () => {
+    const p = parsePost(ember!, { expectedUrn: EMBER_PERSON_URN, sessionVanities: OPERATOR }).post!.value;
+    expect(p.author_vanity).toBe("tankots");
+    expect(p.text).toContain("This week marks 5 years since Wispr Flow was founded.");
+    expect(p.posted_at).toMatch(/^2026-08-06T/);
+    expect(p).toMatchObject({ reactions_total: 1049, comments_total: 73, reposts_total: 5 });
+  });
+
+  it("does not read a comment's own reaction count as the post's", () => {
+    // "8 Reactions on Shruti Verma's comment" renders inside a comment row and
+    // is the exact shape that would poison an unscoped count.
+    const p = parsePost(ember!, { expectedUrn: EMBER_PERSON_URN, sessionVanities: OPERATOR }).post!.value;
+    expect(p.reactions_total).not.toBe(8);
+  });
+
+  it("reads nothing but the post by default — D313 holds on both renderers", () => {
+    const r = parsePost(ember!, { expectedUrn: EMBER_PERSON_URN, sessionVanities: OPERATOR });
+    expect(r.comments).toEqual([]);
+    expect(r.reactions).toEqual([]);
+  });
+
+  it("reads comments only when asked, bounded, and flags the remainder", () => {
+    const r = parsePost(ember!, { expectedUrn: EMBER_PERSON_URN, sessionVanities: OPERATOR, comments: { limit: 3 } });
+    expect(r.comments).toHaveLength(3);
+    expect(r.comments[0]!.source).toBe(DOM_SOURCE);
+    expect(r.comments[0]!.value.urn).toMatch(/^urn:li:comment:\(activity:7491197577439141888,\d+\)$/);
+    expect(r.comments[0]!.value.author_vanity).toBe("verma-shruti");
+    expect(r.comments[0]!.value.text).toContain("Notetaker");
+    const w = r.warnings.find((x) => x.code === "COMMENTS_PARTIAL");
+    expect(w).toBeDefined();
+    expect(w!.n).toBe(70);
+  });
+
+  it("never returns more comments than the page rendered", () => {
+    const r = parsePost(ember!, { expectedUrn: EMBER_PERSON_URN, sessionVanities: OPERATOR, comments: { limit: 500 } });
+    expect(r.comments).toHaveLength(10);
+  });
+
+  it("reads reactions only when asked, from the facepile", () => {
+    const r = parsePost(ember!, { expectedUrn: EMBER_PERSON_URN, sessionVanities: OPERATOR, reactions: { limit: 3 } });
+    expect(r.reactions).toHaveLength(3);
+    expect(r.reactions[0]!.value.actor_name).toBe("Lakshya Prasad");
+    expect(r.reactions[0]!.value.reaction).toBe("LIKE");
+    expect(r.warnings.find((x) => x.code === "REACTIONS_PARTIAL")).toBeDefined();
+  });
+
+  it("refuses a card whose identity anchor is gone", () => {
+    const stripped = ember!.replaceAll("data-urn=", "data-was=");
+    const r = parsePost(stripped, { expectedUrn: EMBER_PERSON_URN, sessionVanities: OPERATOR });
+    expect(r.ok).toBe(false);
+    expect(r.warnings.map((w) => w.code)).toEqual(["PARSE_IDENTITY_UNRESOLVED"]);
+  });
+});
+
+withEmber("post.get — the Ember renderer, company-authored", () => {
+  it("reads the post but names no author vanity, and says why (D334)", () => {
+    const r = parsePost(emberCompany!, { expectedUrn: EMBER_COMPANY_URN, sessionVanities: OPERATOR });
+    expect(r.ok).toBe(true);
+    expect(r.post!.value.urn).toBe(EMBER_COMPANY_URN);
+    expect(r.post!.value.author_vanity).toBeNull();
+    const w = r.warnings.find((x) => x.code === "PARSE_AUTHOR_COMPANY");
+    expect(w).toBeDefined();
+    expect(w!.field).toContain("wisprflow");
+  });
+
+  it("does not attribute the post to the reshared post's author", () => {
+    // The card embeds another update whose actor is a person. Taking "the only
+    // /in/ link in the card" would store this post under sudha-ranganathan.
+    const r = parsePost(emberCompany!, { expectedUrn: EMBER_COMPANY_URN, sessionVanities: OPERATOR });
+    expect(r.post!.value.author_vanity).toBeNull();
+    expect(JSON.stringify(r.warnings)).not.toContain("sudha-ranganathan");
+  });
+
+  it("reads the outer post's commentary, not the embedded one's", () => {
+    const p = parsePost(emberCompany!, { expectedUrn: EMBER_COMPANY_URN, sessionVanities: OPERATOR }).post!.value;
+    expect(p.text).toContain("If your appetite to do things in your life");
+    expect(p.text).not.toContain("I had a dream");
+  });
+
+  it("reads a comment whose urn is spelled ugcPost, not activity", () => {
+    const r = parsePost(emberCompany!, { expectedUrn: EMBER_COMPANY_URN, sessionVanities: OPERATOR, comments: { limit: 5 } });
+    expect(r.comments).toHaveLength(1);
+    expect(r.comments[0]!.value.urn).toMatch(/^urn:li:comment:\(ugcPost:\d+,\d+\)$/);
+  });
+});
+
+withEmber("post.get — the Ember guards, each proven to bite", () => {
+  it("never adopts a comment's own reaction count as the post's", () => {
+    // Remove the post's own totals bar and leave the comments' counts standing.
+    // A parser that reads counts unscoped, or with a loose regex, answers 8 here
+    // — the number on Shruti Verma's comment. The right answer is "I don't know".
+    const stripped = ember!.replaceAll('aria-label="1,049 reactions"', 'aria-label="reactions"');
+    const p = parsePost(stripped, { expectedUrn: EMBER_PERSON_URN, sessionVanities: OPERATOR }).post!.value;
+    expect(p.reactions_total).toBeNull();
+  });
+
+  it("ignores a comment's count even when it is spelled exactly like the post's", () => {
+    // The adversarial case the scope exists for: strip the post's own total and
+    // give a comment the post's exact label shape. Only the comment-row
+    // exclusion can tell these apart — the regex cannot, because they are now
+    // the same string.
+    const stripped = ember!
+      .replaceAll('aria-label="1,049 reactions"', 'aria-label="reactions"')
+      .replace("8 Reactions on Shruti Verma\u2019s comment", "8 reactions");
+    const p = parsePost(stripped, { expectedUrn: EMBER_PERSON_URN, sessionVanities: OPERATOR }).post!.value;
+    expect(p.reactions_total).toBeNull();
+  });
+
+  it("refuses the author when the actor link and the control menu disagree", () => {
+    // Two independent anchors name the author. If they disagree the page is not
+    // the one we think it is, and a guess would store the post under the wrong
+    // person — the expensive direction of this error.
+    const tampered = ember!.replace("Open control menu for post by Tanay Kothari", "Open control menu for post by Someone Else");
+    const r = parsePost(tampered, { expectedUrn: EMBER_PERSON_URN, sessionVanities: OPERATOR });
+    expect(r.post!.value.author_vanity).toBeNull();
+    const w = r.warnings.find((x) => x.code === "PARSE_AUTHOR_AMBIGUOUS");
+    expect(w).toBeDefined();
+    expect(w!.field).toContain("Someone Else");
+  });
+
+  it("refuses to attribute a post to the operator's own actor link", () => {
+    const asOperator = parsePost(ember!, { expectedUrn: EMBER_PERSON_URN, sessionVanities: ["tankots"] });
+    expect(asOperator.post!.value.author_vanity).toBeNull();
+    expect(asOperator.warnings.find((w) => w.code === "PARSE_AUTHOR_AMBIGUOUS")!.field).toContain("session's own");
+  });
+});

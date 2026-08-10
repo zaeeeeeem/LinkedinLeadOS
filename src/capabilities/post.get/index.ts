@@ -122,8 +122,11 @@ function identityRefused(parsed: ParsePostResult, path: string): CapabilityError
     exit: EXIT.PARSE_DRIFT,
     action: "HALT_AND_NOTIFY",
     retryable: false,
-    message: "the archived snapshot did not resolve to the requested post urn",
-    evidence: `${parsed.warnings.map((w) => w.code).join(", ")} — ${path}`,
+    message:
+      parsed.renderer === "unknown"
+        ? "the archived snapshot is neither of the post renderers this reader knows (D340)"
+        : "the archived snapshot did not resolve to the requested post urn",
+    evidence: `renderer=${parsed.renderer} ${parsed.warnings.map((w) => w.code).join(", ")} — ${path}`,
   });
 }
 
@@ -223,6 +226,11 @@ export function createPostGetCapability(deps: PostGetDeps = defaultDeps) {
         data: {
           // Every field below came from the rendered DOM, and says so.
           source: "dom-snapshot",
+          // Which of LinkedIn's two post apps this snapshot was (D340). On the
+          // receipt because a silent renderer switch is what cost the 2026-08-10
+          // gate two page loads to diagnose — the run said "identity unresolved"
+          // and nothing said "this is a different app".
+          renderer: parsed.renderer,
           post: {
             urn: post.urn,
             author_vanity: post.author_vanity,
