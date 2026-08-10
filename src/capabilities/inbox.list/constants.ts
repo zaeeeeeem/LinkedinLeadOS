@@ -15,7 +15,22 @@ export const INBOX_LIST_SCROLLERS = [
   ".msg-conversations-container__conversations-list",
 ] as const;
 
+/**
+ * The message pane, measured from the archived snapshot of run
+ * `01KZNHBF6K79YR9G5WWVRDQ247`. The nesting matters and the first attempt got
+ * it wrong: `.msg-s-message-list-container` is a `display-flex` wrapper with no
+ * overflow, and `.msg-s-message-list-content` is the `ul` inside. The element
+ * that actually scrolls sits between them —
+ * `<div class="msg-s-message-list ... scrollable" id="message-list-ember3">`,
+ * measured at `scrollHeight 2062 / clientHeight 326`.
+ *
+ * The id is Ember's per-render counter, so it is matched by prefix and only as
+ * a second anchor; the wrapper and the list are kept as last resorts in case
+ * LinkedIn moves the overflow up or down a level.
+ */
 export const INBOX_THREAD_SCROLLERS = [
+  ".msg-s-message-list",
+  "div[id^='message-list-']",
   ".msg-s-message-list-container",
   ".msg-s-message-list-content",
 ] as const;

@@ -182,3 +182,108 @@ describe("wheel placement", () => {
     expect(cursor.moves[0]!.x).toBe(Math.round(1440 * 0.5));
   });
 });
+
+/**
+ * A DOM double that honours the selector, unlike the one in
+ * profile-capture-read.test.ts — the whole point here is *which* element a
+ * selector picks, so a `querySelectorAll` that ignores its argument would
+ * assert nothing.
+ */
+function evaluatePreference(
+  prefer: readonly string[],
+  elements: Array<{
+    tagName: string;
+    classes: string[];
+    id?: string;
+    clientHeight: number;
+    scrollHeight: number;
+    overflowY: string;
+  }>,
+): { id: string | null; matchedSelector: string | null } | null {
+  const nodes = elements.map((el) => ({
+    ...el,
+    getAttribute: (name: string) => (name === "id" ? el.id ?? null : null),
+    getBoundingClientRect: () => ({ left: 0, top: 0, width: 400, height: el.clientHeight }),
+  }));
+  const matches = (node: typeof nodes[number], selector: string): boolean => {
+    const cls = selector.match(/^\.([\w-]+)$/);
+    if (cls) return node.classes.includes(cls[1]!);
+    const idPrefix = selector.match(/^(\w+)\[id\^=['"]([^'"]+)['"]\]$/);
+    if (idPrefix) {
+      return node.tagName.toLowerCase() === idPrefix[1]!.toLowerCase()
+        && (node.id ?? "").startsWith(idPrefix[2]!);
+    }
+    throw new Error(`unsupported selector in this double: ${selector}`);
+  };
+  const document = {
+    documentElement: { scrollHeight: 900 },
+    querySelectorAll: (selector?: string) =>
+      selector === undefined || selector === "*"
+        ? nodes
+        : nodes.filter((node) => matches(node, selector)),
+  };
+  const result = new Function(
+    "document", "getComputedStyle", "window",
+    `return (${viewportExpression(prefer)});`,
+  )(
+    document,
+    (el: { overflowY: string }) => ({ overflowY: el.overflowY }),
+    { innerWidth: 1440, innerHeight: 900 },
+  ) as { scroller: { id: string | null; matchedSelector: string | null } | null } | null;
+  return result?.scroller ?? null;
+}
+
+describe("the messaging pane, as the DOM actually nests it (D298)", () => {
+  // Exactly the nesting archived in run 01KZNHBF6K79YR9G5WWVRDQ247: the
+  // -container wrapper carries no overflow and the -content ul is inside the
+  // element that does. Getting this level wrong is what the first attempt did.
+  const messagingDom = [
+    {
+      tagName: "UL", classes: ["msg-conversations-container__conversations-list"],
+      id: undefined, clientHeight: 626, scrollHeight: 1888, overflowY: "auto",
+    },
+    {
+      tagName: "DIV", classes: ["msg-s-message-list-container"],
+      id: undefined, clientHeight: 326, scrollHeight: 326, overflowY: "visible",
+    },
+    {
+      tagName: "DIV", classes: ["msg-s-message-list", "scrollable"],
+      id: "message-list-ember3", clientHeight: 326, scrollHeight: 2062, overflowY: "auto",
+    },
+    {
+      tagName: "UL", classes: ["msg-s-message-list-content"],
+      id: undefined, clientHeight: 2062, scrollHeight: 2062, overflowY: "visible",
+    },
+  ];
+
+  it("picks the element that scrolls, not the wrapper around it", () => {
+    const chosen = evaluatePreference(
+      [".msg-s-message-list", "div[id^='message-list-']", ".msg-s-message-list-container"],
+      messagingDom,
+    );
+    expect(chosen?.id).toBe("message-list-ember3");
+    expect(chosen?.matchedSelector).toBe(".msg-s-message-list");
+  });
+
+  it("falls back to the id prefix when the class churns", () => {
+    const chosen = evaluatePreference(
+      [".msg-s-message-list-container", "div[id^='message-list-']"],
+      messagingDom,
+    );
+    // The wrapper is named first but does not scroll, so it is skipped rather
+    // than selected — a named-but-unscrollable element is not a match.
+    expect(chosen?.id).toBe("message-list-ember3");
+    expect(chosen?.matchedSelector).toBe("div[id^='message-list-']");
+  });
+
+  it("without a preference the rail wins, which is the bug D298 exists for", () => {
+    const chosen = evaluatePreference([], messagingDom);
+    // The rail is 1888 and the pane 2062 here, so tallest happens to be right.
+    expect(chosen?.matchedSelector).toBeNull();
+    // But shorten the thread and the rail takes it — the live one-message run.
+    const shortThread = messagingDom.map((el) =>
+      el.id === "message-list-ember3" ? { ...el, scrollHeight: 900 } : el);
+    expect(evaluatePreference([], shortThread)?.id).toBeNull();
+    expect(evaluatePreference([".msg-s-message-list"], shortThread)?.id).toBe("message-list-ember3");
+  });
+});

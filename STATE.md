@@ -27,9 +27,30 @@ message and nothing to scroll, so the scrollable test correctly rejected it and 
 One `CDP_PROTOCOL_ERROR` (exit 6, `Storage.getCookies` — "Browser context management is not
 supported") on a first attempt, 0 page loads spent; the retry succeeded. Not investigated.
 
-**Still unproven live, and the budget is now exhausted:** a multi-message thread, and therefore
-the preferred pane selector actually being chosen and paged. Neither can be silently wrong —
-an unmatched selector warns, and a bounded read always reports `partial: true`.
+**Checkpoint 8 — the selector was wrong, and its own warning caught it.** With operator
+authorization the task went past its 4-load plan cap; 6 inbox loads total, ledger sub-cap
+(12/day) not approached.
+
+`01KZNHBF6K79YR9G5WWVRDQ247` read a real multi-message thread: **16 messages, 6 sent, 10
+received**, plus `MESSAGE_NO_TEXT: 2` — two attachment-only messages emitted with a count
+rather than dropped. It also raised `SCROLLER_SELECTOR_UNMATCHED` again, and the fallback
+happened to land on the right box because the pane (2062) out-measured the rail (1888) on this
+thread. On the one-message thread it had not. That is the fallback being unreliable in both
+directions, which is the whole argument for D298.
+
+The archived snapshot showed the nesting one level off: `.msg-s-message-list-container` is a
+`display-flex` wrapper with no overflow and `.msg-s-message-list-content` is the `ul` inside;
+the element that scrolls is `div.msg-s-message-list.scrollable#message-list-ember3`. Selectors
+corrected, with the Ember id matched by prefix as a second anchor.
+
+`01KZNHH01F50YF93H5F36WDVMC` confirms it: **no `SCROLLER_SELECTOR_UNMATCHED`**,
+`matchedSelector: ".msg-s-message-list"`, and the wheel aimed at `x 407, width 469` — the
+centre pane — where the previous run aimed at `x 94, width 312`, the rail. Same 16 messages,
+so the parse is stable across runs.
+
+Everything Task 33 set out to prove is now proven live: both directions, multi-message paging,
+textless messages, the named scroller, and no message text or correspondent name on any
+receipt.
 
 ## Complete — Task 33 `inbox.list` + `inbox.thread` (2026-08-10)
 

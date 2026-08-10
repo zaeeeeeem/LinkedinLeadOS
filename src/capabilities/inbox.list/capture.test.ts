@@ -154,7 +154,7 @@ describe("captureInbox — which box it scrolls (D298)", () => {
     const { ctx } = harness([{ url: PAYLOAD_URL, body: BODY, bytes: 10, status: 200, archived: { file: "a.gz" }, patterns: ["gql-messenger-conversations"] }]);
     await captureInbox(ctx, { url: "https://www.linkedin.com/messaging/thread/2-abc/", passes: 2, itemRef: "thread" });
     expect(vi.mocked(readLikeAHuman).mock.calls[0]![0]!.preferScroller)
-      .toEqual([".msg-s-message-list-container", ".msg-s-message-list-content"]);
+      .toEqual([".msg-s-message-list", "div[id^='message-list-']", ".msg-s-message-list-container", ".msg-s-message-list-content"]);
 
     vi.mocked(readLikeAHuman).mockClear();
     const list = harness([{ url: PAYLOAD_URL, body: BODY, bytes: 10, status: 200, archived: { file: "a.gz" }, patterns: ["gql-messenger-conversations"] }]);
