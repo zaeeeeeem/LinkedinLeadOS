@@ -4442,3 +4442,164 @@ reading the rest would be the loop D313 forbids.
 
 **Not a new request.** The body arrives on `activity.capture`'s existing `gql-social-reactions`
 watch, fetched by the page itself. D1 holds: nothing is forged.
+
+## D342 — The paged-run contract: spend → load → archive → checkpoint (2026-08-10)
+
+**Task 35's headline.** Fixed once, in `src/core/paged/`, before any L2 capability spends a
+metered page. Tasks 36/39/40 consume it; none of them re-derives it.
+
+For each page N: **(1)** commit the ledger line(s) for page N; **(2)** navigate to page N;
+**(3)** archive its raw bodies; **(4)** checkpoint page N complete, naming the archive
+entries that prove it. A resume through the existing `--run-id` path verifies completed
+pages **against the archive on disk**, not against the checkpoint's claim, and continues at
+the first unproved page.
+
+**The direction of failure is the decision.** A crash may waste a spent page. No
+interleaving may ever produce an unpaid load, an under-counting ledger, or a receipt
+claiming a page with no bytes. This is D105's rule applied to a multi-page run.
+
+**Built on what exists, not beside it.** `RunContext.checkpoint()`/`lastCheckpoint()`,
+`RawArchive`, and the ledger's `spend()`/sub-caps are unchanged. The module composes them.
+There is no second checkpoint mechanism and no second ledger path.
+
+**What survives each kill, walked explicitly** (review shape 1, and the acceptance test
+runs all of it — a 3-page run killed between every adjacent pair of steps, resumed, and
+converged):
+
+| killed at | on disk | resume |
+|---|---|---|
+| inside the spend phase | attempt record, spend unconfirmed | re-spends; extra line reported as `unconfirmed` (D347) |
+| after spend, before load | attempt record, no bytes | re-spends and re-loads; old spend `wasted` |
+| part-way through archiving | attempt record + some bytes | re-spends; partial bytes become `orphans` (D348) |
+| after every byte, before the completion write | attempt record + all bytes | **adopts** the page with its original spend (D346) |
+| after the completion write | a complete page | continues at page N+1 |
+
+**The attempt record is written before the spend, and is never proof of payment.** It names
+the cost about to be committed so a crash mid-spend leaves a trace at all. A resume always
+re-spends an attempt it cannot adopt, so writing it early cannot produce an unpaid load.
+
+**A hole invalidates everything after it.** A page whose bytes are missing is dropped along
+with every page after it: those pages were reached through a cursor the dropped page
+produced, and a cursor chain cannot be trusted past a hole. Reported as
+`RESUMED_PAGE_RESPENT` on the receipt rather than silently eaten.
+
+**`has_more` is checkpointed.** A resume that did not know the last page said "no next page"
+would pay for one to find out. The checkpoint carries the reason a run ended, not only how
+far it got — found by the kill matrix, which loaded a page 4 of a 3-page search.
+
+## D343 — A results page costs one `search_page` **and** one `page_load` (2026-08-10)
+
+Double-counting toward the two global caps is the conservative direction, and it matches
+what every M4 capability's `cost()` already reports. `RESULTS_PAGE_COST` in
+`src/core/paged/constants.ts` is the one place it is written; every M5 `cost()` reports both
+kinds uniformly.
+
+The alternative — charging only the scarcer `search_page` — would make a 20-page run
+invisible to the hourly page-load pacing guard, which is the guard that exists to stop a
+burst. A search page is a page load; it is also metered. It is charged as both.
+
+## D344 — The two lines are checked together and committed cheapest-first (2026-08-10)
+
+Both kinds are `check`ed before either is `spend`ed, so a two-kind cost cannot half-commit
+against a cap it was always going to fail. Committed in order `page_load` then
+`search_page`: if the second is refused anyway, the line already committed is the abundant
+one (400/day) rather than the scarce one (50/day).
+
+## D345 — The salesnav sub-cap numbers (2026-08-10)
+
+`CAPABILITY_SUB_CAPS`, the D153 pattern, deliberately far under the global 50 search
+pages/day:
+
+| capability | page loads/day | search pages/day | profile opens/day |
+|---|---|---|---|
+| `salesnav.leads.list` | 20 | 20 | 0 |
+| `salesnav.accounts.list` | 10 | 10 | 0 |
+| `salesnav.probe` | 6 | 6 | 0 |
+| `salesnav.savedsearch.list` | 6 | 0 | 0 |
+
+The two page numbers move together because a page costs one of each (D343) — a capability
+allowed 20 search pages and 150 page loads is capped by neither in practice, which is a cap
+that does not cap.
+
+**The zeroes are assertions, not allowances**, the `company.probe` precedent: a search
+enumerates a list, so a profile open recorded under any of these names means the capability
+is doing something it was not built to do, and zero turns that into exit 7 rather than a
+habit. `savedsearch.list` reads a list the operator owns and is charged page loads only
+**until Task 37 measures whether that page is metered** — if it is, the measurement raises
+the number deliberately rather than the capability discovering it at exit 7.
+
+The numbers are settleable by the operator; the existence of a per-capability cap is not.
+
+## D346 — A fully archived page is adopted on resume, never paid for twice (2026-08-10)
+
+The attempt record carries `expected`, the number of bodies the load said it would archive,
+written **before the first of them reaches disk**. A resume that finds exactly that many at
+or above the attempt's archive-sequence watermark knows every byte landed and only the
+completion checkpoint is missing: the page is adopted, carrying its original spend.
+
+Anything short of the full count is torn, not adopted. A partial page silently promoted is
+the one failure no later step could detect — the rows would be short and nothing would say
+so. Adoption also requires `spend_confirmed`: it keeps the attempt's own spend, and must
+never keep one nobody watched land.
+
+The paged state lives under one key (`paged`) inside the run's single checkpoint file, and
+every write merges rather than replaces, so a capability's own checkpoint state survives
+beside it.
+
+## D347 — One ledger line can be unattributable, and is reported as a bound (2026-08-10)
+
+Between a ledger line committing and the checkpoint that records it there is a window one
+write wide. No ordering closes it: whatever is written last has an unrecorded predecessor.
+
+Rather than hide it, the loop reports it. The attempt record names the cost it is about to
+commit (`spend_plan`) and accumulates what it watched commit (`spent`). A resume that finds
+an unconfirmed attempt reports the difference as **`unconfirmed`** — a bound, not a count.
+
+**The invariant, and it is what the acceptance test asserts:** the ledger's count for a run
+is always inside `[pages + wasted, pages + wasted + unconfirmed]`. Never below `pages`,
+which would be an unpaid load; never above the bound, which would be spend nobody made.
+
+## D348 — Orphaned bytes are kept and reported, never deleted and never claimed (2026-08-10)
+
+A kill part-way through archiving a page leaves bytes on disk that no page can claim. They
+are recorded as `orphans`, counted on the receipt as `RESUMED_ORPHAN_CAPTURES`, and left
+exactly where they are.
+
+**Not deleted**, because raw-first (D2) means archived bodies are evidence, not cache, and
+deleting them to make a count look tidy is the one thing the archive exists to prevent.
+**Not claimed**, because a partial page cannot be told from a whole one after the fact.
+
+This is a stated deviation from the task file's literal "exactly one archived copy of each
+page". The convergence that actually holds, and that the test asserts, is: **exactly one
+*claimed* copy per page, every byte on disk either claimed by exactly one page or declared
+an orphan, and nothing unaccounted for.** Staging archives per page and renaming them into
+place would satisfy the literal wording, and was rejected: the live consumers read through
+the network tap, which archives bodies as they arrive and cannot stage them.
+
+## D349 — Pacing, pausing and the bounds of a paged run (2026-08-10)
+
+**Dwell is a three-part mixture, not a uniform draw** — mostly a log-normal near the low end
+of an 8–40s band, 3% short glances, 7% heavy tail, plus a 90–240s break every fifth page.
+Taken from the reference worker's `humanDelay`, which arrived at the shape after a flat draw
+proved to be a machine-like gap histogram. Its one measured bug is not carried over: its
+long tail drew from a hardcoded 60–180s band regardless of the configured range, producing
+177s gaps on a 5–40s config.
+
+**A search is never read to the bottom.** `MAX_PAGES_PER_RUN = 20` exists before the run
+does; `maxPages` only lowers it. `hasMore: false` is the only stop that means *complete* —
+every other stop is partial and says so.
+
+**A repeated page stops the run.** Two consecutive pages with the same fingerprint end it as
+`no-advance`. The reference worker trusted the pager's own page number here and could accept
+a re-render as an advance, with no raw archive to catch it afterwards.
+
+**Pause is a page-boundary stop, checked before the next page is paid for**, from three
+sources: a predicate, a `PAUSE` file in the run directory (an agent supervising a run has
+the run id, not a pid), and a signal handler whose first Ctrl-C stops cleanly and whose
+second restores the default and re-raises. The reference worker had no signal handling at
+all: a deploy or an OOM left its run row reading "running" forever.
+
+**Budget exhaustion mid-run is a clean stop, not a failure**: exit 7 with `action: RESUME`,
+the cap that refused named in the evidence, every proved page still claimed, and the run
+resumable with `--run-id` once the window clears. A refusal on the *first* page is not
+dressed up as a partial run — the refusal itself is the whole story and propagates unchanged.

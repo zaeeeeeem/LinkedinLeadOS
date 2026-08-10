@@ -1,7 +1,14 @@
 # Task 35 — Paged-run core: spend/checkpoint/resume contract + salesnav sub-caps (offline)
 
 **Model:** Opus · **Depends on:** nothing (offline; zero LinkedIn contact) ·
-**Spec:** §5 (runs, resume), §8 (ledger, pacing), §11 M5 · **Decisions owned:** D340–D349
+**Spec:** §5 (runs, resume), §8 (ledger, pacing), §11 M5 · **Decisions owned:** D340–D349,
+**taken as D342–D349** — D340 and D341 were already used by Task 34 and the reactions work,
+per the README's "check `DECISIONS.md` before assuming your range is free".
+
+**Status: done, 2026-08-10.** `src/core/paged/` + `src/core/paged/README.md`, sub-caps in
+`src/core/budget/constants.ts`, 66 tests, D342–D349, `STATE.md` checkpointed. Two stated
+deviations from the acceptance criteria below, both recorded as decisions rather than
+absorbed silently — see D348 (orphaned bytes) and D347 (the unattributable ledger line).
 **Budget: 0 page loads, 0 search pages.** Anything live in this task is a design error.
 
 ## Objective
@@ -70,6 +77,14 @@ README stating the contract so Tasks 36/39/40 cite it instead of rediscovering i
   3-page run, resumed, converges to exactly one archived copy of each page and a ledger
   whose `search_page` count equals pages loaded (including the deliberately-wasted spend
   case, which is asserted as *present*, not absent).
+
+  **As built, with the deviation stated:** 24 scenarios (8 boundaries × 3 pages), each
+  converging to exactly one **claimed** copy per page, every byte on disk either claimed by
+  exactly one page or declared an orphan. Literal "one archived copy" fails only where a
+  kill lands part-way through archiving — those bytes are kept and reported, never deleted
+  (D348). The ledger assertion is `pages + wasted ≤ count ≤ pages + wasted + unconfirmed`,
+  because a crash *inside* the spend phase leaves one line attributable to nothing (D347).
+  Over-counting only; never under.
 - Mutation checks, each verified to bite: remove the re-spend guard on resume (a test
   must fail on double-charging), reorder spend after load (a test must fail on the
   unpaid-load interleaving), make resume trust the checkpoint without the archive check

@@ -149,6 +149,33 @@ export const CAPABILITY_SUB_CAPS: Readonly<Record<string, CapabilitySubCaps>> = 
   "job.get": { pageLoadsPerDay: 150, searchPagesPerDay: 0, distinctProfilesPerDay: 0 },
   "profile.posts": { pageLoadsPerDay: 150, searchPagesPerDay: 0, distinctProfilesPerDay: 60 },
   "profile.activity": { pageLoadsPerDay: 150, searchPagesPerDay: 0, distinctProfilesPerDay: 60 },
+  // ---- M5, the Sales Navigator family (D345) ----------------------------
+  //
+  // Every number here is a *daily* ceiling on one capability, and every one of
+  // them is far under the global 50 search pages/day, because a search page is
+  // the scarcest thing this toolkit spends: one page is 2% of the account's
+  // day. A results page costs one of each kind (D343), so the two numbers move
+  // together — a capability allowed 20 search pages and 150 page loads would be
+  // capped by neither in practice, which is a cap that does not cap.
+  //
+  // Profile opens are zero across the family and that is an assertion, not an
+  // allowance: a search reads a list, and a search capability that recorded a
+  // profile open would be opening people it was only asked to enumerate.
+  //
+  // The primary reader. 20 pages is 40% of the global day — one large run, or
+  // several small ones, and then it is done until tomorrow.
+  "salesnav.leads.list": { pageLoadsPerDay: 20, searchPagesPerDay: 20, distinctProfilesPerDay: 0 },
+  // Accounts are companies, and a company list is both shorter and less often
+  // needed than a lead list.
+  "salesnav.accounts.list": { pageLoadsPerDay: 10, searchPagesPerDay: 10, distinctProfilesPerDay: 0 },
+  // A probe is a measuring instrument (the company.probe precedent): its whole
+  // job is a handful of supervised loads, and 6 is one full probe run.
+  "salesnav.probe": { pageLoadsPerDay: 6, searchPagesPerDay: 6, distinctProfilesPerDay: 0 },
+  // Saved searches are a list the operator owns; reading it is a page load, not
+  // a metered search. Zero search pages until Task 37 measures otherwise — if
+  // that page turns out to be metered, the measurement raises this number
+  // deliberately rather than the capability discovering it at exit 7.
+  "salesnav.savedsearch.list": { pageLoadsPerDay: 6, searchPagesPerDay: 0, distinctProfilesPerDay: 0 },
 };
 
 /** The daily sub-caps in force for one capability. Never returns uncapped. */
