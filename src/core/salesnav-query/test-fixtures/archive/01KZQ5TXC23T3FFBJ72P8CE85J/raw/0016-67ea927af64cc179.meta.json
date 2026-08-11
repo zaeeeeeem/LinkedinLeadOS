@@ -1,0 +1,4 @@
+{
+  "status": 200,
+  "url": "https://www.linkedin.com/sales-api/salesApiAccountSearch?q=searchQuery&query=(filters:List((type:COMPANY_HEADCOUNT,values:List((id:B,text:1-10,selectionType:INCLUDED),(id:C,text:11-50,selectionType:INCLUDED))),(type:REGION,values:List((id:103644278,text:United%20States,selectionType:INCLUDED))),(type:INDUSTRY,values:List((id:4,text:Software%20Development,selectionType:INCLUDED))),(type:JOB_OPPORTUNITIES,values:List((id:JO1,text:Hiring%20on%20Linkedin,selectionType:INCLUDED))),(type:DEPARTMENT_HEADCOUNT_GROWTH,rangeValue:(min:10),selectedSubFilter:8)))&start=0&count=25&trackingParam=(sessionId:SCRUBBED_SESSION)&decorationId=com.linkedin.sales.deco.desktop.searchv2.AccountSearchResult-4"
+}

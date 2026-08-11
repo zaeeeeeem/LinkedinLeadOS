@@ -24,6 +24,8 @@ export type CatalogRow = {
   dynamicFetch: boolean;
   facetTypeaheadType: string | null;
   selectedSubFilter: string | null;
+  rangeInputType: "INTEGER" | "NATURAL" | null;
+  rangeMinValue: number | null;
   acceptedValues: Array<{ id: string; displayValue: string }>;
   subFilters: Array<{ id: string; title: string }>;
 };
@@ -63,12 +65,20 @@ function presentation(value: unknown, aggregate: boolean): FilterPresentation {
   return p as FilterPresentation;
 }
 
-function rowOf(vertical: SalesNavVertical, metadata: Json, parentType: string | null): CatalogRow {
+function rowOf(vertical: SalesNavVertical, metadata: Json, parentType: string | null, aggregate: boolean): CatalogRow {
   const type = string(metadata["type"]);
   const config = record(metadata["searchFilterConfig"]);
   if (type === null || config === null) throw new Error("filter metadata is missing type or searchFilterConfig");
-  const p = presentation(config["presentationType"], parentType === null && Array.isArray(metadata["values"]));
+  const p = presentation(config["presentationType"], aggregate);
   const range = record(config["rangeConfig"]);
+  const inputType = string(range?.["inputType"]);
+  if (inputType !== null && inputType !== "INTEGER" && inputType !== "NATURAL") {
+    throw new Error(`${type} has unknown range inputType ${JSON.stringify(inputType)}`);
+  }
+  const minValue = range?.["minValue"];
+  if (minValue !== undefined && (typeof minValue !== "number" || !Number.isFinite(minValue))) {
+    throw new Error(`${type} has invalid range minValue`);
+  }
   const accepted = options(range?.["acceptedValues"], "displayValue");
   const sub = options(config["subFilters"], "title").map(({ id, displayValue: title }) => ({ id, title }));
   const valueShape = p === "RANGE_DROPDOWN" || p === "RANGE_TEXT"
@@ -87,6 +97,8 @@ function rowOf(vertical: SalesNavVertical, metadata: Json, parentType: string | 
     dynamicFetch: bool(config["dynamicFetch"]),
     facetTypeaheadType: string(config["facetTypeaheadType"]),
     selectedSubFilter: string(metadata["selectedSubFilter"]),
+    rangeInputType: inputType,
+    rangeMinValue: typeof minValue === "number" ? minValue : null,
     acceptedValues: accepted,
     subFilters: sub,
   };
@@ -115,16 +127,16 @@ export function parseFilterCatalog(body: string): CatalogRow[] {
           const wrapper = record(wrapperCandidate);
           const single = record(wrapper?.["singleFilterMetadata"]);
           if (single !== null) {
-            rows.push(rowOf(vertical, single, null));
+            rows.push(rowOf(vertical, single, null, false));
             continue;
           }
           const aggregate = record(wrapper?.["aggregatedFilterMetadata"]);
           if (aggregate === null) throw new Error(`${vertical} catalog filter has no measured metadata envelope`);
-          const parent = rowOf(vertical, aggregate, null);
+          const parent = rowOf(vertical, aggregate, null, true);
           rows.push(parent);
           const children = aggregate["values"];
           if (!Array.isArray(children)) throw new Error(`${parent.type} aggregate has no child filters`);
-          for (const child of children) rows.push(rowOf(vertical, record(child) ?? {}, parent.type));
+          for (const child of children) rows.push(rowOf(vertical, record(child) ?? {}, parent.type, false));
         }
       }
     }

@@ -74,3 +74,7 @@ ANNUAL_REVENUE's accepted values and currency sub-filters, POSTAL_CODE's radius 
 and both department range sub-filter sets are retained in the fixture and parsed into catalog
 rows. Tests pin representative ids and counts; they are not copied into this map as a second
 source of truth.
+
+Range validation also consumes `rangeConfig.inputType` and `rangeConfig.minValue` directly from
+the fixture. Numeric JSON input is canonicalized once by `FilterSpec`; non-canonical strings and
+values outside those measured constraints refuse before URL construction (D428).

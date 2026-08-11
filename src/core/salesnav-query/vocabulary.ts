@@ -6,6 +6,7 @@ import { mkdir } from "node:fs/promises";
 import { defaultRunsDir } from "../run/paths.js";
 import { parseSalesNavQuery, rawUrlParam, type QueryObject, type QueryValue } from "./grammar.js";
 import type { SalesNavVertical } from "./catalog.js";
+import { SALESNAV_QUERY_ARCHIVE_FIXTURE_ROOT } from "./archive-fixture.js";
 
 export const PUBLIC_VOCABULARY_PATH = new URL("./vocabulary.registry.json", import.meta.url);
 export const PRIVATE_VOCABULARY_FILENAME = "salesnav-filter-vocabulary.private.json";
@@ -39,6 +40,22 @@ export type VocabularyRegistry = {
   version: 1;
   rows: VocabularyRow[];
 };
+
+export type VocabularyHarvestWarning = {
+  code: "VOCAB_META_INVALID" | "VOCAB_META_UNREADABLE" | "VOCAB_RESPONSE_STATUS_SKIPPED" |
+    "VOCAB_QUERY_INVALID" | "VOCAB_BODY_INVALID";
+  runId: string;
+  archiveId: string;
+  file: string;
+};
+
+export type VocabularyWriteOps = {
+  writeFile: typeof writeFile;
+  rename: typeof rename;
+  unlink: typeof unlink;
+};
+
+const VOCABULARY_WRITE_OPS: VocabularyWriteOps = { writeFile, rename, unlink };
 
 export const OPERATOR_SCOPED_FACETS = new Set([
   "ACCOUNT_LIST", "LEAD_LIST", "PERSONA", "LEADS_IN_CRM", "ACCOUNTS_IN_CRM",
@@ -293,6 +310,7 @@ function savedSearchVocabulary(body: string, vertical: SalesNavVertical, source:
 export async function harvestVocabulary(options: {
   runsDir?: string;
   runIds: readonly string[];
+  onWarning?: (warning: VocabularyHarvestWarning) => void;
 }): Promise<VocabularyRegistry> {
   const runsDir = resolve(options.runsDir ?? defaultRunsDir());
   if (options.runIds.length === 0 || options.runIds.length > MAX_HARVEST_RUNS) {
@@ -312,33 +330,70 @@ export async function harvestVocabulary(options: {
     }
     for (const file of metaFiles) {
       const metaPath = join(rawDir, file);
-      const metadata = record(JSON.parse(await readFile(metaPath, "utf8")));
-      const url = nonempty(metadata?.["url"]);
-      if (url === null) continue;
       const archiveId = file.slice(0, -".meta.json".length);
       const relativeFile = relative(runsDir, metaPath);
+      const warn = (code: VocabularyHarvestWarning["code"]) => options.onWarning?.({ code, runId, archiveId, file: relativeFile });
+      let metadata: Json | null;
+      try {
+        metadata = record(JSON.parse(await readFile(metaPath, "utf8")));
+      } catch (cause) {
+        warn((cause as NodeJS.ErrnoException).code === undefined ? "VOCAB_META_INVALID" : "VOCAB_META_UNREADABLE");
+        continue;
+      }
+      const url = nonempty(metadata?.["url"]);
+      if (metadata === null || url === null) {
+        warn("VOCAB_META_INVALID");
+        continue;
+      }
+      let parsedUrl: URL;
+      try { parsedUrl = new URL(url, "https://www.linkedin.com"); } catch {
+        warn("VOCAB_META_INVALID");
+        continue;
+      }
+      const leadSearch = /\/sales-api\/salesApiLeadSearch$/i.test(parsedUrl.pathname);
+      const accountSearch = /\/sales-api\/salesApiAccountSearch$/i.test(parsedUrl.pathname);
+      const savedSearches = /\/sales-api\/salesApiSavedSearchesV2$/i.test(parsedUrl.pathname);
+      if (!leadSearch && !accountSearch && !savedSearches) continue;
+      const status = metadata["status"];
+      if (typeof status !== "number" || status < 200 || status >= 300) {
+        warn("VOCAB_RESPONSE_STATUS_SKIPPED");
+        continue;
+      }
       const sourceBase = { runId, archiveId, file: relativeFile };
-      if (/salesApiLeadSearch/i.test(url) || /salesApiAccountSearch/i.test(url)) {
+      if (leadSearch || accountSearch) {
         const raw = rawUrlParam(url, "query");
         if (raw === null) continue;
-        const vertical: SalesNavVertical = /salesApiLeadSearch/i.test(url) ? "LEAD" : "ACCOUNT";
-        const observed = queryVocabulary(parseSalesNavQuery(raw), vertical, { ...sourceBase, kind: "request-url" });
+        const vertical: SalesNavVertical = leadSearch ? "LEAD" : "ACCOUNT";
+        let observed: ReturnType<typeof queryVocabulary>;
+        try {
+          observed = queryVocabulary(parseSalesNavQuery(raw), vertical, { ...sourceBase, kind: "request-url" });
+        } catch {
+          warn("VOCAB_QUERY_INVALID");
+          continue;
+        }
         registries.push({ version: 1, rows: observed.rows });
         omissions.push(...observed.omissions);
       }
-      if (/salesApiSavedSearchesV2/i.test(url)) {
-        const q = new URL(url).searchParams.get("q");
+      if (savedSearches) {
+        const q = parsedUrl.searchParams.get("q");
         const vertical: SalesNavVertical | null = q === "savedPeopleSearches" ? "LEAD" : q === "savedCompanySearches" ? "ACCOUNT" : null;
         if (vertical === null) continue;
         const bodyPath = join(rawDir, `${archiveId}.json.gz`);
-        const body = gunzipSync(await readFile(bodyPath)).toString("utf8");
-        registries.push({
-          version: 1,
-          rows: savedSearchVocabulary(body, vertical, {
+        let rows: VocabularyRow[];
+        try {
+          const body = gunzipSync(await readFile(bodyPath)).toString("utf8");
+          rows = savedSearchVocabulary(body, vertical, {
             ...sourceBase,
             kind: "archive-body",
             file: relative(runsDir, bodyPath),
-          }),
+          });
+        } catch {
+          warn("VOCAB_BODY_INVALID");
+          continue;
+        }
+        registries.push({
+          version: 1,
+          rows,
         });
       }
     }
@@ -357,15 +412,19 @@ export async function harvestVocabulary(options: {
   return merged;
 }
 
-export async function writeVocabularyFile(path: string, registry: VocabularyRegistry): Promise<void> {
+export async function writeVocabularyFile(
+  path: string,
+  registry: VocabularyRegistry,
+  operations: VocabularyWriteOps = VOCABULARY_WRITE_OPS,
+): Promise<void> {
   const validated = validateVocabularyRegistry(registry);
   await mkdir(dirname(path), { recursive: true });
   const temporary = `${path}.tmp.${process.pid}.${randomUUID()}`;
   try {
-    await writeFile(temporary, `${JSON.stringify(validated, null, 2)}\n`, "utf8");
-    await rename(temporary, path);
+    await operations.writeFile(temporary, `${JSON.stringify(validated, null, 2)}\n`, "utf8");
+    await operations.rename(temporary, path);
   } catch (cause) {
-    await unlink(temporary).catch(() => {});
+    await operations.unlink(temporary).catch(() => {});
     throw cause;
   }
 }
@@ -377,7 +436,7 @@ export function splitVocabulary(registry: VocabularyRegistry): { publicRows: Voc
   };
 }
 
-export async function auditVocabularyRow(row: VocabularyRow, runsDir = defaultRunsDir()): Promise<{ ok: boolean; checked: number }> {
+async function auditVocabularyRowAt(row: VocabularyRow, runsDir: string): Promise<{ ok: boolean; checked: number }> {
   let checked = 0;
   const byRun = new Map<string, VocabularyRegistry>();
   for (const source of [...row.provenance, ...row.textOmissionProvenance]) {
@@ -396,4 +455,14 @@ export async function auditVocabularyRow(row: VocabularyRow, runsDir = defaultRu
     if (!resolved) return { ok: false, checked };
   }
   return { ok: checked > 0, checked };
+}
+
+export async function auditVocabularyRow(row: VocabularyRow, runsDir?: string): Promise<{ ok: boolean; checked: number }> {
+  if (runsDir !== undefined) return auditVocabularyRowAt(row, runsDir);
+  try {
+    return await auditVocabularyRowAt(row, defaultRunsDir());
+  } catch (cause) {
+    if (!(cause instanceof VocabularyError) || cause.code !== "VOCAB_RUN_UNREADABLE") throw cause;
+    return auditVocabularyRowAt(row, SALESNAV_QUERY_ARCHIVE_FIXTURE_ROOT);
+  }
 }

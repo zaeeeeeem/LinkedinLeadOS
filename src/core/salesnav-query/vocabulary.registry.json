@@ -17,13 +17,6 @@
           "locator": "$.elements[0].filters[0].singleFilterMetadata.values[0]"
         },
         {
-          "kind": "archive-body",
-          "runId": "01KZQNM34D61NTBDQNDVSZ45AV",
-          "archiveId": "0012-93b72711dc6cac2e",
-          "file": "01KZQNM34D61NTBDQNDVSZ45AV/raw/0012-93b72711dc6cac2e.json.gz",
-          "locator": "$.elements[0].filters[0].singleFilterMetadata.values[0]"
-        },
-        {
           "kind": "request-url",
           "runId": "01KZQ5TXC23T3FFBJ72P8CE85J",
           "archiveId": "0016-67ea927af64cc179",
@@ -46,13 +39,6 @@
           "runId": "01KZQCS8XZDDYSDGMT5SB81YBS",
           "archiveId": "0039-93b72711dc6cac2e",
           "file": "01KZQCS8XZDDYSDGMT5SB81YBS/raw/0039-93b72711dc6cac2e.json.gz",
-          "locator": "$.elements[0].filters[0].singleFilterMetadata.values[1]"
-        },
-        {
-          "kind": "archive-body",
-          "runId": "01KZQNM34D61NTBDQNDVSZ45AV",
-          "archiveId": "0012-93b72711dc6cac2e",
-          "file": "01KZQNM34D61NTBDQNDVSZ45AV/raw/0012-93b72711dc6cac2e.json.gz",
           "locator": "$.elements[0].filters[0].singleFilterMetadata.values[1]"
         },
         {
@@ -81,13 +67,6 @@
           "locator": "$.elements[0].filters[2].singleFilterMetadata.values[0]"
         },
         {
-          "kind": "archive-body",
-          "runId": "01KZQNM34D61NTBDQNDVSZ45AV",
-          "archiveId": "0012-93b72711dc6cac2e",
-          "file": "01KZQNM34D61NTBDQNDVSZ45AV/raw/0012-93b72711dc6cac2e.json.gz",
-          "locator": "$.elements[0].filters[2].singleFilterMetadata.values[0]"
-        },
-        {
           "kind": "request-url",
           "runId": "01KZQ5TXC23T3FFBJ72P8CE85J",
           "archiveId": "0016-67ea927af64cc179",
@@ -113,13 +92,6 @@
           "locator": "$.elements[0].filters[4].singleFilterMetadata.values[0]"
         },
         {
-          "kind": "archive-body",
-          "runId": "01KZQNM34D61NTBDQNDVSZ45AV",
-          "archiveId": "0012-93b72711dc6cac2e",
-          "file": "01KZQNM34D61NTBDQNDVSZ45AV/raw/0012-93b72711dc6cac2e.json.gz",
-          "locator": "$.elements[0].filters[4].singleFilterMetadata.values[0]"
-        },
-        {
           "kind": "request-url",
           "runId": "01KZQ5TXC23T3FFBJ72P8CE85J",
           "archiveId": "0016-67ea927af64cc179",
@@ -142,13 +114,6 @@
           "runId": "01KZQCS8XZDDYSDGMT5SB81YBS",
           "archiveId": "0039-93b72711dc6cac2e",
           "file": "01KZQCS8XZDDYSDGMT5SB81YBS/raw/0039-93b72711dc6cac2e.json.gz",
-          "locator": "$.elements[0].filters[1].singleFilterMetadata.values[0]"
-        },
-        {
-          "kind": "archive-body",
-          "runId": "01KZQNM34D61NTBDQNDVSZ45AV",
-          "archiveId": "0012-93b72711dc6cac2e",
-          "file": "01KZQNM34D61NTBDQNDVSZ45AV/raw/0012-93b72711dc6cac2e.json.gz",
           "locator": "$.elements[0].filters[1].singleFilterMetadata.values[0]"
         },
         {

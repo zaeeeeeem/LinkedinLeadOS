@@ -91,6 +91,37 @@ branch `codex/task-41-filter-grammar`. Task 41 is offline-complete; no live appr
 is part of it. **Next: Task 42**, the separately budgeted apply probe, only after reading its
 contract and obtaining the operator approval it requires immediately before any live invocation.
 
+### Review-fix checkpoint — portable evidence and strict inverse (2026-08-11)
+
+Review of `b10ade6` found 15 gaps between passing on the archive-owning machine and passing on a
+fresh clone. All are fixed in the Task 41 worktree. D426 promotes 10 measured metadata/body files
+into an archive-shaped committed fixture: 8 sources have named scrubs for operator-owned ids,
+labels, seat/keywords or execution sessions; original and fixture hashes are pinned without
+committing a private value. The public 9-row registry is regenerated solely from this evidence.
+
+D427 makes the decoder a strict inverse at every nesting level and revalidates its output through
+`filterSpecSchema`. D428 canonicalizes numeric JSON input once, refuses non-canonical numeric
+strings, and enforces catalog `inputType`, `minValue`, accepted values and sub-filters; entity
+filters now represent measured `selectedSubFilter` values. Catalog aggregate identity comes from
+the metadata envelope rather than the presence of selected values. D429 anchors endpoint paths,
+accepts relative archive URLs, requires 2xx status, continues past malformed sibling captures
+with typed warnings, and keeps bad run arguments at exit 1 while registry corruption stays exit 5.
+Atomic-write failure is tested by injecting a failed rename and proving the old registry and no
+temporary file survive.
+
+Portable verification is explicit: with `LINKEDIN_OS_RUNS_DIR` set to a new empty directory, the
+Task 41 suite passes **34/34**, and a source test forbids the three reviewed test files from
+importing the run-path module. Typecheck is clean. The final full suite with local Supabase and
+file parallelism disabled passes **1,796/1,796 across 120 files, 0 skipped**. The promoted fixture
+contains 10 manifest sources (8 scrubbed; 12 committed files including manifest and README).
+
+Independent no-contact evidence remains unchanged: the shared ledger is **146 lines / 19,289
+bytes**, SHA-256 `6c3e467826fe401a05c9ce5c73c37a358388a645be942da75bbe0f8936e20442`;
+direct Supabase counts are 7 runs, 0 persons, 0 companies, 7 searches and 197 search results.
+**Spend: 0 / 0 page loads, 0 / 0 search pages. No LinkedIn contact.** Cold resume in the same
+worktree and branch: inspect/stage this review-fix diff, commit it, then Task 41 is ready for a
+fresh review before any separately authorized Task 42 work.
+
 ## M5 gate — MET (2026-08-11)
 
 All three L2 Sales Navigator capabilities have passed live, operator-supervised gates, and

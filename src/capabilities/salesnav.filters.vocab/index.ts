@@ -37,6 +37,15 @@ function required(value: string | undefined, name: string): string {
   return value;
 }
 
+function exitForVocabularyError(error: VocabularyError): ExitCode {
+  return error.code === "VOCAB_REGISTRY_INVALID" || error.code === "VOCAB_REGISTRY_BOUNDED" || error.code === "VOCAB_ROW_INVALID" ||
+    error.code === "VOCAB_PROVENANCE_INVALID" || error.code === "VOCAB_ROW_ID_INVALID" ||
+    error.code === "VOCAB_SCOPE_INVALID" || error.code === "VOCAB_ID_CONFLICT" ||
+    error.code === "VOCAB_ROW_DUPLICATE"
+    ? EXIT.PARSE_DRIFT
+    : EXIT.GENERIC;
+}
+
 function safeRows(rows: Awaited<ReturnType<typeof loadVocabulary>>["rows"]) {
   return rows.map((row) => ({
     row_id: row.rowId,
@@ -63,7 +72,12 @@ export const capability = defineCapability({
       const privatePath = ctx.args.privateVocabPath ?? privateVocabularyPath(ctx.args.runsDir);
       if (ctx.args.operation === "harvest") {
         const runIds = required(ctx.args.runIds, "--run-ids").split(",").map((id) => id.trim()).filter(Boolean);
-        const harvested = await harvestVocabulary({ runIds, ...(ctx.args.runsDir === undefined ? {} : { runsDir: ctx.args.runsDir }) });
+        const harvestWarnings: Array<{ code: string }> = [];
+        const harvested = await harvestVocabulary({
+          runIds,
+          ...(ctx.args.runsDir === undefined ? {} : { runsDir: ctx.args.runsDir }),
+          onWarning: (warning) => harvestWarnings.push({ code: warning.code }),
+        });
         const split = splitVocabulary(harvested);
         const existingPublic = await readVocabularyFile(publicPath);
         const existingPrivate = await readVocabularyFile(privatePath);
@@ -82,7 +96,11 @@ export const capability = defineCapability({
           );
         }
         return {
-          counts: { requested: runIds.length, captured: harvested.rows.length, usable: harvested.rows.length, skipped: 0 },
+          counts: { requested: runIds.length, captured: harvested.rows.length, usable: harvested.rows.length, skipped: harvestWarnings.length },
+          warnings: [...new Set(harvestWarnings.map((warning) => warning.code))].sort().map((code) => ({
+            code,
+            n: harvestWarnings.filter((warning) => warning.code === code).length,
+          })),
           data: {
             operation: "harvest",
             source_runs: runIds,
@@ -124,7 +142,7 @@ export const capability = defineCapability({
       };
     } catch (cause) {
       if (cause instanceof CapabilityError) throw cause;
-      if (cause instanceof VocabularyError) throw usage(cause.code, cause.message, EXIT.PARSE_DRIFT);
+      if (cause instanceof VocabularyError) throw usage(cause.code, cause.message, exitForVocabularyError(cause));
       throw usage("VOCAB_FAILED", cause instanceof Error ? cause.message : String(cause));
     }
   },

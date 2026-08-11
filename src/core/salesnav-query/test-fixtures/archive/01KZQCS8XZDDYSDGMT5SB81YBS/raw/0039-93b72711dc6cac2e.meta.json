@@ -1,0 +1,4 @@
+{
+  "status": 200,
+  "url": "https://www.linkedin.com/sales-api/salesApiSavedSearchesV2?decoration=%28%20createdAt%2C%20id%2C%20lastViewedAt%2C%20name%2C%20newHitsCount%2C%20seat%2C%20keywords%2C%20filters%20%29&count=50&q=savedCompanySearches&start=0"
+}

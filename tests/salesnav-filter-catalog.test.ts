@@ -2,7 +2,7 @@ import { createHash } from "node:crypto";
 import { readFileSync } from "node:fs";
 import { gunzipSync } from "node:zlib";
 import { describe, expect, it } from "vitest";
-import { FILTER_CATALOG_FIXTURE, FILTER_CATALOG_PROVENANCE, loadPinnedFilterCatalog } from "../src/core/salesnav-query/index.js";
+import { FILTER_CATALOG_FIXTURE, FILTER_CATALOG_PROVENANCE, loadPinnedFilterCatalog, parseFilterCatalog } from "../src/core/salesnav-query/index.js";
 
 describe("Sales Navigator promoted filter catalog", () => {
   it("pins the measured per-vertical sets from the promoted body", () => {
@@ -46,5 +46,28 @@ describe("Sales Navigator promoted filter catalog", () => {
     expect(revenue.acceptedValues).toHaveLength(12);
     expect(revenue.subFilters).toHaveLength(22);
     expect(rows.find((row) => row.vertical === "ACCOUNT" && row.type === "DEPARTMENT_HEADCOUNT_GROWTH")!.subFilters).toHaveLength(26);
+    expect(rows.find((row) => row.vertical === "ACCOUNT" && row.type === "DEPARTMENT_HEADCOUNT")).toMatchObject({
+      rangeInputType: "NATURAL", rangeMinValue: 0,
+    });
+    expect(rows.find((row) => row.vertical === "ACCOUNT" && row.type === "COMPANY_HEADCOUNT_GROWTH")).toMatchObject({
+      rangeInputType: "INTEGER", rangeMinValue: null,
+    });
+  });
+
+  it("uses the measured metadata envelope, not a selected values array, to identify aggregates", () => {
+    const body = JSON.parse(gunzipSync(readFileSync(FILTER_CATALOG_FIXTURE)).toString("utf8")) as {
+      elements: Array<{ filterColumns: Array<{ filterGroups: Array<{ filters: Array<Record<string, unknown>> }> }> }>;
+    };
+    const wrapper = body.elements
+      .flatMap((element) => element.filterColumns)
+      .flatMap((column) => column.filterGroups)
+      .flatMap((group) => group.filters)
+      .find((candidate) => "singleFilterMetadata" in candidate)!;
+    const metadata = wrapper["singleFilterMetadata"] as Record<string, unknown>;
+    const type = metadata["type"] as string;
+    metadata["values"] = [{ id: "MEASURED_SELECTED_VALUE" }];
+    const row = parseFilterCatalog(JSON.stringify(body)).find((candidate) => candidate.type === type)!;
+    expect(row.presentationType).not.toBe("AGGREGATE");
+    expect(row.valueShape).not.toBe("aggregate");
   });
 });

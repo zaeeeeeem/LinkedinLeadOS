@@ -27,6 +27,18 @@ function reachable(entry: string): string[] {
 }
 
 describe("salesnav.filters.build import graph", () => {
+  it("keeps Task 41 tests independent of the gitignored operator run archive", () => {
+    for (const file of [
+      "tests/salesnav-query-grammar.test.ts",
+      "tests/salesnav-filter-builder.test.ts",
+      "tests/salesnav-filter-vocabulary.test.ts",
+    ]) {
+      const source = readFileSync(join(ROOT, file), "utf8");
+      expect(source).not.toContain("defaultRunsDir");
+      expect(source).not.toContain("core/run/paths");
+    }
+  });
+
   it("declares both Task 41 capabilities as offline and zero-cost", () => {
     for (const capability of [buildCapability, vocabCapability]) {
       expect(capability.needsBrowser).toBe(false);

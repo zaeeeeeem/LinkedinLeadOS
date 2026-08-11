@@ -5436,3 +5436,50 @@ Audit does not pass after finding one convenient source. It re-harvests each nam
 requires its exact archive id, source kind, file and locator to resolve. Unbounded archive walks,
 in-place JSON writes and first-match audits all lost because they turn an offline evidence store
 into a denial-of-service, partial-file, or stale-provenance failure surface.
+
+## D426 — Query evidence is promoted as a scrubbed archive-shaped fixture (review fix, 2026-08-11)
+
+Task 41's first implementation proved its query grammar and vocabulary harvester against the
+operator machine's gitignored `runs/` tree. Those tests could not run on a fresh clone. The
+portable evidence now mirrors the original `run/raw` layout under the committed query fixture
+directory and retains each source run id, archive id and original file hash in a manifest.
+
+Public filter ids and display values remain because they are the measured vocabulary the task
+exists to preserve. Operator-owned saved-search ids and labels, seat data, operator-scoped
+filter ids and text, and per-execution session values are replaced with explicit scrub tokens;
+the manifest names each scrubbed field but never its value. Committing the raw URLs/bodies lost
+on the privacy boundary, while synthetic hand-authored fixtures lost because they would no
+longer prove the production archive parser against a measured envelope.
+
+## D427 — The query decoder is a strict inverse, not a projection (review fix, 2026-08-11)
+
+`decodeBuiltFilterSpec` now rejects unknown, duplicate and missing fields at the root, filter,
+value, range and recent-search levels; it also rejects filters containing both value and range
+branches. The decoded object is run back through `filterSpecSchema` before it is returned.
+
+Weakening the comment to call the decoder a projection lost because its purpose is to detect a
+builder accidentally emitting a field the typed spec cannot represent. Silently dropping that
+field would make the round-trip property green precisely when the builder had changed meaning.
+
+## D428 — Range inputs canonicalize once at schema ingress and otherwise refuse (review fix, 2026-08-11)
+
+Numeric JSON inputs are converted to canonical decimal strings by `filterSpecSchema`. Strings
+must already be canonical decimals: no surrounding whitespace, hexadecimal prefix, exponent
+notation, leading zeros or negative zero. The builder then validates integer/natural input type,
+minimum value, accepted values and sub-filter ids from the catalog before emitting the atom.
+
+Trimming or interpreting JavaScript's full `Number()` grammar lost because it would turn an
+operator's unmeasured spelling into a request LinkedIn's UI never issued. Emitting the raw string
+lost for the same reason. One canonical representation also makes numeric CLI input and decoded
+query specs compare honestly.
+
+## D429 — One corrupt archive capture is skipped visibly; it does not erase a harvest (review fix, 2026-08-11)
+
+The harvester matches exact Sales Navigator endpoint pathnames, accepts absolute or relative
+archived URLs, and only consumes 2xx captures. Invalid metadata, query grammar, body gzip/JSON or
+response status produces a typed per-capture warning; other valid files and runs continue.
+Capability receipts aggregate those warnings and count the skipped captures.
+
+Aborting the full multi-run harvest lost because an unrelated typeahead sibling or one truncated
+sidecar could discard every valid vocabulary row. Silent skipping also lost: a missing response
+and a corrupt response require different operator actions, so each warning has its own code.

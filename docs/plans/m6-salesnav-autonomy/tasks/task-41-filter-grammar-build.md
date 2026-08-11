@@ -31,7 +31,9 @@ exclusively from bodies and URLs already on disk.
 
 1. **Grammar module** (one place, e.g. `src/core/salesnav-query/`): parse and serialize
    the `query=(…)` s-expression-ish form. Round-trip test against **every** archived
-   measured URL, byte-identical on the query param. Adversarial encoding tests: commas,
+   measured URL through committed, subject-scoped promoted fixtures (operator-owned ids,
+   labels, seat and execution-session values scrubbed per D426), byte-identical on the
+   promoted query param. Tests must not read the gitignored `runs/` tree. Adversarial encoding tests: commas,
    parens and colons inside `text:`, `+` and `=` inside ids (base64-shaped, the D412
    class), unicode, empty lists, nested `rangeValue`. Decoder rejects — never
    best-efforts — malformed input (exit-5 class when reached from a capability).
@@ -78,8 +80,8 @@ exclusively from bodies and URLs already on disk.
 
 - Full suite green from 1,762 baseline plus this task's tests; typecheck clean; zero
   skips.
-- Every archived measured URL round-trips byte-identical; every catalog pinning test
-  reads the promoted fixture, not a copy-pasted constant.
-- `build` on a spec reconstructing the operator's archived CXO/accounts searches emits
-  exactly the archived query strings.
+- Every promoted measured URL round-trips byte-identical; every catalog pinning test
+  reads the promoted fixture, not a copy-pasted constant or the gitignored run archive.
+- `build` on specs reconstructing the promoted, subject-scoped CXO/accounts evidence emits
+  exactly those promoted query strings.
 - Ledger untouched: no new spend lines of any kind exist after the task.

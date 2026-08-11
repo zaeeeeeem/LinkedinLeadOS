@@ -1,69 +1,51 @@
-import { readdirSync, readFileSync } from "node:fs";
+import { readFileSync } from "node:fs";
 import { join } from "node:path";
+import { gunzipSync } from "node:zlib";
 import { describe, expect, it } from "vitest";
-import { defaultRunsDir } from "../src/core/run/paths.js";
 import {
+  SALESNAV_QUERY_ARCHIVE_FIXTURE_ROOT,
   SalesNavQuerySyntaxError,
   atom,
   list,
+  loadSalesNavArchiveFixtureManifest,
   object,
   parseSalesNavQuery,
   rawUrlParam,
   serializeSalesNavQuery,
 } from "../src/core/salesnav-query/index.js";
-
-const ARCHIVE_RUNS = [
-  "01KZQFCFMVYKAC082JXDRVCAN3",
-  "01KZQ5TXC23T3FFBJ72P8CE85J",
-  "01KZP693DEWVP0S90K7C7XQ997",
-  "01KZQNM34D61NTBDQNDVSZ45AV",
-];
-
-function archivedQueries(): string[] {
-  const out: string[] = [];
-  for (const run of ARCHIVE_RUNS) {
-    const raw = join(defaultRunsDir(), run, "raw");
-    for (const file of readdirSync(raw).filter((candidate) => candidate.endsWith(".meta.json"))) {
-      const metadata = JSON.parse(readFileSync(join(raw, file), "utf8")) as { url?: string };
-      if (!/salesApi(?:LeadSearch|AccountSearch)/.test(metadata.url ?? "")) continue;
-      const query = rawUrlParam(metadata.url!, "query");
-      if (query !== null) out.push(query);
-    }
-  }
-  return out;
-}
-
-function archivedSearchUrls(): string[] {
-  const out: string[] = [];
-  for (const run of ARCHIVE_RUNS) {
-    const raw = join(defaultRunsDir(), run, "raw");
-    for (const file of readdirSync(raw).filter((candidate) => candidate.endsWith(".meta.json"))) {
-      const metadata = JSON.parse(readFileSync(join(raw, file), "utf8")) as { url?: string };
-      if (/salesApi(?:LeadSearch|AccountSearch)/.test(metadata.url ?? "")) out.push(metadata.url!);
-    }
-  }
-  return out;
-}
+import { fixtureQueries, fixtureSearchUrls } from "./helpers/salesnav-query-fixtures.js";
 
 describe("Sales Navigator query grammar", () => {
-  it("round-trips every archived measured search query byte-for-byte", () => {
-    const queries = archivedQueries();
-    expect(queries.length).toBe(4);
+  it("round-trips every promoted measured search query byte-for-byte", () => {
+    const queries = fixtureQueries();
+    expect(queries).toHaveLength(4);
     for (const query of queries) expect(serializeSalesNavQuery(parseSalesNavQuery(query))).toBe(query);
   });
 
   it("pins both measured q=searchQuery and q=savedSearch request forms without URLSearchParams rewriting", () => {
-    const urls = archivedSearchUrls();
+    const urls = fixtureSearchUrls();
     expect(urls).toHaveLength(6);
-    expect(urls.map((url) => rawUrlParam(url, "q"))).toEqual(expect.arrayContaining([
-      "searchQuery", "savedSearch",
-    ]));
+    expect(urls.map((url) => rawUrlParam(url, "q"))).toEqual(expect.arrayContaining(["searchQuery", "savedSearch"]));
     expect(urls.filter((url) => rawUrlParam(url, "q") === "savedSearch")).toHaveLength(2);
     for (const url of urls) {
       for (const name of ["q", "query", "savedSearchId", "trackingParam"]) {
         const raw = rawUrlParam(url, name);
         if (raw !== null) expect(url).toContain(`${name}=${raw}`);
       }
+    }
+  });
+
+  it("verifies every promoted file and records the operator-private scrub boundary", () => {
+    const manifest = loadSalesNavArchiveFixtureManifest();
+    expect(manifest.sources).toHaveLength(10);
+    expect(manifest.policy).toHaveLength(4);
+    expect(manifest.sources.filter((source) => source.scrubbed.length > 0)).toHaveLength(8);
+    for (const source of manifest.sources) {
+      const bytes = readFileSync(join(SALESNAV_QUERY_ARCHIVE_FIXTURE_ROOT, source.fixture));
+      const text = source.fixture.endsWith(".gz") ? gunzipSync(bytes).toString("utf8") : bytes.toString("utf8");
+      expect(text).not.toMatch(/urn:li:|\b[^\s@]+@[^\s@]+\.[^\s@]+\b/i);
+      if (source.scrubbed.some((field) => field.includes("savedSearchId"))) expect(text).toContain("SCRUBBED_SAVED_SEARCH_ID");
+      if (source.scrubbed.some((field) => field.includes("sessionId"))) expect(text).toContain("SCRUBBED_SESSION");
     }
   });
 

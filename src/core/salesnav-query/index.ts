@@ -1,3 +1,4 @@
+export * from "./archive-fixture.js";
 export * from "./build.js";
 export * from "./catalog.js";
 export * from "./catalog-fixture.js";

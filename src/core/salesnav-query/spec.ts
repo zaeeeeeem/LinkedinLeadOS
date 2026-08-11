@@ -2,6 +2,13 @@ import { z } from "zod";
 
 export const selectionTypeSchema = z.enum(["INCLUDED", "EXCLUDED"]);
 
+export const CANONICAL_RANGE_ATOM = /^-?(?:0|[1-9]\d*)(?:\.\d+)?$/;
+
+const rangeAtomSchema = z.union([z.string(), z.number()])
+  .transform((value) => String(value))
+  .pipe(z.string().regex(CANONICAL_RANGE_ATOM, "must be a canonical decimal without whitespace, prefixes, or exponent notation"))
+  .refine((value) => Number.isFinite(Number(value)) && !/^-0(?:\.0+)?$/.test(value), "must be finite and cannot be negative zero");
+
 export const entityFilterSchema = z.object({
   kind: z.literal("values"),
   type: z.string().regex(/^[A-Z][A-Z0-9_]*$/),
@@ -12,13 +19,14 @@ export const entityFilterSchema = z.object({
     /** Some measured URLs omit `text` although the vocabulary row has it. */
     emitText: z.boolean().default(true),
   }).strict()).min(1),
+  selectedSubFilter: z.string().min(1).optional(),
 }).strict();
 
 export const rangeFilterSchema = z.object({
   kind: z.literal("range"),
   type: z.string().regex(/^[A-Z][A-Z0-9_]*$/),
-  min: z.union([z.string(), z.number()]).optional(),
-  max: z.union([z.string(), z.number()]).optional(),
+  min: rangeAtomSchema.optional(),
+  max: rangeAtomSchema.optional(),
   selectedSubFilter: z.string().min(1).optional(),
 }).strict();
 

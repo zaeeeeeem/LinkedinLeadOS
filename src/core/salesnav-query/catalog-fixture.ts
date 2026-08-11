@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import { readFileSync } from "node:fs";
 import { gunzipSync } from "node:zlib";
 import { parseFilterCatalog } from "./catalog.js";
@@ -19,4 +20,3 @@ export function loadPinnedFilterCatalog() {
   }
   return parseFilterCatalog(body.toString("utf8"));
 }
-import { createHash } from "node:crypto";
