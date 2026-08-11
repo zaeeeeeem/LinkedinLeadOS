@@ -4918,3 +4918,46 @@ Not extended here. One 200 on `/` amid 101 captures, on a run that otherwise com
 pages and returned rows, is not evidence of a bounce — and weakening or widening the
 classifier on one sample is exactly what D60 says not to do. If it recurs on a run that also
 loses rows, that is the pair worth acting on.
+
+## D406 — The accounts search is measured, and its dedupe key is the opposite of the leads one (2026-08-11)
+
+Run `01KZQ5TXC23T3FFBJ72P8CE85J`, exit 0, 1 page load / 1 search page, on an
+operator-supplied company-search url (headcount + region + industry + hiring + department
+growth). This closes the gap Task 36 shipped short.
+
+**Rows are in a labeled body here too.** `salesApiAccountSearch`, 53 KB, 25 rows, 12 fields
+each, all 25/25 present. `paging.total` 660, `count` 25, `start` 0; the pager reads page 1 of
+27. The DOM exception list stays closed at five for the whole M5 surface family.
+
+**`objectUrn` does not exist on an account row, and `entityUrn` is not compound.** It is a
+plain `urn:li:fs_salesCompany:<id>`. That is the exact inverse of D354, where a lead row's
+`entityUrn` carries a per-execution search context and token, making `objectUrn` the only
+stable key. So **the dedupe key is per vertical**: `objectUrn` for leads, `entityUrn` for
+accounts. Task 38 must not write one rule for both — and `trackingId`, which both carry, is
+per-execution on both and is never a key.
+
+**Display fields the card shows are not all in the row.** `location` is the clear case: 23
+rendered `data-anonymize="location"` values, and the only "location" strings in the body are
+the sidebar's aggregated filter facets. **This does not grow the DOM exception list.** Spec §7
+asks a search row for `search_id`, `page`, `position`, `person_urn`/`company_urn`, `run_ref` —
+all present. A company's location is *entity* data, and entity data comes from an L1 reader
+later; M5 CONTEXT rule 5 already says a search row never mints or freshens an entity. If a
+future task wants location on the search row, that is a fresh decision and a fresh
+measurement, not an assumption that it must be in there somewhere.
+
+## D407 — Which body says which page is chosen by endpoint name, never by size (2026-08-11)
+
+`pagingFromCaptures` took the largest non-document body. On the leads surface that is
+`salesApiLeadSearch` and the answer was right; on the accounts surface it is
+`salesApiSearchFilterLayout` — 81 KB against the account search's 53 KB — and it carries a
+`paging` block of its own. The receipt reported **`count 10` for a page of 25 rows**.
+
+A body's size is not its identity. The search body is now selected by the `specific` patterns
+that name a search endpoint (`salesapi-lead-search`, `salesapi-account-search`,
+`salesapi-people-search`), largest among those. When none matched, the fallback still reads the
+largest body but reports `from: "largest-body"` and raises `PAGING_SOURCE_INDIRECT` — because
+this reading is the **arrival check for a clicked page** (D400 clause 6), and a `salesApiLego`
+offset presented as the search's own is a coincidence wearing evidence's clothes.
+
+Found by running the accounts probe, not by re-reading the code — the same way D355's
+`companyUrn` error was found. A verdict that is right on one surface is not a verdict.

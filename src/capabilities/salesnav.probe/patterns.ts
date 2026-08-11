@@ -52,6 +52,21 @@ export const SALESNAV_PATTERNS: readonly TieredPattern[] = [
 /** The net every capture is measured against, and the one `waitFor` waits on. */
 export const BROAD_PATTERN_NAME = "linkedin-data";
 
+/**
+ * The patterns that name a **search results** endpoint, as opposed to anything
+ * else a results page fetches.
+ *
+ * Used to pick the body that says which page arrived (D400 clause 6). It has to
+ * be by name: `salesApiSearchFilterLayout` is larger than `salesApiAccountSearch`
+ * on the accounts surface and carries a `paging` block of its own, so choosing by
+ * size reads `count 10` off the filter layout for a page of 25 rows.
+ */
+export const SEARCH_RESULT_PATTERNS = [
+  "salesapi-lead-search",
+  "salesapi-account-search",
+  "salesapi-people-search",
+] as const;
+
 /** The watch name for one surface's own navigation response. One per surface,
  *  because watches sharing a name report as one row and could not answer which
  *  document carried what (D120). */

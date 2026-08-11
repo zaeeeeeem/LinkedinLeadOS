@@ -256,15 +256,35 @@ describe("pagingOffsetOf — the arrival check reads two integers and nothing el
   });
 });
 
-describe("pagingFromCaptures", () => {
-  const body = (start: number): string => `{"paging":{"start":${start},"count":25}}`;
+describe("pagingFromCaptures — the search endpoint by name, not by size", () => {
+  const body = (start: number, count = 25): string => `{"paging":{"start":${start},"count":${count}}}`;
 
-  it("prefers the largest body, which is the one carrying the rows", () => {
+  it("reads the named search body", () => {
     const captures = [
-      { body: body(0), bytes: 2_000, patterns: ["salesapi-nav-chrome"] },
+      { body: body(0), bytes: 2_000, patterns: ["sales-api-any"] },
       { body: body(25), bytes: 150_000, patterns: ["salesapi-lead-search"] },
     ];
-    expect(pagingFromCaptures(captures, "document-leads2")).toEqual({ start: 25, count: 25 });
+    expect(pagingFromCaptures(captures, "document-leads2")).toEqual({ start: 25, count: 25, from: "search-body" });
+  });
+
+  // The live defect, pinned. On /sales/search/company the largest body is
+  // salesApiSearchFilterLayout (81 KB) and it carries a paging block of its own;
+  // the account search is 53 KB. Size-first read `count 10` for a page of 25.
+  it("does not let a larger non-search body win", () => {
+    const captures = [
+      { body: body(0, 10), bytes: 81_620, patterns: ["sales-api-any", "linkedin-data"] },
+      { body: body(0, 25), bytes: 53_689, patterns: ["salesapi-account-search", "sales-api-any"] },
+    ];
+    expect(pagingFromCaptures(captures, "document-accounts"))
+      .toEqual({ start: 0, count: 25, from: "search-body" });
+  });
+
+  // A fallback that presented itself as the search's own offset would be a
+  // coincidence wearing evidence's clothes.
+  it("falls back to the largest body and says the evidence is indirect", () => {
+    const captures = [{ body: body(0, 20), bytes: 8_813, patterns: ["sales-api-any"] }];
+    expect(pagingFromCaptures(captures, "document-leads2"))
+      .toEqual({ start: 0, count: 20, from: "largest-body" });
   });
 
   // A server-rendered document must not be able to answer "which page arrived".

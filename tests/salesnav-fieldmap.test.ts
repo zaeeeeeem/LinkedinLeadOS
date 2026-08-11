@@ -185,3 +185,80 @@ describe("field-map bookkeeping", () => {
     }
   });
 });
+
+/**
+ * The accounts side of the FIELD-MAP (D406), pinned the same way and skipping
+ * itself for the same reason.
+ *
+ * Its headline assertion is the one that differs from leads: an account row has
+ * **no `objectUrn`** and a **non-compound `entityUrn`**, which is the exact
+ * inverse of D354. Task 38 keys per vertical, and a change to either side should
+ * fail here rather than be discovered by a duplicate row in `search_results`.
+ */
+const ACCOUNTS_FIXTURE = join(process.cwd(), "fixtures/salesnav.probe/67ea927af64cc179.json");
+const accountsPresent = existsSync(ACCOUNTS_FIXTURE);
+const accountsSuite = accountsPresent ? describe : describe.skip;
+
+function loadAccounts(): LeadSearch {
+  return JSON.parse(readFileSync(ACCOUNTS_FIXTURE, "utf8")) as LeadSearch;
+}
+
+accountsSuite("salesApiAccountSearch — the accounts row source (D406)", () => {
+  it("is the same envelope as the leads search", () => {
+    const body = loadAccounts();
+    expect(Object.keys(body).sort()).toEqual(["elements", "metadata", "paging"]);
+    expect(body.elements.length).toBeGreaterThan(0);
+  });
+
+  // The number a size-first read got wrong: `salesApiSearchFilterLayout` is the
+  // bigger body on this surface and carries a `paging` block claiming 10 (D407).
+  it("pages 25 at a time, not 10", () => {
+    const { paging, elements } = loadAccounts();
+    expect(paging.count).toBe(25);
+    expect(paging.start).toBe(0);
+    expect(elements).toHaveLength(paging.count);
+    expect(paging.total).toBeGreaterThan(paging.count);
+  });
+
+  it("carries every field the FIELD-MAP lists, on every row", () => {
+    const { elements } = loadAccounts();
+    for (const row of elements) {
+      for (const key of [
+        "entityUrn", "companyName", "industry", "employeeCountRange",
+        "employeeDisplayCount", "description", "companyPictureDisplayImage",
+        "spotlightBadges", "listCount", "saved", "trackingId",
+      ]) {
+        expect(row[key], `${key} missing from an account row`).toBeDefined();
+      }
+      expect(typeof row["companyName"]).toBe("string");
+      expect((row["companyName"] as string).length).toBeGreaterThan(0);
+    }
+  });
+
+  // The inverse of D354, and the reason Task 38 cannot write one keying rule.
+  it("keys on a plain entityUrn and has no objectUrn at all", () => {
+    const { elements } = loadAccounts();
+    const urns = new Set<string>();
+    for (const row of elements) {
+      expect(row["objectUrn"]).toBeUndefined();
+      const urn = row["entityUrn"];
+      expect(typeof urn).toBe("string");
+      // Plain, not the `(id,searchContext,token)` compound a lead row carries.
+      expect(urn as string).toMatch(/^urn:li:fs_salesCompany:\d+$/);
+      urns.add(urn as string);
+    }
+    // Unique across the page, or it is not a key.
+    expect(urns.size).toBe(elements.length);
+  });
+
+  // Measured absence, pinned: the card renders a location and the row does not
+  // carry one. If a build starts sending it, this test is where that shows up —
+  // and it is a decision to make, not a field to start reading.
+  it("carries no per-row location", () => {
+    for (const row of loadAccounts().elements) {
+      for (const key of ["location", "headquarters", "geoRegion", "address"]) {
+        expect(row[key], `${key} appeared on an account row — re-read D406`).toBeUndefined();
+      }
+    }
+  });
+});

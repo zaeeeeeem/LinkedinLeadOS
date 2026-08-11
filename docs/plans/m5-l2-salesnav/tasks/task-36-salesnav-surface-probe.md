@@ -34,15 +34,20 @@ across it, and **both lead-search fixtures, page 1 and page 2, are promoted** �
 deliverable this task was short of. The first attempt refused on a defect in the reveal rule,
 now replaced by a hit test (D404).
 
-**Still short: the accounts search is unmeasured.** Its run died on a
-`CDP_CONNECTION_CLOSED` fault (2 of 4 runs, undiagnosed, core CDP rather than this surface —
-D402, `BACKLOG.md`) and the 6/day cap was reached before a retry. Tasks 38/40 must treat
-every accounts-side field as unmeasured until a re-probe lands; the leads side is complete.
-The raised budget makes that re-probe possible the same day, but it needs one thing the
-probe may not invent: **an accounts search url the UI itself produced** — a saved search or a
-company-search url copied from Sales Navigator. `/sales/search/company` bare renders an empty
-entry state (D357), the archived `/sales/home` snapshot carries no such url, and synthesizing
-a filter url is M6's job. Operator input, not an agent decision.
+**The accounts search is measured (2026-08-11, `01KZQ5TXC23T3FFBJ72P8CE85J`, exit 0, 1 load /
+1 search page)**, on an operator-supplied company-search url — the one input the probe may not
+invent (D357). Rows are in a labeled body here too, so the DOM exception list stays closed at
+five for the whole family. Two findings Task 38 needs: the **dedupe key is per vertical** —
+an account row has no `objectUrn` and a plain `entityUrn`, the inverse of D354 (D406) — and
+`location` is not an account-row field at all, which is entity data for an L1 reader rather
+than a DOM-exception case.
+
+**Task 36 is complete.** Every deliverable it was short of has landed: leads page 1, leads
+page 2 and accounts page 1 are all promoted fixtures with pinning tests.
+
+Still open, and named rather than absorbed: **accounts page 2** (the probe has no `accounts2`
+surface; nothing suggests it differs, which is not the same as having looked) and **a second
+leads target** for parse drift.
 
 ## Objective
 

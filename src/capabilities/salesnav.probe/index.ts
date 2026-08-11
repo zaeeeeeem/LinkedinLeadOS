@@ -22,7 +22,7 @@ import {
   parseSurfaces, SALESNAV_HOME_URL, searchPageUrl, type SalesNavSurface, type SalesNavTarget,
 } from "./url.js";
 import { interpretSurface, paginationVerdict, surfaceExpression, type PaginationVerdict, type SurfaceReport } from "./surface.js";
-import { clickPagerControl, pagingFromCaptures, type ClickReport } from "./pager.js";
+import { clickPagerControl, pagingFromCaptures, type ClickReport, type PagingEvidence } from "./pager.js";
 
 const args = z
   .object({
@@ -96,7 +96,7 @@ export type SurfaceOutcome = {
    * pager's own label can advance on a re-render that changed no rows, so the
    * button is not evidence that a page turned.
    */
-  paging: { start: number; count: number } | null;
+  paging: PagingEvidence | null;
   /** Bodies carrying Sales-Nav-family data (`isSalesNavIsh`). */
   salesnav_ish: number;
   /**
@@ -858,6 +858,21 @@ export function pushSurfaceWarnings(
         `${named(notAdvanced)} was reached by clicking next, but no captured body reports a non-zero ` +
         `paging.start — the page may not have turned. Do not promote a fixture from it as page 2 ` +
         `(the pager's own label is not evidence, D400)`,
+    });
+  }
+
+  // The arrival check is only as good as the body it read. A `paging` block off
+  // some *other* endpoint — a filter layout, a lego module — is not this
+  // search's offset, and saying so is the difference between evidence and a
+  // coincidence.
+  const indirect = done.filter((o) => o.paging?.from === "largest-body");
+  if (indirect.length > 0) {
+    warnings.push({
+      code: "PAGING_SOURCE_INDIRECT",
+      n: indirect.length,
+      field:
+        `${named(indirect)} reported paging offsets from a body that matched no named search endpoint — ` +
+        `treat the page number as unconfirmed, and check which endpoint carried it before relying on it`,
     });
   }
 

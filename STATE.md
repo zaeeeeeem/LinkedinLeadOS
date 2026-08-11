@@ -1,11 +1,12 @@
 # STATE
 
-## Task 36 reviewed, amended and unblocked (2026-08-11, offline)
+## Task 36 reviewed, amended, unblocked and completed (2026-08-11)
 
 Task 35 was already merged to `main` (`acde15b`) on 2026-08-10; only Task 36 was ever
 outstanding. Reviewed against its task file and `CONTEXT.md`: three changes and one
-renumber, plus one defect fixed in Task 35's core (D403). **Tests: 1654 pass, typecheck
-clean, zero LinkedIn contact.**
+renumber, plus three defects fixed (D403 in Task 35's core, D404 and D407 in the probe).
+**Tests: 1664 pass, typecheck clean.** Three supervised live runs, 5 page loads / 5 search
+pages, all exit 0 or a clean refusal.
 
 **The operator granted the pagination click (D400).** Next and previous, inside a pager,
 located by accessible name, resolved-or-refused, trusted `HumanCursor` click, wheel to
@@ -67,11 +68,34 @@ when a pass moves the control less than 4px (D404).
 
 **The CDP transport fault did not reproduce** across the two runs. It stays open (D402).
 
-**Still unmeasured: the accounts search.** It needs an accounts search url the UI itself
-produced — the bare `/sales/search/company` renders an empty entry state (D357), no such url
-appears in the archived `/sales/home` snapshot, and synthesizing a filter url is refused
-until M6. **Operator input needed:** a saved accounts search or a company-search url copied
-from the UI.
+**~~Still unmeasured: the accounts search.~~** Measured the same day — see the section above.
+
+**The accounts search is measured (2026-08-11, run `01KZQ5TXC23T3FFBJ72P8CE85J`, exit 0,
+1 page load / 1 search page).** The operator supplied a company-search url the UI produced,
+which is the one thing the probe may not invent. Task 36's remaining gap is closed.
+
+- **Rows in a labeled body here too** — `salesApiAccountSearch`, 25 rows, 12 fields, all
+  25/25 present, `paging.total` 660. The DOM exception list stays closed at five across the
+  whole M5 family.
+- **[DECISION] The dedupe key is per vertical (D406).** An account row has **no `objectUrn`**
+  and a **plain** `entityUrn` — the exact inverse of D354, where a lead row's `entityUrn`
+  carries a per-execution search context and `objectUrn` is the only stable key. Task 38
+  cannot write one keying rule for both.
+- **`location` is not in the accounts body** — the card renders 23 of them, the body carries
+  none outside the sidebar's filter facets. Not a DOM-exception case: spec §7 asks a search
+  row for urn/page/position/run_ref, all present, and a company's location is entity data an
+  L1 reader fetches later (M5 CONTEXT rule 5). Pinned as a measured absence.
+
+**[BUG] fixed — the arrival check read the wrong body (D407).** `pagingFromCaptures` took the
+largest non-document body. On leads that is `salesApiLeadSearch` and the answer was right; on
+accounts it is `salesApiSearchFilterLayout` (81 KB against the account search's 53 KB), which
+carries a `paging` block of its own — so the receipt reported **`count 10` for a page of 25
+rows**. The search body is now chosen by the patterns that *name* a search endpoint, and a
+fallback reports `from: "largest-body"` with a `PAGING_SOURCE_INDIRECT` warning rather than
+passing a `salesApiLego` offset off as the search's own. This is the arrival check for a
+clicked page, so a wrong body here is a wrong page-turn verdict. Found by running the probe on
+a second surface, not by re-reading the code — a verdict that is right on one surface is not a
+verdict.
 
 ## Complete — Task 36, the Sales Navigator surface probe (2026-08-10, live, operator-authorized)
 

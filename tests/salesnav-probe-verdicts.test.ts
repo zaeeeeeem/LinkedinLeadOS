@@ -199,7 +199,7 @@ describe("pushSurfaceWarnings", () => {
       const w: Warning[] = [];
       pushSurfaceWarnings(
         w,
-        [outcome("leads2", { arrival: "click", paging: { start: 25, count: 25 } })],
+        [outcome("leads2", { arrival: "click", paging: { start: 25, count: 25, from: "search-body" as const } })],
         { hasSeat: true, evidence: "" },
       );
       expect(codes(w)).not.toContain("PAGE_DID_NOT_ADVANCE");
@@ -218,7 +218,7 @@ describe("pushSurfaceWarnings", () => {
       const w: Warning[] = [];
       pushSurfaceWarnings(
         w,
-        [outcome("leads2", { arrival: "click", paging: { start: 0, count: 25 } })],
+        [outcome("leads2", { arrival: "click", paging: { start: 0, count: 25, from: "search-body" as const } })],
         { hasSeat: true, evidence: "" },
       );
       expect(codes(w)).toContain("PAGE_DID_NOT_ADVANCE");

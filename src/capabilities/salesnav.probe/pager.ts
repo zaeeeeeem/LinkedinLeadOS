@@ -1,6 +1,7 @@
 import { CapabilityError, EXIT } from "../../core/run/receipt.js";
 import { SCROLLER_SELECTION_JS } from "../profile.capture/read.js";
 import { MAX_ATTRIBUTE_CHARS } from "./constants.js";
+import { SEARCH_RESULT_PATTERNS } from "./patterns.js";
 
 /**
  * The one click this toolkit performs: a pagination control.
@@ -371,6 +372,27 @@ export async function clickPagerControl(o: {
 }
 
 /**
+ * Which page arrived, and how confident the answer is.
+ *
+ * `from` exists because the first accounts run got this wrong. The rule was
+ * "largest non-document body", and on `/sales/search/company` the largest is
+ * `salesApiSearchFilterLayout` (81 KB) rather than `salesApiAccountSearch`
+ * (53 KB) — and the filter layout carries a `paging` block of its own. The
+ * receipt read `count 10` for a page of 25 rows. It happened to be right on the
+ * leads surface only because the lead search *is* the biggest body there.
+ *
+ * A body's size is not its identity. The search endpoint is now chosen by name,
+ * and when no named search endpoint answered, the fallback says so rather than
+ * presenting a `salesApiLego` offset as the search's own — which matters because
+ * D400 clause 6 makes this the arrival check for a clicked page.
+ */
+export type PagingEvidence = {
+  start: number;
+  count: number;
+  from: "search-body" | "largest-body";
+};
+
+/**
  * The paging offsets a captured body claims, if any.
  *
  * D400 clause 6: which page arrived is read from the body, never from the
@@ -384,18 +406,25 @@ export function pagingFromCaptures(
   captures: readonly { body: string; bytes: number; patterns: readonly string[] }[],
   /** The watch name of this surface's own document response, excluded. */
   excludePattern: string,
-): { start: number; count: number } | null {
-  // Largest first: a results page fetches several bodies and the one carrying
-  // the rows is by a wide margin the biggest (154 KB against a few KB on the
-  // measured run). Deterministic, and stated rather than "the first one that
-  // parses".
-  const ordered = captures
-    .filter((c) => !c.patterns.includes(excludePattern))
-    .slice()
+): PagingEvidence | null {
+  const usable = captures.filter((c) => !c.patterns.includes(excludePattern));
+  // The search endpoint by name, first. Size is not identity: on the accounts
+  // surface `salesApiSearchFilterLayout` is 81 KB against the account search's
+  // 53 KB, and it carries a `paging` block of its own — reading it reported
+  // `count 10` for a page of 25 rows. See below.
+  const search = usable
+    .filter((c) => c.patterns.some((p) => (SEARCH_RESULT_PATTERNS as readonly string[]).includes(p)))
     .sort((a, b) => b.bytes - a.bytes);
-  for (const capture of ordered) {
+  for (const capture of search) {
     const paging = pagingOffsetOf(capture.body);
-    if (paging !== null) return paging;
+    if (paging !== null) return { ...paging, from: "search-body" };
+  }
+  // Nothing matched a named search endpoint. Largest body, and the receipt says
+  // the evidence is indirect rather than presenting it as the search's own.
+  const rest = usable.slice().sort((a, b) => b.bytes - a.bytes);
+  for (const capture of rest) {
+    const paging = pagingOffsetOf(capture.body);
+    if (paging !== null) return { ...paging, from: "largest-body" };
   }
   return null;
 }

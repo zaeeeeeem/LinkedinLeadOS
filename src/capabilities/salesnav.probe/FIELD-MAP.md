@@ -93,7 +93,7 @@ The D126 refusal still applies: a row whose identity resolves to the session urn
 nothing, stores nothing. `sessionUrnsOf` reported **0** session urns across the probe run,
 so no row on the measured page was the operator.
 
-## Verdict 2 — pagination is **click-only**. `[DECISION NEEDED]`
+## Verdict 2 — pagination is **click-only**. Granted 2026-08-11 (D400), proved live (D404).
 
 Measured on leads page 1: the pager renders, and it is entirely buttons.
 
@@ -112,15 +112,25 @@ question is moot in the other direction — the url does not carry it and the ad
 never produces it. Reaching page 2 requires **clicking a pager button**, a class of action
 this toolkit has never taken.
 
-Per M5 CONTEXT rule 4 this is an operator decision (the D323 precedent), not an
-implementation detail. **The probe did not spend page 2** — the gate refused it and said
-why. Tasks 39 and 40 stay blocked on that decision.
+Per M5 CONTEXT rule 4 that was an operator decision (the D323 precedent). **It landed on
+2026-08-11 as D400** — next/previous only, inside the pager, by accessible name,
+resolved-or-refused, trusted `HumanCursor` click. Tasks 39 and 40 are unblocked.
 
-Note for whoever takes the decision: `paging.start` and `paging.count` in the body mean the
-API itself pages by offset. That is **not** permission to forge a request — CLAUDE.md's
-"never forge a request LinkedIn's own UI did not already issue" is unchanged. It only means
-that once the UI is driven to page 2 by whatever means is approved, the body says
-unambiguously which page arrived, which is what the Task 35 paged loop needs for its cursor.
+**Proved live** (run `01KZQ4S9FYEB5NCBPQC8FZSGK5`): `<button aria-label="Next">`, one match,
+clicked after one wheel pass; `salesApiLeadSearch` then reported `paging.start 25` against
+page 1's `0`, and the `sessionId` held across the click.
+
+`paging.start` / `paging.count` are the **arrival check** (D400 clause 6) — a pager label can
+advance on a re-render that changed no rows. Read them off the body that matched a named
+search pattern, never off the largest body: on the accounts surface
+`salesApiSearchFilterLayout` (81 KB) outweighs `salesApiAccountSearch` (53 KB) and carries a
+`paging` block of its own, which read `count 10` for a page of 25 (D407).
+
+None of this is permission to forge a request — CLAUDE.md's "never forge a request LinkedIn's
+own UI did not already issue" is unchanged. **After** the click the landed url does carry
+`page=2`, while the pager still renders 0 anchors: the url exists only once the UI has been
+driven there, so it is not cold-navigable and synthesizing it remains the "teleporting" form
+the reference worker refused.
 
 ## Surface structure
 
@@ -173,12 +183,74 @@ Archived and available; none of them is the row source.
 `salesApiNavChrome` is an **operator-identity-bearing** body and is excluded from fixtures
 as a private endpoint (D118/D119) — the promoter skipped 8 such bodies on this run.
 
+
+## The accounts search — `salesApiAccountSearch` (measured 2026-08-11, run `01KZQ5TXC23T3FFBJ72P8CE85J`)
+
+Measured on an operator-supplied company search url (headcount + region + industry + hiring +
+department growth). **1 page load / 1 search page, exit 0.**
+
+### Body
+
+| path | value |
+|---|---|
+| `paging.total` | 660 |
+| `paging.count` | **25** — the same page size as leads, not the 10 a size-first read reported (D407) |
+| `paging.start` | 0 |
+| `elements` | 25 |
+| pager's own a11y text | page 1 of 27 |
+
+### `elements[i]` — 12 fields, **all 25/25 present**
+
+| path | meaning | note |
+|---|---|---|
+| `entityUrn` | `urn:li:fs_salesCompany:<id>` | **simple, not compound** — unlike a lead row's |
+| `companyName` | the account's name | |
+| `industry` | e.g. "Software Development" | |
+| `employeeCountRange` | e.g. "11-50 employees" | a display string, not a range object |
+| `employeeDisplayCount` | e.g. 32 | the exact count beside the banded one |
+| `description` | the company's own About text | long; not a search snippet |
+| `companyPictureDisplayImage` | logo artifacts | |
+| `spotlightBadges` | e.g. "Hiring on Linkedin", with popup copy | why the row matched a spotlight filter |
+| `listCount`, `saved` | the operator's own list state | operator data, not the account's |
+| `$recipeType`, `trackingId` | plumbing | `trackingId` is per-execution — never a key |
+
+**`objectUrn` does not exist on an account row, and `entityUrn` is not compound.** That is
+the opposite of the leads side, where D354 makes `objectUrn` the dedupe key precisely because
+`entityUrn` carries a per-execution search context. Task 38 therefore keys **per vertical**:
+`objectUrn` for leads, `entityUrn` for accounts (D406).
+
+### What is *not* in the body
+
+`location` is **not** an account-row field. The rendered card shows one
+(`data-anonymize="location"` × 23) and the only "location" strings in the body are the
+sidebar's aggregated filter facets, not per-row values. The same holds for anything else the
+card displays but the row does not carry.
+
+**This does not grow CLAUDE.md's DOM exception list.** Spec §7 requires `search_id`, `page`,
+`position`, `person_urn`/`company_urn` and `run_ref` from a search row — every one of which
+the body carries. A company's location is entity data, and entity data comes from an L1
+reader later (M5 CONTEXT rule 5: a search row never mints or freshens an entity). The list
+stays closed at five.
+
+### Surface structure
+
+| measurement | accounts search page 1 |
+|---|---|
+| scroller | **`div#search-results-container`**, 4079 / 602 px — same as leads |
+| `/sales/company/` links | 46 (23 rows × 2) |
+| largest list container | `ol`, 25 items, 23 carrying row links |
+| `data-testid` on rows | **none** |
+| `data-anonymize` on rows | `company-logo`, `company-name`, `industry`, `company-size`, `location`, `person-blurb` — 23 each |
+| pager | 12 × `button`, 0 anchors — identical to leads |
+
 ## Not measured
 
-- **The accounts search (`/sales/search/company`).** Attempted; the run died on an
-  infrastructure fault (see STATE.md) before it could be read, and the daily probe sub-cap
-  was reached. Tasks 38/40 must treat every accounts-side field as unmeasured. The bare
-  `/sales/search/company` with no filters rendered an empty search-entry state, so a real
-  accounts target is needed for that measurement, not the default url.
-- **Page 2 of anything.** Deliberately not spent — see verdict 2.
+- ~~The accounts search~~ — **measured 2026-08-11**, see the section above. It needed an
+  operator-supplied company-search url: the bare `/sales/search/company` renders an empty
+  search-entry state and a synthesized filter url is refused (D357).
+- ~~Page 2~~ — **measured 2026-08-11** on the leads side, by click (D404). **Accounts page 2
+  is still unmeasured**: the probe has no `accounts2` surface, and nothing suggests it
+  differs, which is not the same as having looked.
+- **A second leads target.** Everything on the leads side is one persona search. One target
+  cannot surface parse drift; the operator's filtered CXO url is the obvious second.
 - **Saved searches.** Task 37's surface.
