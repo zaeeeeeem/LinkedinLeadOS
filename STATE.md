@@ -1,5 +1,38 @@
 # STATE
 
+## Done — Task 40 `salesnav.accounts.list` end to end (2026-08-11)
+
+The live gate passed on run `01KZQNM34D61NTBDQNDVSZ45AV`: two pages, one Next click, 50 rows
+inspected, 50 usable, 0 refused, 100,409 ms. Both pages pinned to one session
+`9CUHfx1zQOu8nxQgHroNWQ==`, no orphans and no wasted spend.
+
+Verified independently of the receipt. The ledger holds exactly 4 lines for the run (2 page
+loads, 2 search pages). The two proved archives are 53,730- and 50,555-byte
+`salesApiAccountSearch` bodies with `start` 0 and 25 against `total` 660. Supabase gained
+exactly 50 `search_results` rows (147 to 197), 25 positions on each of pages 1 and 2, 50
+distinct `company_urn`, `person_urn` null throughout, under one `sn_accounts` search whose
+`filter_url` is the saved-search target; `persons` and `companies` remain 0. Suite 1,762
+passed / 0 skipped, typecheck clean.
+
+Two bugs were found by the gate and fixed before it passed, both in shared salesnav code and
+both affecting leads as well:
+
+- **D412** — `findSearchParam` treated `%` as a value terminator, truncating the base64
+  session id `9HhV%2F%2FAmT0iLnkgZji9ZMw%3D%3D` to `9HhV`. This also withdraws D391's
+  conclusion that the Task 36 url was stale; that measurement was corrupted by this bug.
+- **D413** — the session pin was read from the address bar, which after a pager click carries
+  a freshly minted session no request ever used. It now comes from the captured request.
+
+**Spend: 7 / 10 accounts page loads and 7 / 10 search pages used today**, across four
+attempts: 1 refused under D391 (withdrawn — it was D412), 2 refused exposing D412, 2 refused
+exposing D413, and 2 green. Three of those four are the cost of finding two real bugs that
+Task 39's leads gate had passed straight over.
+
+Not measured, and recorded in D413: whether a third page's request executes under the session
+the address bar minted at click time. Measure before raising `--pages` above 2.
+
+### Superseded — attempts 1 and 2 (2026-08-11)
+
 ## In progress — Task 40 `salesnav.accounts.list` end to end (2026-08-11)
 
 Baseline and research checkpoints passed in an isolated worktree. The full suite reports

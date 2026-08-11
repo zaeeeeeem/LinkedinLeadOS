@@ -18,6 +18,8 @@ The live capability requires an operator-supplied `/sales/search/company` URL. I
 accounts daily sub-cap is 10 page loads / 10 search pages. Each results page costs one of each.
 Page 1 navigates to the supplied URL. Later pages use the measured, trusted Next control and
 accept arrival only from the named account-search body's offset under the same `sessionId`.
+That session is read from the captured search request's `trackingParam`, not from the address
+bar, which after a pager click carries a session no request ever used (D413).
 
 Raw bodies are archived before a page checkpoint. The capability uses the shared Task 35
 `runPaged` module for spend, pacing, pause and archive-proved resume; it has no accounts-only
