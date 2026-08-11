@@ -1,5 +1,54 @@
 # STATE
 
+## Merged to main — Tasks 41 and 43 (2026-08-11)
+
+Both M6 offline tasks are on `main`: `242924e` (Task 41, filter grammar and builder,
+including its 15 review fixes) and `bd5ec11` (Task 43, passive harvest observer).
+Pre-merge `main` is tagged `premerge-m6-2026-08-11` if any of this needs undoing.
+
+Verified on the merge result rather than on either branch: typecheck clean, **1,803 tests
+passed across 122 files, 0 skipped**, and `cap list` discovers all three new capabilities
+(`salesnav.filters.build`, `salesnav.filters.vocab`, `salesnav.filters.harvest`).
+
+**Spend: 0 / 0 page loads, 0 / 0 search pages. No LinkedIn contact.** The ledger is byte-identical
+to the pre-task baseline — 146 lines, 19,289 bytes, SHA-256
+`6c3e467826fe401a05c9ce5c73c37a358388a645be942da75bbe0f8936e20442` — checked directly against
+`runs/budget.ndjson` after both merges, not taken from either task's report.
+
+What the merge had to decide, and what it did not:
+
+- The two tasks share no code. Task 43 forked from `b10ade6`, *before* Task 41's review fixes,
+  which would matter if it depended on them; it imports nothing from `src/core/salesnav-query/`
+  and the only files both touched are `STATE.md` and `DECISIONS.md`.
+- `STATE.md` conflicted once and was resolved newest-first: Task 41's build above the M6 plan
+  laydown. `DECISIONS.md` conflicted once, as two appends to an append-only file, and was
+  resolved by concatenation in numeric order — D426–D429 then D440–D442, no text altered.
+- The M6 plan documents were uncommitted on `main` and stale (45 catalog types where the
+  measured body says 46 distinct / 44 emittable). The committed Task 41 versions won; the
+  stale working copies were discarded, not merged.
+
+Confirmed independently of the task reports, because these are the claims that would be
+expensive to discover were false:
+
+- No test reads the gitignored `runs/` archive any more. The five filter test files read only
+  committed fixtures under `src/core/salesnav-query/test-fixtures/` and `tmpdir()` scratch,
+  and an import-graph test asserts `defaultRunsDir` never appears in test sources.
+- The committed vocabulary registry holds 9 rows, **0 operator-scoped**, every row carrying
+  provenance. The private overlay `runs/salesnav-filter-vocabulary.private.json` is untracked
+  and appears in no merged commit (D442 holds).
+
+Next: the Lead taxonomy harvest is the first thing here that spends. It needs the operator's
+facet/prefix list and fresh approval immediately before invocation — the sub-caps allow 4 page
+loads and 25 search pages per day, and D440 charges the whole search allowance before
+navigation, so an abandoned session still costs its full declared spend.
+
+### Not carried by this merge
+
+`codex/task-42-apply-probe` still points at `b10ade6`, which is now an ancestor of `main` but
+predates the Task 41 review fixes. Task 42 should be re-forked from `main` rather than resumed
+in place, or it will build on the non-strict decoder and the unnormalized range atoms.
+
+
 ## In progress — Task 43 operator-driven vocabulary harvest (2026-08-11)
 
 Task 43 is isolated in worktree
