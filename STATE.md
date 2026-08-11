@@ -1,5 +1,42 @@
 # STATE
 
+## Both taxonomy harvests are done — Task 43 (2026-08-11)
+
+Two live sessions, both exit 0, both operator-stopped via the PAUSE file, both reporting
+**1 navigation and 0 clicks / 0 keystrokes / 0 wheel events** after it (D441 held twice).
+
+| Run | Vertical | Bodies | Searches observed / charged | Elapsed |
+|---|---|---:|---|---:|
+| `01KZR9KTGPVR1BB03WPQS6YVMB` | LEAD | 309 | 15 / 25 | 419s |
+| `01KZRAKXXJMTXDV38NEAHJYTF0` | ACCOUNT | 90 | 2 / 25 | 496s |
+
+**Total spend: 2 page loads of the 4 daily sub-cap, 50 search pages charged, 17 actually
+observed.** 33 units over-counted, which is D440 working as designed rather than a defect.
+
+The temporary D443 ceiling raise has been **reverted**: global `searchPagesPerDay` is back to
+50 and the capability sub-cap back to 25, both with comments recording that they were briefly
+75/50 for this one day. Nothing else may spend a search page today — the day already reads 73.
+
+The vocabulary endpoint is `salesApiFacetTypeahead` (D444), fully mapped in
+`src/core/salesnav-query/FILTER-MAP.md` for both verticals.
+
+**Complete closed enums now in archive (14):** INDUSTRY 494 · FUNCTION 26 · PROFILE_LANGUAGE 22
+· SENIORITY_V2 10 · COMPANY_SIZE 9 · COMPANY_TYPE 8 · TENURE 5 · RELATIONSHIP 4 ·
+COMPANY_SIZE_ACCOUNT_SEARCH 8 · NUM_OF_FOLLOWERS 5 · FORTUNE 4 · ACCOUNT_ACTIVITIES 2 ·
+JOB_OPPORTUNITIES 1 · RELATIONSHIP_ACCOUNT_SEARCH 1. INDUSTRY returned 494 identically in both
+runs, so its completeness is confirmed twice independently.
+
+**Still incomplete and structurally so:** geography and job title are prefix-gated. Held today:
+"United States" `103644278`, California, Texas, New York, Florida, plus UK/Canada/Saudi rows
+from `unite`/`cana`/`kin`/`kingo`/`saudi`; 23 title rows from `founder`/`owner`/`ceo`. No
+number of prefixes completes either.
+
+Next, and all offline: agree the classifier, build the parser, then
+`salesnav.filters.vocab --operation=harvest --run-ids=01KZR9KTGPVR1BB03WPQS6YVMB,01KZRAKXXJMTXDV38NEAHJYTF0`.
+Keying must be on typeahead type, not filter title — the two verticals use different id
+namespaces for the same concept (see FILTER-MAP). Operator-scoped types route to the private
+overlay per D442. Task 43's open question remains the typing grant for geography/title.
+
 ## Lead vocabulary harvest ran live — Task 43 (2026-08-11)
 
 Run `01KZR9KTGPVR1BB03WPQS6YVMB`, exit 0, stop reason `operator-stop` (PAUSE file), 418s.

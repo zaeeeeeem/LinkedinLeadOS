@@ -39,10 +39,10 @@ export type BudgetLimits = {
 export const DEFAULT_BUDGET_LIMITS: BudgetLimits = {
   pageLoadsPerHour: 60,
   pageLoadsPerDay: 400,
-  // Raised 50 -> 75 on 2026-08-11 by operator grant (D443) so both Task 43
-  // taxonomy harvest sessions fit in one day. This is a deliberate, recorded
-  // loosening of the account's own protection, not a default.
-  searchPagesPerDay: 75,
+  // Was briefly 75 on 2026-08-11 for the Task 43 harvest day (D443) and is back
+  // at the spec default now that both sessions have run. Do not raise it again
+  // without a dated operator grant of its own.
+  searchPagesPerDay: 50,
   distinctProfilesPerDay: 120,
 };
 
@@ -185,12 +185,10 @@ export const CAPABILITY_SUB_CAPS: Readonly<Record<string, CapabilitySubCaps>> = 
   // Task 43's observer opens at most four worker-tab search pages per day and
   // then sends no input events. Operator-driven filter work can still cause
   // real search responses, so those are accounted under this capability too.
-  // The search ceiling was raised 25 -> 50 on 2026-08-11 by operator grant
-  // (D443): both planned taxonomy sessions declare the 25-per-invocation
-  // maximum, and D440 charges each allowance in full before navigation. Still
-  // too small for an unattended harvest loop, and the 4 page loads still bound
-  // how many sessions can exist at all.
-  "salesnav.filters.harvest": { pageLoadsPerDay: 4, searchPagesPerDay: 50, distinctProfilesPerDay: 0 },
+  // Was briefly 50 on 2026-08-11 so both declared 25-page allowances fit in one
+  // day (D443). Restored: both taxonomy sessions are done and the archives they
+  // produced are the whole point of the raise, so the ceiling has no further job.
+  "salesnav.filters.harvest": { pageLoadsPerDay: 4, searchPagesPerDay: 25, distinctProfilesPerDay: 0 },
 };
 
 /** The daily sub-caps in force for one capability. Never returns uncapped. */

@@ -157,3 +157,37 @@ search pages by the observer and are not search results; whether LinkedIn meters
 server-side is unknown and unmeasurable from here. The layout body arrived with shape hash
 `3ff85d03efb79a26`, identical to run `01KZQNM34D61NTBDQNDVSZ45AV`'s, so the catalog is stable
 across runs and builds.
+
+## The ACCOUNT vertical — measured 2026-08-11, run `01KZRAKXXJMTXDV38NEAHJYTF0`
+
+Same endpoint, same two request patterns. 90 bodies, 20 of them `salesApiFacetTypeahead`.
+This session closes the six gaps the Lead session named. All six are
+`typeaheadSupported: false`, so each returned its whole enum in one request, and the whole
+session cost **2 `salesApiAccountSearch` requests** against 25 pre-charged — opening a dropdown
+is not a search.
+
+| Type | Rows | Values | Archive |
+|---|---:|---|---|
+| COMPANY_SIZE_ACCOUNT_SEARCH | 8 | `B`=1-10, `C`=11-50, `D`=51-200, `E`=201-500, `F`=501-1,000, `G`=1,001-5,000, `H`=5,001-10,000, `I`=10,001+ | `0040-f836d3b836631df0` |
+| NUM_OF_FOLLOWERS | 5 | `NFR1`=1-50 … `NFR5`=5001+ | `0069-f836d3b836631df0` |
+| FORTUNE | 4 | `1`=Fortune 50, `2`=51-100, `3`=101-250, `4`=251-500 | `0084-f836d3b836631df0` |
+| ACCOUNT_ACTIVITIES | 2 | `SLC`=Senior leadership changes in last 3 months, `RFE`=Funding events in past 12 months | `0074-f836d3b836631df0` |
+| JOB_OPPORTUNITIES | 1 | `JO1`=Hiring on Linkedin | `0071-f836d3b836631df0` |
+| RELATIONSHIP_ACCOUNT_SEARCH | 1 | `F`=1st Degree Connections | `0077-f836d3b836631df0` |
+
+The one-row and two-row enums are genuinely that size — they are checkbox groups rendered as
+multi-select, not truncated lists.
+
+**The id namespaces do not match across verticals, and this is the trap.** Lead
+`COMPANY_SIZE` and Account `COMPANY_SIZE_ACCOUNT_SEARCH` both mean company headcount, but the
+Account ids are the letters `B`–`I` while the Lead ids are their own set; `RELATIONSHIP` (Lead,
+4 rows) and `RELATIONSHIP_ACCOUNT_SEARCH` (Account, 1 row) share a name prefix and nothing else.
+Vocabulary rows must therefore be keyed on the typeahead type, never on the filter title, and a
+Lead id must never be substituted into an Account query.
+
+This session also extended geography: prefixes `unite`, `cana`, `kin`, `kingo`, `saudi` — and
+`INDUSTRY` re-fetched identically at 494 rows (`0062-c1abdc5c9460ff1e`), matching the Lead
+session, which is the second independent confirmation that its seed is the complete taxonomy.
+
+`ACCOUNT_LIST` (3 rows) and `SAVED_ACCOUNTS` (1 row) are in the archive and are operator-scoped
+under D442.

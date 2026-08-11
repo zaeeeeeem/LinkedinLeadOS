@@ -5601,3 +5601,28 @@ composition time, which is the substance of the typing-grant question and is not
 Rejected: treating a typeahead seed as an enum because it looks like a full list. BING_GEO's
 seed is 13 continent-scale regions and contains neither "United States" nor any state; a builder
 that trusted it would silently compose the wrong geography.
+
+## D445 — Vocabulary is keyed on typeahead type, never on filter title (2026-08-11)
+
+Measured across both harvest runs: `01KZR9KTGPVR1BB03WPQS6YVMB` (LEAD) and
+`01KZRAKXXJMTXDV38NEAHJYTF0` (ACCOUNT).
+
+The same human concept has different ids in the two verticals. "Company headcount" is
+`COMPANY_SIZE` on Lead search and `COMPANY_SIZE_ACCOUNT_SEARCH` on Account search, and the
+Account ids are the letters `B`–`I` rather than the Lead set. "Connection" is `RELATIONSHIP`
+with 4 rows on Lead and `RELATIONSHIP_ACCOUNT_SEARCH` with 1 row on Account. The catalog titles
+are identical in both cases.
+
+So the vocabulary store keys every row on the `facetTypeaheadType` the value was fetched under,
+and the builder resolves filter to type through the catalog before looking a value up. A row is
+never reachable by title, and a Lead id can never be substituted into an Account query.
+
+Why it matters more than it looks: both id sets are short opaque tokens that would validate fine
+against a permissive schema. A title-keyed store would let `COMPANY_HEADCOUNT=B` compose into a
+Lead query that LinkedIn accepts and answers with the wrong population — a silent wrong result,
+which is the failure class this toolkit is least able to detect after the fact.
+
+Rejected: a normalized cross-vertical concept id with per-vertical id mappings. It is the
+friendlier API and it invents a taxonomy LinkedIn does not publish; the mapping would be our
+guess about which enum members correspond, and a wrong guess produces exactly the silent wrong
+population above. Callers name the vertical they are searching, so the type is always available.
