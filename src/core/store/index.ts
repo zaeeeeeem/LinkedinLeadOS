@@ -31,6 +31,12 @@ export { upsertCompanyPosts } from "./company-posts.js";
 export { upsertCompanyPeople } from "./company-people.js";
 export { upsertJobs } from "./jobs.js";
 export {
+  insertSearch,
+  insertSearchResults,
+  MAX_SEARCH_RESULTS_PER_WRITE,
+  type SearchStoreOpts,
+} from "./searches.js";
+export {
   upsertPostRows,
   type OwnedPostProjection,
   type PostProjection,
@@ -55,4 +61,9 @@ export type {
   PersonUpsertResult,
   StoredPerson,
   JobUpsertResult,
+  SearchInput,
+  SearchInsertResult,
+  SearchKind,
+  SearchResultInput,
+  SearchResultsInsertResult,
 } from "./types.js";

@@ -136,10 +136,10 @@ describe("identity is LinkedIn's own URN", () => {
     }
   });
 
-  it("declares search_results append-only: no unique key over its natural columns", () => {
+  it("keeps search_results append-only across searches and unique within one page position", () => {
     const body = tableBody("search_results");
     expect(body).not.toMatch(/unique/i);
-    expect(sql).not.toMatch(/create\s+unique\s+index[^;]*on\s+public\.search_results/i);
+    expect(sql).toMatch(/create\s+unique\s+index[^;]*on\s+public\.search_results\s*\(search_id,\s*page,\s*position\)/i);
   });
 });
 
