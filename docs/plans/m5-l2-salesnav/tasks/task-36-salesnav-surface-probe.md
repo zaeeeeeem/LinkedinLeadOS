@@ -1,9 +1,38 @@
 # Task 36 — Sales Navigator surface probe and fixtures (live)
 
 **Model:** Opus · **Depends on:** Task 35 · **Spec:** §7 (searches, search_results),
-§9 L2 · **Decisions owned:** D351–D359 (D350 was taken at Task 35's merge — next free number wins)
-**Probe budget: max 6 page loads / 6 search pages** (leads search pages 1–2, accounts
-search page 1, saved-search list, plus spares). This is the seat check too.
+§9 L2 · **Decisions owned:** D351–D360 (the file said D350–D359; D350 was taken at Task 35's
+merge, so the block shifted by one — next free number wins)
+**Probe budget: max 10 page loads / 10 search pages** — raised from 6/6 on 2026-08-11
+(D401). This is the seat check too.
+
+**Status: done, 2026-08-10; reviewed and amended 2026-08-11.**
+`src/capabilities/salesnav.probe/` + `FIELD-MAP.md`, D351–D360, `STATE.md` checkpointed.
+**Spent 5 page loads / 3 search pages** on the measuring run.
+
+Verdicts: **seat yes** (D356) · **rows in a labeled body, so the CLAUDE.md DOM exception
+list does not grow** (D351) · **pagination is click-only** (D352).
+
+**What the 2026-08-11 review changed**, on top of the measurement above:
+
+- **The click is granted (D400)** and implemented, in `pager.ts`: page 2 is reached by
+  pressing the pager's next control, resolved-or-refused, through `HumanCursor`. D352's
+  `[DECISION NEEDED]` is closed and Tasks 39/40 are unblocked.
+- **Which page arrived is read from the body** (`paging.start`/`paging.count`), never from
+  the pager's label; a clicked page with no advanced offset raises `PAGE_DID_NOT_ADVANCE`.
+- **A defect in the source verdict, fixed.** `sourceVerdict` counted the surface's own
+  document response, so a page whose rows were server-rendered markup would have been
+  reported as "rows in a labeled body" — skipping the one `[DECISION NEEDED]` the verdict
+  exists to raise. It now excludes the document. The recorded 2026-08-10 verdict is
+  unaffected: that run captured a real 154 KB `salesApiLeadSearch` body.
+- **The budget rose 6/6 → 10/10** (D401), and the whole D351–D360 block shifted by one from
+  the D350–D359 the branch was written against, because D350 was taken by Task 35's merge.
+
+**Still short: the accounts search is unmeasured.** Its run died on a
+`CDP_CONNECTION_CLOSED` fault (2 of 4 runs, undiagnosed, core CDP rather than this surface —
+D402, `BACKLOG.md`) and the 6/day cap was reached before a retry. Tasks 38/40 must treat
+every accounts-side field as unmeasured until a re-probe lands; the leads side is complete.
+The raised budget is what makes that re-probe possible the same day.
 
 ## Objective
 
@@ -37,7 +66,7 @@ pivot M5 to the classic search family. Do not attempt to work around a missing s
   `[DECISION NEEDED]` to extend the CLAUDE.md exception to the Sales Nav surface (CONTEXT
   rule 7 / M4 CONTEXT rule 7) — the list is closed at five and Task 38 stays blocked
   until that decision lands.
-- **Pagination model, measured explicitly (D350-range decision):** how does the UI reach
+- **Pagination model, measured explicitly (D351-range decision):** how does the UI reach
   page 2 — a URL the address bar produces (cold-loadable, allowed), or a script-only
   control (a *click* — a new class of action needing its own operator decision, the D323
   precedent)? Record the exact URL form or the exact control, anchored on a stable
@@ -61,7 +90,7 @@ Archived probe runs; promoted fixtures (leads page 1 + page 2, accounts page 1);
 `FIELD-MAP.md` for the salesnav family with every path pinned by an offline test and
 meaning-checked samples (never the captured value if personal); the pagination-model and
 source verdicts written into Task 38's and Tasks 39/40's files; spend used vs budgeted on
-the STATE.md line; decisions in D350–D359.
+the STATE.md line; decisions in D351–D360.
 
 ## Acceptance criteria
 

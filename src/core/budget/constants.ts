@@ -169,8 +169,11 @@ export const CAPABILITY_SUB_CAPS: Readonly<Record<string, CapabilitySubCaps>> = 
   // needed than a lead list.
   "salesnav.accounts.list": { pageLoadsPerDay: 10, searchPagesPerDay: 10, distinctProfilesPerDay: 0 },
   // A probe is a measuring instrument (the company.probe precedent): its whole
-  // job is a handful of supervised loads, and 6 is one full probe run.
-  "salesnav.probe": { pageLoadsPerDay: 6, searchPagesPerDay: 6, distinctProfilesPerDay: 0 },
+  // job is a handful of supervised loads. Raised 6 → 10 on 2026-08-11 (D401):
+  // at 6, one CDP transport fault (D402) mid-run consumed the day and left the
+  // accounts search unmeasured, which blocks Tasks 38/40 on a field nobody has
+  // seen. 10 is one full probe run plus a retry, and 20% of the global 50/day.
+  "salesnav.probe": { pageLoadsPerDay: 10, searchPagesPerDay: 10, distinctProfilesPerDay: 0 },
   // Saved searches are a list the operator owns; reading it is a page load, not
   // a metered search. Zero search pages until Task 37 measures otherwise — if
   // that page turns out to be metered, the measurement raises this number

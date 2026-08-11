@@ -104,8 +104,13 @@ practice). D328–D329 and everything above D334 are free. M5 assigns explicit r
 starting clear of all of that:
 
 Task 35 → **D340–D349**, taken as **D342–D349** (D340/D341 were used before it ran) ·
-Task 36 → **D350–D359** · Task 37 → **D360–D369** ·
+Task 36 → **D351–D360** (its file said D350–D359; D350 was taken by Task 35's merge
+decision, so the whole block shifted by one before merge) · Task 37 → **D361–D369** ·
 Task 38 → **D370–D379** · Task 39 → **D380–D389** · Task 40 → **D390–D399**.
+
+**Operator decisions taken between tasks start at D400.** The pagination-click grant and
+the probe-budget change (D400–D402) belong to no task's range; burying them inside one
+would make the next task's range look free when it is not.
 
 **Check `DECISIONS.md` before assuming your range is free.** A task whose ten are used
 takes the next free numbers and says so, in `DECISIONS.md` and `STATE.md`.

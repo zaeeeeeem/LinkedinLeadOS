@@ -131,6 +131,15 @@ drafting) · L5 orchestration (campaigns, sequences, schedulers) · MCP surface 
   always allowed everywhere.
 - **Never forge a request LinkedIn's own UI did not already issue.** No direct Voyager calls
   with the session cookie, however tempting.
+- **The only click this toolkit performs is a pagination control** (D400, operator grant
+  2026-08-11). Next, previous, or a numbered page button, inside a results pager, located by
+  accessible name and **resolved or refused — never guessed**; a trusted `HumanCursor` click,
+  never `element.click()`; brought into view by wheel notches, never `scrollIntoView`. It is
+  granted because it creates no edge, sends nothing and leaves no trace on any third party's
+  account — which is exactly why it opens the door to no other click: not "load more", not a
+  lead panel, not a filter chip, and no L3 write. The spend contract, the sub-caps and the
+  inter-page dwell apply to a clicked page exactly as to a navigated one, and **which page
+  arrived is read from the response body, never from the button.**
 - **Raw first.** Archive the untouched response body before parsing anything. Parsed rows are
   a projection, never the only copy.
 - **Never `Runtime.enable` or `Page.enable`.** `consoleAPICalled` is the classic CDP detection

@@ -19,3 +19,4 @@ dist/
 # Supabase local state (also covered by supabase/.gitignore)
 supabase/.branches/
 supabase/.temp/
+.DS_Store
