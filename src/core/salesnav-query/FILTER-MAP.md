@@ -178,12 +178,22 @@ is not a search.
 The one-row and two-row enums are genuinely that size — they are checkbox groups rendered as
 multi-select, not truncated lists.
 
-**The id namespaces do not match across verticals, and this is the trap.** Lead
-`COMPANY_SIZE` and Account `COMPANY_SIZE_ACCOUNT_SEARCH` both mean company headcount, but the
-Account ids are the letters `B`–`I` while the Lead ids are their own set; `RELATIONSHIP` (Lead,
-4 rows) and `RELATIONSHIP_ACCOUNT_SEARCH` (Account, 1 row) share a name prefix and nothing else.
-Vocabulary rows must therefore be keyed on the typeahead type, never on the filter title, and a
-Lead id must never be substituted into an Account query.
+**The two verticals' enums overlap without being equal, and that is the trap.** Corrected
+2026-08-11 after the fixture tests compared the bodies directly — an earlier revision of this
+section claimed the id namespaces were disjoint, and they are not.
+
+Lead `COMPANY_SIZE` is `A`=Self-employed, `B`=1-10 … `I`=10,001+. Account
+`COMPANY_SIZE_ACCOUNT_SEARCH` is `B`=1-10 … `I`=10,001+ — the same letters for the same bands,
+minus `A`. Lead `RELATIONSHIP` is `F`/`S`/`A`/`O` (1st, 2nd, group members, 3rd+); Account
+`RELATIONSHIP_ACCOUNT_SEARCH` is `F` alone, and spells it "1st Degree Connections" where Lead
+spells it "1st degree connections".
+
+Partial overlap is worse than disjointness, not better. A disjoint id would be rejected and the
+mistake would surface immediately. Here, `COMPANY_HEADCOUNT=D` composed against the wrong
+vertical resolves to a real band and returns a plausible result, while
+`COMPANY_HEADCOUNT=A` and `RELATIONSHIP=S` are valid on Lead and meaningless on Account. So
+vocabulary rows are keyed on `(vertical, filter type)` resolved through the catalog, never on
+the filter title, and an id is never carried across verticals.
 
 This session also extended geography: prefixes `unite`, `cana`, `kin`, `kingo`, `saudi` — and
 `INDUSTRY` re-fetched identically at 494 rows (`0062-c1abdc5c9460ff1e`), matching the Lead

@@ -5607,11 +5607,17 @@ that trusted it would silently compose the wrong geography.
 Measured across both harvest runs: `01KZR9KTGPVR1BB03WPQS6YVMB` (LEAD) and
 `01KZRAKXXJMTXDV38NEAHJYTF0` (ACCOUNT).
 
-The same human concept has different ids in the two verticals. "Company headcount" is
-`COMPANY_SIZE` on Lead search and `COMPANY_SIZE_ACCOUNT_SEARCH` on Account search, and the
-Account ids are the letters `B`–`I` rather than the Lead set. "Connection" is `RELATIONSHIP`
-with 4 rows on Lead and `RELATIONSHIP_ACCOUNT_SEARCH` with 1 row on Account. The catalog titles
-are identical in both cases.
+The same human concept is served by a different typeahead type per vertical, and the two
+value sets overlap without being equal. "Company headcount" is `COMPANY_SIZE` on Lead search
+(`A`=Self-employed plus `B`-`I`) and `COMPANY_SIZE_ACCOUNT_SEARCH` on Account search (`B`-`I`,
+no `A`). "Connection" is `RELATIONSHIP` on Lead with `F`/`S`/`A`/`O` and
+`RELATIONSHIP_ACCOUNT_SEARCH` on Account with `F` alone, spelled with different capitalization.
+The catalog titles are identical in both cases.
+
+Corrected the same day: the first draft of this decision asserted the id namespaces were
+disjoint. They are not, and the fixture test that compares the measured bodies is what caught
+it. The conclusion is unchanged and the reason for it is stronger — partial overlap means a
+cross-vertical id usually *resolves* instead of failing.
 
 So the vocabulary store keys every row on the `facetTypeaheadType` the value was fetched under,
 and the builder resolves filter to type through the catalog before looking a value up. A row is
@@ -5626,3 +5632,33 @@ Rejected: a normalized cross-vertical concept id with per-vertical id mappings. 
 friendlier API and it invents a taxonomy LinkedIn does not publish; the mapping would be our
 guess about which enum members correspond, and a wrong guess produces exactly the silent wrong
 population above. Callers name the vertical they are searching, so the type is always available.
+
+## D446 — Entity-bearing typeahead types are refused, not scoped private (2026-08-11)
+
+D442 sorted vocabulary into public taxonomy and operator-scoped private rows. Building the
+classifier surfaced a third class that neither bucket fits, so it gets named here.
+
+`COMPANY_WITH_LIST`, `CONNECTION_OF`, `SCHOOL` and `BING_GEO_POSTAL_CODE` return **entities** —
+real companies, real people, real institutions, and in `SCHOOL`'s case full records with
+`address`, `employeeCountRange` and `industry`. They are refused outright: no public row, no
+private row, nothing. `REFUSED_TYPEAHEAD_TYPES` in `vocabulary.ts` is the list, and three tests
+pin it with realistic-looking entity payloads.
+
+The distinction against the private overlay is the point. An operator's saved list *name* is
+their own data and storing it privately is proportionate. A company or person a typeahead
+surfaced is a **third party's** data that happens to sit in the operator's graph, and the
+private overlay is not a license to accumulate it — the toolkit has no reason to hold it at all,
+so it holds none.
+
+This also closes a live hole rather than a theoretical one: `COMPANY_WITH_LIST` is the typeahead
+behind `CURRENT_COMPANY` and `PAST_COMPANY`, and neither filter type is in
+`OPERATOR_SCOPED_FACETS`. Without the refusal list those suggestions would have been classified
+**public** and committed. The test that proved it was written before the fix and failed with a
+real company name in a would-be public row.
+
+The archive still contains what the operator's hand surfaced, because raw capture is never
+edited after the fact (D442). The classifier is where it stops.
+
+Rejected: scrubbing entity values into placeholder rows to keep the shape. A row whose id is
+real and whose text is `SCRUBBED` is still an entity observation, and it would occupy a
+vocabulary slot that means nothing to the builder.

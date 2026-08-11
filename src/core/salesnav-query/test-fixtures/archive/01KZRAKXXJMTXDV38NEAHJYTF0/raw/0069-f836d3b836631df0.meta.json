@@ -1,0 +1,4 @@
+{
+  "status": 200,
+  "url": "https://www.linkedin.com/sales-api/salesApiFacetTypeahead?q=query&start=0&count=100&type=NUM_OF_FOLLOWERS"
+}

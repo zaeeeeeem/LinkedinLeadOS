@@ -5,7 +5,8 @@ import { dirname, join, relative, resolve } from "node:path";
 import { mkdir } from "node:fs/promises";
 import { defaultRunsDir } from "../run/paths.js";
 import { parseSalesNavQuery, rawUrlParam, type QueryObject, type QueryValue } from "./grammar.js";
-import type { SalesNavVertical } from "./catalog.js";
+import type { CatalogRow, SalesNavVertical } from "./catalog.js";
+import { loadPinnedFilterCatalog } from "./catalog-fixture.js";
 import { SALESNAV_QUERY_ARCHIVE_FIXTURE_ROOT } from "./archive-fixture.js";
 
 export const PUBLIC_VOCABULARY_PATH = new URL("./vocabulary.registry.json", import.meta.url);
@@ -59,6 +60,16 @@ const VOCABULARY_WRITE_OPS: VocabularyWriteOps = { writeFile, rename, unlink };
 
 export const OPERATOR_SCOPED_FACETS = new Set([
   "ACCOUNT_LIST", "LEAD_LIST", "PERSONA", "LEADS_IN_CRM", "ACCOUNTS_IN_CRM",
+  "SAVED_ACCOUNTS", "SAVED_LEADS_AND_ACCOUNTS", "LEAD_INTERACTIONS",
+]);
+
+/** Typeahead types whose suggestions are *entities* — real companies, real
+ * people, real institutions — rather than taxonomy. D442 does not merely scope
+ * these privately: they are not harvested at all, in either registry. The
+ * archive keeps whatever the operator's hand surfaced, because raw capture is
+ * never edited after the fact; the classifier is where it stops. */
+export const REFUSED_TYPEAHEAD_TYPES = new Set([
+  "COMPANY_WITH_LIST", "CONNECTION_OF", "SCHOOL", "BING_GEO_POSTAL_CODE",
 ]);
 
 type Json = Record<string, unknown>;
@@ -307,6 +318,55 @@ function savedSearchVocabulary(body: string, vertical: SalesNavVertical, source:
   return rows;
 }
 
+/** Which filters, in which vertical, draw their values from a given typeahead
+ * type. The catalog is LinkedIn's own answer to that question (D445): we never
+ * guess that two verticals share an id namespace, we read that they do. */
+let typeaheadFanout: Map<string, CatalogRow[]> | null = null;
+
+function catalogFanout(): Map<string, CatalogRow[]> {
+  if (typeaheadFanout !== null) return typeaheadFanout;
+  const fanout = new Map<string, CatalogRow[]>();
+  for (const row of loadPinnedFilterCatalog()) {
+    if (row.facetTypeaheadType === null) continue;
+    const bucket = fanout.get(row.facetTypeaheadType);
+    if (bucket === undefined) fanout.set(row.facetTypeaheadType, [row]);
+    else bucket.push(row);
+  }
+  typeaheadFanout = fanout;
+  return fanout;
+}
+
+function typeaheadVocabulary(
+  body: string,
+  typeaheadType: string,
+  source: Omit<VocabularySource, "locator">,
+): VocabularyRow[] {
+  if (REFUSED_TYPEAHEAD_TYPES.has(typeaheadType)) return [];
+  const targets = catalogFanout().get(typeaheadType);
+  if (targets === undefined || targets.length === 0) return [];
+  const elements = record(JSON.parse(body))?.["elements"];
+  if (!Array.isArray(elements)) return [];
+  const rows: VocabularyRow[] = [];
+  elements.forEach((candidate, elementIndex) => {
+    const element = record(candidate);
+    const id = nonempty(element?.["id"]);
+    const text = nonempty(element?.["displayValue"]);
+    if (id === null || text === null) return;
+    const locator = `$.elements[${elementIndex}]`;
+    for (const target of targets) {
+      const base = { vertical: target.vertical, facet: target.type, id, text };
+      rows.push({
+        ...base,
+        rowId: vocabularyRowId(base),
+        operatorScoped: OPERATOR_SCOPED_FACETS.has(target.type) || OPERATOR_SCOPED_FACETS.has(typeaheadType),
+        provenance: [{ ...source, locator }],
+        textOmissionProvenance: [],
+      });
+    }
+  });
+  return rows;
+}
+
 export async function harvestVocabulary(options: {
   runsDir?: string;
   runIds: readonly string[];
@@ -353,7 +413,8 @@ export async function harvestVocabulary(options: {
       const leadSearch = /\/sales-api\/salesApiLeadSearch$/i.test(parsedUrl.pathname);
       const accountSearch = /\/sales-api\/salesApiAccountSearch$/i.test(parsedUrl.pathname);
       const savedSearches = /\/sales-api\/salesApiSavedSearchesV2$/i.test(parsedUrl.pathname);
-      if (!leadSearch && !accountSearch && !savedSearches) continue;
+      const typeahead = /\/sales-api\/salesApiFacetTypeahead$/i.test(parsedUrl.pathname);
+      if (!leadSearch && !accountSearch && !savedSearches && !typeahead) continue;
       const status = metadata["status"];
       if (typeof status !== "number" || status < 200 || status >= 300) {
         warn("VOCAB_RESPONSE_STATUS_SKIPPED");
@@ -373,6 +434,24 @@ export async function harvestVocabulary(options: {
         }
         registries.push({ version: 1, rows: observed.rows });
         omissions.push(...observed.omissions);
+      }
+      if (typeahead) {
+        const typeaheadType = nonempty(parsedUrl.searchParams.get("type"));
+        if (typeaheadType === null) continue;
+        const bodyPath = join(rawDir, `${archiveId}.json.gz`);
+        let rows: VocabularyRow[];
+        try {
+          const body = gunzipSync(await readFile(bodyPath)).toString("utf8");
+          rows = typeaheadVocabulary(body, typeaheadType, {
+            ...sourceBase,
+            kind: "archive-body",
+            file: relative(runsDir, bodyPath),
+          });
+        } catch {
+          warn("VOCAB_BODY_INVALID");
+          continue;
+        }
+        registries.push({ version: 1, rows });
       }
       if (savedSearches) {
         const q = parsedUrl.searchParams.get("q");

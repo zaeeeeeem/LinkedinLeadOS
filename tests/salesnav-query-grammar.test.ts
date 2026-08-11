@@ -37,9 +37,12 @@ describe("Sales Navigator query grammar", () => {
 
   it("verifies every promoted file and records the operator-private scrub boundary", () => {
     const manifest = loadSalesNavArchiveFixtureManifest();
-    expect(manifest.sources).toHaveLength(10);
-    expect(manifest.policy).toHaveLength(4);
-    expect(manifest.sources.filter((source) => source.scrubbed.length > 0)).toHaveLength(8);
+    // 10 Task 41 request/saved-search sources plus 11 Task 43 typeahead
+    // captures, each promoted as a meta file and a body.
+    expect(manifest.sources).toHaveLength(32);
+    expect(manifest.policy).toHaveLength(5);
+    expect(manifest.sources.filter((source) => source.kind === "typeahead-body")).toHaveLength(11);
+    expect(manifest.sources.filter((source) => source.scrubbed.length > 0)).toHaveLength(19);
     for (const source of manifest.sources) {
       const bytes = readFileSync(join(SALESNAV_QUERY_ARCHIVE_FIXTURE_ROOT, source.fixture));
       const text = source.fixture.endsWith(".gz") ? gunzipSync(bytes).toString("utf8") : bytes.toString("utf8");

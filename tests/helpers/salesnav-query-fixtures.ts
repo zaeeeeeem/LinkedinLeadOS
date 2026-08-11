@@ -14,6 +14,13 @@ export const VOCABULARY_FIXTURE_RUNS = [
   "01KZQNM34D61NTBDQNDVSZ45AV",
 ] as const;
 
+/** The Task 43 operator-driven harvests, whose promoted bodies are closed-enum
+ * typeahead vocabulary rather than search requests. */
+export const TYPEAHEAD_FIXTURE_RUNS = [
+  "01KZR9KTGPVR1BB03WPQS6YVMB",
+  "01KZRAKXXJMTXDV38NEAHJYTF0",
+] as const;
+
 export const SEARCH_FIXTURE_RUNS = [
   "01KZQFCFMVYKAC082JXDRVCAN3",
   "01KZQ5TXC23T3FFBJ72P8CE85J",

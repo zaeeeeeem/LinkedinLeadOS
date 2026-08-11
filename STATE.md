@@ -1,5 +1,51 @@
 # STATE
 
+## Typeahead vocabulary is parsed, tested and written — Task 43 (2026-08-11)
+
+The offline classifier is built and the registry is populated. **1,326 rows harvested from the
+two archives: 1,311 public, 15 operator-scoped.** No LinkedIn contact and no budget spent — the
+harvest reads only archives already paid for.
+
+Suite **1,817 passed across 123 files, 0 failed, typecheck clean** (run serially with
+`--no-file-parallelism`; the two Supabase integration files cross-pollute the `persons` table
+when run in parallel, which is pre-existing and unrelated to this work).
+
+How it works, and the one rule that matters: option values come from `salesApiFacetTypeahead`
+keyed by typeahead type, but the store keys rows on `(vertical, filter type)` resolved through
+the pinned catalog (D445). The catalog is the authority for which filters draw on which
+typeahead type, so `TENURE` fans out to all three Lead tenure filters and `COMPANY_SIZE` reaches
+only Lead's `COMPANY_HEADCOUNT`. Nothing is guessed.
+
+**D442 verified directly, not taken from a receipt:** the tracked registry holds 1,311 rows and
+**0 operator-scoped**; the 15 operator-scoped rows (ACCOUNT_LIST, LEAD_LIST, PERSONA,
+SAVED_ACCOUNTS, SAVED_LEADS_AND_ACCOUNTS, LEAD_INTERACTIONS) are in the gitignored overlay at
+`runs/salesnav-filter-vocabulary.private.json`. `COMPANY_WITH_LIST`, `CONNECTION_OF`, `SCHOOL`
+and `BING_GEO_POSTAL_CODE` are **refused outright** rather than stored privately, because their
+suggestions are real companies, people and institutions rather than taxonomy. All 9 pre-existing
+Task 41 registry rows survived the write.
+
+Rows per filter: INDUSTRY 988 (494 × both verticals) · REGION 108 · COMPANY_HEADQUARTERS 54 ·
+FUNCTION 26 · CURRENT_TITLE 23 · PAST_TITLE 23 · PROFILE_LANGUAGE 22 · COMPANY_HEADCOUNT 17 ·
+SENIORITY_LEVEL 10 · COMPANY_TYPE 8 · RELATIONSHIP 5 · NUM_OF_FOLLOWERS 5 · the three tenure
+filters 5 each · FORTUNE 4 · ACCOUNT_ACTIVITIES 2 · JOB_OPPORTUNITIES 1.
+
+11 measured typeahead bodies were promoted to committed fixtures under
+`src/core/salesnav-query/test-fixtures/archive/`, public taxonomy only — the promoter throws if
+asked for an operator-scoped or refused type, and throws again if any element carries a key
+beyond `(id, displayValue)`, so entity detail fails the build rather than being scrubbed into a
+fixture. 14 new tests, each behavior mutation-verified against the production code.
+
+**Correction landed with this work:** an earlier revision of FILTER-MAP.md and D445 claimed the
+Lead and Account headcount id namespaces were disjoint. They are not — they share `B`-`I` and
+differ only in Lead's extra `A`=Self-employed, and the relationship enums share `F` with
+different capitalization. The fixture test comparing the real bodies caught it. The per-vertical
+keying decision is unchanged and better justified: partial overlap means a cross-vertical id
+usually resolves to something plausible instead of failing.
+
+Next: nothing is blocked. Geography and title stay at their current prefix coverage by operator
+decision (2026-08-11) until the target metro list is settled; a future harvest session extends
+them. The typing-grant question is deferred with them, not closed.
+
 ## Both taxonomy harvests are done — Task 43 (2026-08-11)
 
 Two live sessions, both exit 0, both operator-stopped via the PAUSE file, both reporting
