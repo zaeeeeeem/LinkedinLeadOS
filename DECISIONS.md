@@ -4604,7 +4604,7 @@ the cap that refused named in the evidence, every proved page still claimed, and
 resumable with `--run-id` once the window clears. A refusal on the *first* page is not
 dressed up as a partial run — the refusal itself is the whole story and propagates unchanged.
 
-## D350 — Sales Navigator result rows come from a labeled body; the DOM exception list does not grow (2026-08-10)
+## D351 — Sales Navigator result rows come from a labeled body; the DOM exception list does not grow (2026-08-10)
 
 Measured on a live leads search, run `01KZP693DEWVP0S90K7C7XQ997`: a cold load of
 `/sales/search/people?query=…` fetches `GET /sales-api/salesApiLeadSearch`, 154 KB,
@@ -4620,7 +4620,7 @@ So **CLAUDE.md's DOM exception list stays closed at five.** Task 38 parses bodie
 snapshot is still archived per surface as corroboration and as the parse-drift tripwire,
 never as a source.
 
-## D351 — Sales Navigator paginates by click, not by url; page 2 is not spent (2026-08-10)
+## D352 — Sales Navigator paginates by click, not by url; page 2 is not spent (2026-08-10)
 
 Measured on leads page 1: the pager renders **12 `button` elements and 0 anchors**. Zero
 hrefs carry `page=N`. The landed url carries no `page` parameter. Its own a11y text reads
@@ -4644,7 +4644,7 @@ the body says unambiguously which page arrived — which is exactly what the Tas
 loop needs for its cursor. This is **not** permission to forge the request; CLAUDE.md's
 "never forge a request LinkedIn's own UI did not already issue" is unchanged.
 
-## D352 — A search url keeps its query; every other target in this repo drops it (2026-08-10)
+## D353 — A search url keeps its query; every other target in this repo drops it (2026-08-10)
 
 `normalizeProfileUrl` and `normalizeCompanyUrl` strip all query parameters on D113's
 reasoning: no profile or company page needs one to decide what it renders.
@@ -4657,7 +4657,7 @@ The `ref` is deliberately *not* the whole query blob — it is `salesnav:<vertic
 saved-search id when there is one. The blob is long, changes per session, and the ref
 reaches the run log.
 
-## D353 — `objectUrn` is the dedupe key, not `entityUrn` (2026-08-10)
+## D354 — `objectUrn` is the dedupe key, not `entityUrn` (2026-08-10)
 
 A row's `entityUrn` is compound:
 `urn:li:fs_salesProfile:(<profileId>,<searchContext>,<token>)`. Only the first member is
@@ -4670,7 +4670,7 @@ and was unique across the page. It is the key.
 D126's refusal is unchanged: a row whose identity resolves to the session urn or to nothing
 stores nothing. `sessionUrnsOf` reported 0 session urns across the probe run.
 
-## D354 — `companyUrn` is optional per position; a row is joinable, a position is not (2026-08-10)
+## D355 — `companyUrn` is optional per position; a row is joinable, a position is not (2026-08-10)
 
 Measured: 27 of 29 positions carry `companyUrn`; all 29 carry `companyName` and `title`.
 Every one of the 24 rows has at least one position that does carry a urn.
@@ -4683,7 +4683,7 @@ row on it; a `companyName` with no urn is a real, storable state, not a parse fa
 pinning test caught it, not a re-reading of the body — which is the argument for writing the
 pinning test before trusting the map.
 
-## D355 — The seat verdict is three-valued and never guesses (2026-08-10)
+## D356 — The seat verdict is three-valued and never guesses (2026-08-10)
 
 `/sales/` either renders the app or an upsell. The probe returns `true`, `false` or
 **`null`**, and `null` is the point: a surface that could not be measured is not called
@@ -4700,7 +4700,7 @@ network, not the render: `salesApiEntitlements`, `salesApiAccess` and
 `salesApiTreatment?…lixAcceptIdType=CONTRACT_AND_SEAT` all returned 200. The plan README's
 precondition 1 is satisfied and `BACKLOG.md` B1 does not block M5.
 
-## D356 — The probe never navigates a url the UI did not produce (2026-08-10)
+## D357 — The probe never navigates a url the UI did not produce (2026-08-10)
 
 The unfiltered defaults `/sales/search/people` and `/sales/search/company` render an
 **empty search-entry state with zero rows** — measured, and useless as a fixture. The
@@ -4713,23 +4713,23 @@ link the Sales Navigator UI itself rendered. That cost zero additional page load
 the pattern to repeat.
 
 `searchPageUrl()` renders a `page=N` candidate but building it is not permission to
-navigate it; D351's gate decides that.
+navigate it; D352's gate decides that.
 
-## D357 — The Sales Nav search surface has no `data-testid` and no `componentkey` (2026-08-10)
+## D358 — The Sales Nav search surface has no `data-testid` and no `componentkey` (2026-08-10)
 
 Measured on leads page 1: zero `data-testid` attributes inside row scope, zero
 `componentkey`, zero `bpr-guid` islands, zero embedded `ld+json` or `application/json`.
 
 The D305/D313 discipline — anchor DOM scope on `data-testid` rather than LinkedIn's
 per-build hashed classes — **has nothing to anchor on here.** It does not matter today
-because D350 says the rows come from a body, and it is recorded so that any future DOM work
+because D351 says the rows come from a body, and it is recorded so that any future DOM work
 on this surface knows it needs its own anchor decision first rather than discovering the
 absence mid-task.
 
 The scroller *was* measurable and is **`div#search-results-container`** (4673 / 627 px) —
 not the document, not `main#workspace`. D115 again: measure it, never assume it.
 
-## D358 — A search has no single subject, so subject-scoped promotion does not apply (2026-08-10)
+## D359 — A search has no single subject, so subject-scoped promotion does not apply (2026-08-10)
 
 `fixtures:promote` scopes an archive to one subject (D118/D119) and warns when it cannot
 find one. On a search surface there is no subject to find — every row is a different person
@@ -4743,7 +4743,7 @@ failing.
 `salesApiNavChrome` carries the operator's own `fs_salesProfile` and is excluded as a
 private endpoint; the promoter skipped 8 such bodies on the measured run.
 
-## D359 — `sessionId` pins the result set, and a changed one is a different search (2026-08-10)
+## D360 — `sessionId` pins the result set, and a changed one is a different search (2026-08-10)
 
 The requested url carried no `sessionId`; the landed url did. LinkedIn mints one per search
 execution and pins the result set — and the instant its filters were evaluated — to it.
@@ -4753,3 +4753,72 @@ must treat a changed `sessionId` as a different search rather than a continuatio
 cursor to carry forward. `normalizeSalesNavUrl` extracts it into `SalesNavTarget.sessionId`
 for exactly that check, reading it from either the query string or the percent-encoded
 `query=` blob, because it occurs in both.
+
+## D400 — Clicking a pagination control is allowed; it is the only click this toolkit performs (2026-08-11)
+
+**Operator grant, given 2026-08-11 in answer to D352's `[DECISION NEEDED]`.** Sales
+Navigator's pager renders 12 buttons and 0 anchors, so page 2 is unreachable without a
+click. Clicking **next** and **previous** is now permitted. Tasks 39 and 40 are unblocked.
+
+What makes this narrower than "the toolkit may click things", and every clause is a
+constraint on the code rather than a note:
+
+1. **Only a pagination control, and only inside a pager.** The element must be a descendant
+   of the results pager and must carry an accessible name on a fixed allowlist (`next`,
+   `previous`/`prev`, or a bare page number). Nothing else on any page may be clicked.
+2. **Resolved or refused, never guessed** (the D127/D130 shape). Zero matches, or more than
+   one match that cannot be disambiguated, is a stop with the reason on the receipt — not a
+   best-effort pick. A pager control that is `disabled` or `aria-disabled` is likewise a
+   stop, because it means the page it would reach does not exist.
+3. **A trusted click, through `HumanCursor`.** Pointer path, settle, press, release. Never
+   `element.click()` — a synthetic DOM click carries `isTrusted: false` and arrives with no
+   preceding pointer traffic, which is a stronger fingerprint than not clicking at all. The
+   control is brought into view with wheel notches, never `scrollIntoView`.
+4. **The click does not become a forged request.** After clicking, the run waits for the
+   response *the UI itself issues*. CLAUDE.md's "never forge a request LinkedIn's own UI did
+   not already issue" is unchanged and this grant does not touch it.
+5. **The spend contract is unchanged.** A clicked page is a page: spend → act → archive →
+   checkpoint (D342). Clicking is cheaper in wall-clock than a navigation and that must
+   never turn into paging faster or further; `MAX_PAGES_PER_RUN`, the sub-caps and the
+   inter-page dwell all apply to a clicked page exactly as to a loaded one.
+6. **Which page arrived is read from the body, not from the button.** `paging.start` /
+   `paging.count` say what came back; the pager's own label can advance on a re-render that
+   changed no rows (`continuationStop`'s `no-advance` guard, D342).
+7. **This is still not an L3 write.** A pager click creates no edge, sends nothing, and
+   leaves no trace on any third party's account — that is precisely why it is grantable
+   while connect/message/react/follow stay out of scope. The grant covers pagination and
+   nothing adjacent to it: not "load more comments", not a lead panel, not a filter chip.
+
+`previous` is granted alongside `next` because a resume that lands past its target needs a
+way back that is not a fresh search; nothing may oscillate between the two.
+
+## D401 — The probe's page budget rises from 6 to 10 (2026-08-11)
+
+Operator decision, same session: the surface probe may spend up to **10 page loads and 10
+search pages** per invocation, and its daily sub-cap rises from 6/6 to **10/10**.
+
+The reason is D352's cost, not an appetite for pages: two of four runs on 2026-08-10 died on
+an undiagnosed CDP fault (D402) with their search pages already committed, and the accounts
+search went unmeasured because the 6/day cap was reached before a retry. A measuring
+instrument whose budget cannot absorb one transport failure produces exactly this — a
+milestone blocked on a field nobody measured.
+
+10/day is 20% of the global 50/day (§8) and the global cap is untouched. Everything else
+holds: not raisable by a flag, the ceiling lives in `constants.ts`, and the sub-cap still
+refuses at exit 7 with the cap named.
+
+## D402 — `CDP_CONNECTION_CLOSED` on the Sales Nav surface is a transport fault, tracked and not worked around (2026-08-11)
+
+What is measured: the browser-level websocket closed mid-run in 2 of 4 runs on 2026-08-10,
+same websocket id before and after (so Chrome never restarted), both deaths following a body
+fetch on `salesApiNavChrome`, at ~22s and ~43s. Keepalive is 30s and so never fired on the
+22s death; the frame cap is 512 MB and so is not the bound.
+
+That is not a diagnosis, and it is recorded as one of the things this repo does not yet
+know. It is **core CDP, not this surface** — no salesnav code is bent to accommodate it, no
+retry loop is added around it, and nothing about it weakens a gate. The rails held through
+both deaths (spend committed before the load, the page-2 gate denying by default, the seat
+verdict returning `null` rather than `false`), which is the property that makes it
+survivable rather than urgent.
+
+Carried in `BACKLOG.md`; D401's raised budget is the mitigation until it is diagnosed.

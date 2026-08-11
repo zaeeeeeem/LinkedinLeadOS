@@ -215,7 +215,7 @@ export function normalizeSalesNavUrl(rawInput: string): SalesNavTarget {
  * it is the teleporting pattern that gets flagged") while still confirming the
  * url carries `page=N`. The probe measures whether page 1's own pager offers
  * this href before it spends anything on page 2 — that measurement is the
- * D350-range decision, and this function only renders the candidate.
+ * D351-range decision, and this function only renders the candidate.
  */
 export function searchPageUrl(target: SalesNavTarget, page: number): string {
   if (!Number.isInteger(page) || page < 1 || page > MAX_PAGE_NUMBER) {

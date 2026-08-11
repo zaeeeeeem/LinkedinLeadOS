@@ -11,23 +11,29 @@
  */
 
 /**
- * The hard ceiling on page loads for one probe invocation, from the task's own
- * stated budget of 6 page loads / 6 search pages.
+ * The hard ceiling on page loads for one probe invocation.
  *
- * Not a flag and not raisable by one. A probe that wants another page is a
- * checkpoint for the operator to record, not a loop to run (M5 CONTEXT rule 1:
- * one probe page is 2% of the day's search-page budget).
+ * **Raised from 6 to 10 on 2026-08-11 (D401)**, by operator decision, after the
+ * 2026-08-10 runs lost two of four to an undiagnosed CDP transport fault (D402)
+ * and left the accounts search unmeasured because the day's cap was reached
+ * before a retry. A measuring instrument whose budget cannot absorb one
+ * transport failure blocks a milestone on a field nobody measured.
+ *
+ * Still not a flag and still not raisable by one, and 10/day is 20% of the
+ * global 50/day (§8), which is untouched. A probe that wants an eleventh page
+ * is a checkpoint for the operator to record, not a loop to run.
  */
-export const PROBE_MAX_PAGE_LOADS = 6;
+export const PROBE_MAX_PAGE_LOADS = 10;
 
 /**
  * The ceiling on *metered search pages* for one invocation, tracked separately
  * from page loads because they are separate budgets with separate scarcity.
  *
  * The default surface list spends 3 of these. The gap is deliberate headroom
- * for a second target the operator asks for by name, not for a loop.
+ * for a retry after a transport fault and for a second target the operator asks
+ * for by name — not for a loop.
  */
-export const PROBE_MAX_SEARCH_PAGES = 6;
+export const PROBE_MAX_SEARCH_PAGES = 10;
 
 /**
  * How long to wait for a surface's first LinkedIn response before recording

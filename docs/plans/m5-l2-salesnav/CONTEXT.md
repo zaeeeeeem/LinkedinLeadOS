@@ -41,14 +41,22 @@ record the marker as a decision, extend the classifier deliberately. Never weake
 deny-by-default to make a run pass. When a trade-off is between finishing a gate today
 and pacing, pacing wins — the account is unburnable.
 
-**4. Pagination is a navigation only if the UI paginates by URL.**
+**4. Pagination is a click on this surface, and that click is granted and bounded.**
 
-Task 36 measures how the real UI reaches page 2 — a URL the address bar shows, or a
-script-only control. Navigating to a URL form the UI itself produces is a cold load like
-any other. **Clicking a pagination control is an interaction** — a class of action this
-toolkit has never taken — and needs an explicit operator decision first (the D323
-precedent), recorded in `DECISIONS.md` before any code clicks anything. Never forge the
-underlying `salesApi*` request either way (CLAUDE.md).
+Task 36 measured it: the pager renders 12 buttons and 0 anchors, no href carries `page=N`,
+and the address bar never produces one (D352). The operator granted the click on
+2026-08-11 — **D400, and read it before writing any code that clicks anything.**
+
+The short form: next/previous/numbered controls inside the pager only, located by
+accessible name, resolved-or-refused rather than guessed, clicked through `HumanCursor`
+(never `element.click()`), brought into view by wheel notches (never `scrollIntoView`),
+spent and checkpointed exactly like a navigated page, and **verified from the response
+body's `paging.start`/`paging.count` rather than from the button's own label.** Nothing
+else on any page is clickable, and none of this touches the rule against forging the
+underlying `salesApi*` request (CLAUDE.md).
+
+A url form the UI itself produces would still be a plain navigation and still allowed;
+this surface simply does not offer one.
 
 **5. A search row never mints or freshens an entity.**
 

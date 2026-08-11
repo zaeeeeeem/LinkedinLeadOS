@@ -1,28 +1,65 @@
 # STATE
 
+## Task 36 reviewed, amended and unblocked (2026-08-11, offline)
+
+Task 35 was already merged to `main` (`acde15b`) on 2026-08-10; only Task 36 was ever
+outstanding. Reviewed against its task file and `CONTEXT.md`: three changes and one
+renumber. **Tests: 1638 pass, typecheck clean. Zero LinkedIn contact.**
+
+**The operator granted the pagination click (D400).** Next and previous, inside a pager,
+located by accessible name, resolved-or-refused, trusted `HumanCursor` click, wheel to
+reveal, spent and dwelt exactly like a navigated page, and **arrival read from the body's
+`paging.start` rather than from the button** — a re-render advances the label without
+changing a row. It is the only click in the toolkit and `CLAUDE.md` now says so as a
+non-negotiable rule; M5 `CONTEXT.md` rule 4 was rewritten to match. Implemented in
+`src/capabilities/salesnav.probe/pager.ts`; `leads2` now reaches page 2 by clicking next.
+D352's `[DECISION NEEDED]` is closed and **Tasks 39/40 are unblocked**.
+
+**[BUG] fixed — the source verdict could be satisfied by markup.** `sourceVerdict` and the
+`ROWS_DOM_ONLY` warning counted *any* `isSalesNavIsh` capture, and a surface's own document
+response is `isSalesNavIsh` the moment it server-renders one `/sales/lead/` link. A build
+that rendered its rows into HTML would therefore have been reported as "rows in a labeled
+body" — silently skipping the `[DECISION NEEDED]` that grows CLAUDE.md's DOM exception list,
+which is the unsafe direction. Both now read `salesnav_ish_api`, which excludes the
+surface's own document. **The 2026-08-10 verdict is unaffected** — that run captured a real
+154 KB `salesApiLeadSearch` body — so D351 stands as recorded.
+
+**The probe's budget rose 6/6 → 10/10, per invocation and per day (D401)**, because at 6 one
+CDP transport fault consumed the day and left the accounts search unmeasured. 20% of the
+global 50/day; the global cap is untouched.
+
+**Renumbered: the branch's D350–D359 became D351–D360.** `main` took D350 for Task 35's
+merge decision while this branch was in flight. Every reference in code, docs and STATE moved
+with it; the plan README now reserves D361–D369 for Task 37 and D400+ for operator decisions
+taken between tasks.
+
+**Still open:** the accounts search is unmeasured (D402's transport fault), and the fault
+itself is undiagnosed and now carried in `BACKLOG.md` with an instrument-first approach.
+
 ## Complete — Task 36, the Sales Navigator surface probe (2026-08-10, live, operator-authorized)
 
 `src/capabilities/salesnav.probe/` plus `FIELD-MAP.md`. Branch
-`task-36-salesnav-surface-probe`, cut from `task-35-paged-run-core`, **neither merged**.
-**Tests: 1607 pass, typecheck clean** (83 new offline + 12 fixture-pinning).
+`task-36-salesnav-surface-probe`, cut from `task-35-paged-run-core` (which is in `main`).
+**Tests at the time: 1607 pass, typecheck clean** (83 new offline + 12 fixture-pinning).
 
 ### The three verdicts
 
 **Seat: yes.** Corroborated from the network, not the render — `salesApiEntitlements`,
-`salesApiAccess` and `salesApiTreatment?…lixAcceptIdType=CONTRACT_AND_SEAT` all 200 (D355).
+`salesApiAccess` and `salesApiTreatment?…lixAcceptIdType=CONTRACT_AND_SEAT` all 200 (D356).
 Plan README precondition 1 satisfied; `BACKLOG.md` B1 does not block M5.
 
-**Source: labeled body. The DOM exception list does not grow** (D350). A cold load of
+**Source: labeled body. The DOM exception list does not grow** (D351). A cold load of
 `/sales/search/people?query=…` fetches `salesApiLeadSearch` — 154 KB, all 24 rows as JSON.
 This **overturned the prior**: the reference worker read rows out of the DOM and only saw
 `salesApiProfiles` after clicking a lead panel. Task 38 parses bodies.
 
-**Pagination: click-only. `[DECISION NEEDED]`** (D351). The pager is **12 buttons, 0
+**Pagination: click-only. `[DECISION NEEDED]`** (D352). The pager is **12 buttons, 0
 anchors, 0 hrefs carrying `page=N`**; the landed url has no `page` parameter. The reference
 worker's `?page=N` form is not offered by this build. Reaching page 2 needs a **click** — a
 class of action this toolkit has never taken (D323 precedent). **Page 2 was not spent**: the
 gate refused it, unspent, with the reason on the receipt. **Tasks 39 and 40 are blocked on
-this decision.**
+this decision.** — *Superseded 2026-08-11: the decision landed as D400, the click is
+implemented, and 39/40 are unblocked. The measurement above stands unchanged.*
 
 ### Spend — budgeted 6 page loads / 6 search pages, used 5 / 3
 
@@ -52,28 +89,28 @@ here: it is core CDP, not this task's surface, and fixing it blind would be gues
 ### Also measured
 
 - Scroller is **`div#search-results-container`** (4673 / 627 px) — not the document, not
-  `main#workspace` (D357). D115 again.
+  `main#workspace` (D358). D115 again.
 - **No `data-testid`, no `componentkey`, no `bpr-guid`** anywhere on this surface, so the
-  D305/D313 "anchor scope on `data-testid`" discipline has nothing to anchor on (D357).
+  D305/D313 "anchor scope on `data-testid`" discipline has nothing to anchor on (D358).
 - `objectUrn` is the dedupe key, **not** `entityUrn` — the latter is compound and its search
-  context and token are per-execution (D353).
-- `companyUrn` is **27/29 positions**, not universal (D354). Caught by the pinning test after
+  context and token are per-execution (D354).
+- `companyUrn` is **27/29 positions**, not universal (D355). Caught by the pinning test after
   the FIELD-MAP's first draft asserted otherwise — which is the argument for the test.
 - `sessionId` is minted per execution and pins the result set; a changed one is a different
-  search, not a continuation (D359). Task 39's resume turns on this.
+  search, not a continuation (D360). Task 39's resume turns on this.
 - The unfiltered default search urls render an **empty state with zero rows**. The measured
   run used a search url read out of the already-archived `/sales/home` snapshot — a link the
-  UI itself rendered, at zero extra page loads (D356).
+  UI itself rendered, at zero extra page loads (D357).
 
 ### Not done
 
 - **The accounts search is unmeasured.** Its run died on the CDP fault and the daily probe
   sub-cap was reached. Tasks 38/40 must treat every accounts-side field as unmeasured.
-- Page 2 of anything — deliberately, per D351.
+- Page 2 of anything — deliberately, per D352.
 
-**Decisions: D350–D359**, the range the plan reserved, all free when taken.
+**Decisions: D351–D360**, the range the plan reserved, all free when taken.
 
-**Next:** the click decision (D351) unblocks 39/40. Task 38 can start now on the leads side
+**Next:** the click decision (D352) unblocks 39/40. Task 38 can start now on the leads side
 only — its accounts half needs one more probe page once the sub-cap window clears.
 
 ## Complete — Task 35, the paged-run core (2026-08-10, offline, zero LinkedIn contact)

@@ -22,6 +22,7 @@ import {
   parseSurfaces, SALESNAV_HOME_URL, searchPageUrl, type SalesNavSurface, type SalesNavTarget,
 } from "./url.js";
 import { interpretSurface, paginationVerdict, surfaceExpression, type PaginationVerdict, type SurfaceReport } from "./surface.js";
+import { clickPagerControl, pagingFromCaptures, type ClickReport } from "./pager.js";
 
 const args = z
   .object({
@@ -59,8 +60,12 @@ const args = z
 /** How far one surface got. Written *before* each stage is attempted, so a
  *  throw leaves a record naming where it died rather than an absent one. */
 export type SurfaceStage =
-  | "navigate" | "post-navigation-gate" | "await-api" | "read" | "snapshot" | "measure"
+  | "navigate" | "click-next" | "post-navigation-gate" | "await-api" | "read" | "snapshot" | "measure"
   | "seat-gate" | "pre-success-gate" | "done" | "skipped";
+
+/** How a surface was reached. `click` exists only since D400 and only for a
+ *  pager control; see `pager.ts` for what that grant does and does not cover. */
+export type SurfaceArrival = "navigate" | "click";
 
 export type SurfaceOutcome = {
   surface: SalesNavSurface;
@@ -79,8 +84,34 @@ export type SurfaceOutcome = {
    *  not a failure: the document response and the snapshot still landed. */
   api_response: boolean;
   captured: number;
+  /** How this surface was reached (D400). */
+  arrival: SurfaceArrival;
+  /** What was clicked to reach it, when it was reached by clicking. */
+  click: ClickReport | null;
+  /**
+   * `paging.start` / `paging.count` from a body captured on this surface.
+   *
+   * The arrival check for a clicked page, and the **only** body read this
+   * capability performs: two integers, no row and no urn (D400 clause 6). A
+   * pager's own label can advance on a re-render that changed no rows, so the
+   * button is not evidence that a page turned.
+   */
+  paging: { start: number; count: number } | null;
   /** Bodies carrying Sales-Nav-family data (`isSalesNavIsh`). */
   salesnav_ish: number;
+  /**
+   * The same count with this surface's **own document response excluded**.
+   *
+   * The source verdict turns on this rather than on `salesnav_ish`. A
+   * server-rendered document carrying `/sales/lead/` links in its markup is
+   * `isSalesNavIsh`, and counting it would report "the rows are in a labeled
+   * body" for a page whose rows are in fact markup — the exact reading that
+   * would skip the `[DECISION NEEDED]` to extend CLAUDE.md's DOM exception
+   * list. Embedded structured JSON in a document is readable under D117, but
+   * that is a claim only the offline sweep can make; this count refuses to make
+   * it on a live receipt.
+   */
+  salesnav_ish_api: number;
   /** Sales-Nav-carrying bodies that no `specific` pattern predicted. */
   unmatched_salesnav_ish: number;
   misses: number;
@@ -202,32 +233,43 @@ export function seatVerdict(
 }
 
 /**
- * Whether page 2 may be spent, given page 1's measurement.
+ * Whether page 2 may be spent, and by which means, given page 1's measurement.
  *
- * The gate that keeps this probe inside M5 CONTEXT rule 4: a url form is a
- * legitimate navigation only when the UI itself produces it. `url` means page
- * 1's own pager offered an href carrying `page=N`, so loading it is the page's
- * own navigation. Anything else and page 2 is **not spent** — a click is a
- * class of action this toolkit has never taken and needs an operator decision
- * first (D323 precedent), and inventing the url anyway would be exactly the
- * "teleporting" pattern the reference worker refused on live-risk grounds.
+ * The gate that keeps this probe inside M5 CONTEXT rule 4. Two ways in, and the
+ * page decides which — never the flag:
+ *
+ * - `url` — page 1's own pager offered an href carrying `page=N`. Navigating it
+ *   is the page's own navigation, allowed like any cold load. Sales Navigator
+ *   does not do this (D352); the branch stays because a build that starts to
+ *   would be a navigation, not a click, and should be taken as one.
+ * - `click` — the pager expresses itself in buttons. **Granted by D400** on
+ *   2026-08-11, bounded by every clause in `pager.ts`. Before that grant this
+ *   was the refusal branch, and the refusal is what produced the decision.
+ *
+ * A page that rendered no pager is still refused, unspent: there is no page 2 to
+ * reach, and a probe that spends one to find that out has measured nothing.
  */
-export function mayLoadPageTwo(page1: SurfaceOutcome | undefined): { ok: boolean; reason: string } {
+export function mayLoadPageTwo(
+  page1: SurfaceOutcome | undefined,
+): { ok: false; mode: null; reason: string } | { ok: true; mode: SurfaceArrival; reason: string } {
   if (page1 === undefined || page1.stage !== "done") {
-    return { ok: false, reason: "page 1 did not complete, so nothing measured how the ui reaches page 2" };
+    return { ok: false, mode: null, reason: "page 1 did not complete, so nothing measured how the ui reaches page 2" };
   }
   if (page1.pagination === "none") {
-    return { ok: false, reason: "page 1 rendered no pager — this search has one page of results, or it never rendered" };
-  }
-  if (page1.pagination !== "url") {
     return {
       ok: false,
-      reason:
-        "page 1's pager exposes no href carrying page=N; reaching page 2 would require a click, " +
-        "which needs an operator decision before any code performs it [DECISION NEEDED]",
+      mode: null,
+      reason: "page 1 rendered no pager — this search has one page of results, or it never rendered",
     };
   }
-  return { ok: true, reason: "" };
+  if (page1.pagination === "url") {
+    return { ok: true, mode: "navigate", reason: "page 1's own pager offers an href carrying page=N" };
+  }
+  return {
+    ok: true,
+    mode: "click",
+    reason: "page 1's pager is buttons only; page 2 is reached by clicking next, per the D400 grant",
+  };
 }
 
 /**
@@ -358,7 +400,11 @@ export const capability = defineCapability({
           search_page_spent: false,
           api_response: false,
           captured: 0,
+          arrival: "navigate",
+          click: null,
+          paging: null,
           salesnav_ish: 0,
+          salesnav_ish_api: 0,
           unmatched_salesnav_ish: 0,
           misses: 0,
           layout_settled: false,
@@ -373,7 +419,8 @@ export const capability = defineCapability({
         checkpointState.surface = surface;
         checkpointState.phase = "navigate";
 
-        // The one surface whose load is conditional on a measurement.
+        // The one surface whose load is conditional on a measurement, and the
+        // only one that may be reached by a click (D400).
         if (surface === "leads2") {
           const gate = mayLoadPageTwo(outcomes.find((o) => o.surface === "leads"));
           if (!gate.ok) {
@@ -381,6 +428,7 @@ export const capability = defineCapability({
             outcome.skipped_reason = gate.reason;
             continue;
           }
+          outcome.arrival = gate.mode;
         }
 
         // Checked again per load: the ledger is shared, and another run may have
@@ -400,13 +448,29 @@ export const capability = defineCapability({
         const since = tap.cursor;
         const missesBefore = tap.misses().length;
         const itemRef = targetFor(surface)?.ref ?? "salesnav:home";
-        run.log("nav.start", { phase: "probe", item_ref: `${itemRef}#${surface}` });
+        run.log("nav.start", {
+          phase: "probe",
+          item_ref: `${itemRef}#${surface}`,
+          detail: { arrival: outcome.arrival },
+        });
         const navStarted = Date.now();
-        await tab.navigate(requestedUrl);
+        if (outcome.arrival === "click") {
+          // The one click this toolkit performs. Everything that bounds it is
+          // in `pager.ts`, which refuses rather than improvises: no match, two
+          // matches, a disabled control or one that will not come into view all
+          // raise here, after the page was spent and before anything is
+          // claimed. The spend is already committed either way (§8).
+          outcome.stage = "click-next";
+          checkpointState.phase = "click-next";
+          outcome.click = await clickPagerControl({ tab, cursor, direction: "next", timeoutMs: SURFACE_TIMEOUT_MS });
+        } else {
+          await tab.navigate(requestedUrl);
+        }
         run.log("nav.done", {
           phase: "probe",
           item_ref: `${itemRef}#${surface}`,
           duration_ms: Date.now() - navStarted,
+          detail: { arrival: outcome.arrival, control: outcome.click?.control ?? null },
         });
 
         // Gate one: what did we actually land on? Sales Navigator's challenge
@@ -539,6 +603,14 @@ export const capability = defineCapability({
         const summary = summarizeCaptures(mine, myMisses, patterns, { isRelevant: isSalesNavIsh });
         outcome.captured = summary.captured;
         outcome.salesnav_ish = summary.profile_ish;
+        // This surface's own document response is excluded from both: the
+        // source verdict must not be satisfiable by markup, and the arrival
+        // check must not be satisfiable by a server-rendered shell.
+        const ownDocument = documentPatternName(surface);
+        outcome.salesnav_ish_api = summary.endpoints.filter(
+          (e) => e.profile_ish && !e.patterns.includes(ownDocument),
+        ).length;
+        outcome.paging = pagingFromCaptures(mine, ownDocument);
         outcome.unmatched_salesnav_ish = summary.unmatched_profile_ish;
         outcome.misses = summary.misses;
         outcome.endpoints = summary.endpoints
@@ -637,6 +709,15 @@ export const capability = defineCapability({
             outcomes.filter((o) => o.pagination !== null).map((o) => [o.surface, o.pagination]),
           ),
           rows_in_labeled_body: sourceVerdict(outcomes),
+          // How each surface was actually reached, and what the body said about
+          // which page arrived. Stated rather than inferred, because "we clicked
+          // and something rendered" is not the same claim as "page 2 arrived".
+          arrival: Object.fromEntries(
+            outcomes.filter((o) => o.stage === "done").map((o) => [o.surface, o.arrival]),
+          ),
+          paging: Object.fromEntries(
+            outcomes.filter((o) => o.paging !== null).map((o) => [o.surface, o.paging]),
+          ),
         },
         targets: {
           leads: { ref: leads.ref, vertical: leads.vertical, session_id: leads.sessionId !== null, saved_search: leads.savedSearchId !== null },
@@ -689,7 +770,12 @@ export function sourceVerdict(outcomes: readonly SurfaceOutcome[]): Record<strin
     // where rows live, and recording it as "not in a body" would be a verdict
     // the run did not earn.
     const rendered = (o.surface_report?.rows.leadLinks ?? 0) + (o.surface_report?.rows.accountLinks ?? 0);
-    out[o.surface] = rendered === 0 ? null : o.salesnav_ish > 0;
+    // `salesnav_ish_api`, not `salesnav_ish`: the surface's own document
+    // response is `isSalesNavIsh` the moment it server-renders one
+    // `/sales/lead/` link into its markup, and counting it here would answer
+    // "the rows are in a labeled body" for a page whose rows are markup —
+    // skipping the one `[DECISION NEEDED]` this verdict exists to raise.
+    out[o.surface] = rendered === 0 ? null : o.salesnav_ish_api > 0;
   }
   return out;
 }
@@ -733,7 +819,7 @@ export function pushSurfaceWarnings(
   // none of them is the reading that blocks Task 38 on an operator decision.
   const domOnly = results.filter((o) => {
     const rendered = (o.surface_report?.rows.leadLinks ?? 0) + (o.surface_report?.rows.accountLinks ?? 0);
-    return rendered > 0 && o.salesnav_ish === 0;
+    return rendered > 0 && o.salesnav_ish_api === 0;
   });
   if (domOnly.length > 0) {
     warnings.push({
@@ -752,9 +838,26 @@ export function pushSurfaceWarnings(
       code: "PAGINATION_CLICK_ONLY",
       n: clickOnly.length,
       field:
-        `${named(clickOnly)} exposes no pager href carrying page=N — ` +
-        `[DECISION NEEDED] reaching page 2 would require a click, a class of action this toolkit ` +
-        `has never taken (D323 precedent); Tasks 39/40 stay blocked until that decision lands`,
+        `${named(clickOnly)} exposes no pager href carrying page=N, so page 2 is reached by clicking ` +
+        `next — allowed since D400 and bounded by it. Recorded, not an alarm: a build that started ` +
+        `serving hrefs again would page by navigation instead, and this line is how that shows up`,
+    });
+  }
+
+  // The arrival check for a clicked page (D400 clause 6). A page whose body
+  // reports the same offset as the page before it means the click landed on
+  // something that re-rendered rather than advanced — and a fixture promoted
+  // from it would be page 1 filed as page 2.
+  const clicked = done.filter((o) => o.arrival === "click");
+  const notAdvanced = clicked.filter((o) => o.paging === null || o.paging.start === 0);
+  if (notAdvanced.length > 0) {
+    warnings.push({
+      code: "PAGE_DID_NOT_ADVANCE",
+      n: notAdvanced.length,
+      field:
+        `${named(notAdvanced)} was reached by clicking next, but no captured body reports a non-zero ` +
+        `paging.start — the page may not have turned. Do not promote a fixture from it as page 2 ` +
+        `(the pager's own label is not evidence, D400)`,
     });
   }
 

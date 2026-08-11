@@ -1,9 +1,13 @@
 # `salesnav.probe` — measure the Sales Navigator search surfaces
 
 Loads the Sales Navigator surfaces and archives everything, so Task 38's parsers are
-written against measurement instead of memory (D152). It **parses nothing, stores nothing,
-resolves no identity and clicks nothing.** Its product is what it leaves on disk plus the
-verdicts on its receipt.
+written against measurement instead of memory (D152). It **stores nothing and resolves no
+identity**, and the only thing it reads out of a body is the two integers of `paging`
+(below). Its product is what it leaves on disk plus the verdicts on its receipt.
+
+It clicks exactly one kind of thing: the pager's **next** control, to reach page 2 — granted
+by D400 on 2026-08-11 and bounded by every clause in [`pager.ts`](./pager.ts). Nothing else
+on any page is clickable.
 
 The measured results are in [`FIELD-MAP.md`](./FIELD-MAP.md). Read that before writing any
 salesnav parser.
@@ -14,10 +18,16 @@ salesnav parser.
 answer decides whether M5 needs CLAUDE.md's DOM exception list to grow. *Measured
 2026-08-10: labeled body (`salesApiLeadSearch`). The list does not grow.*
 
-**2. How does the real UI reach page 2** — a url the address bar produces (a navigation,
-allowed) or a script-only control (a click, which needs an operator decision first, the
-D323 precedent). *Measured 2026-08-10: click-only. `[DECISION NEEDED]`, and Tasks 39/40 are
-blocked on it.*
+**2. How does the real UI reach page 2** — a url the address bar produces (a navigation) or
+a script-only control (a click). *Measured 2026-08-10: click-only — 12 buttons, 0 anchors.
+The operator granted the click on 2026-08-11 (D400), so the probe now reaches page 2 by
+pressing next, and Tasks 39/40 are unblocked.*
+
+**Which page actually arrived is read from the body**, never from the pager's label: a
+re-render can advance the label without changing a row. `pagingFromCaptures` takes
+`paging.start` / `paging.count` out of the largest non-document body and the receipt reports
+them under `data.verdicts.paging`; a clicked surface with no advanced offset raises
+`PAGE_DID_NOT_ADVANCE` rather than being promoted as page 2.
 
 Both land on the receipt under `data.verdicts`, not as prose to be inferred from counts.
 
@@ -51,11 +61,16 @@ as a fixture.
 | `home` | 1 | 0 — the app shell runs no search |
 | `leads` / `leads2` / `accounts` | 1 each | 1 each (D343) |
 
-Ceilings: `PROBE_MAX_PAGE_LOADS` 6, `PROBE_MAX_SEARCH_PAGES` 6, neither raisable by a flag.
-The daily sub-caps are in `src/core/budget/constants.ts` and nothing here can raise them.
+Ceilings: `PROBE_MAX_PAGE_LOADS` 10, `PROBE_MAX_SEARCH_PAGES` 10 (raised from 6/6 on
+2026-08-11, D401), neither raisable by a flag. The daily sub-caps are in
+`src/core/budget/constants.ts` — also 10/10 — and nothing here can raise them.
 
-`cost()` reports page 2 as if it will be loaded. It is often skipped, and an estimate that
-under-states is the one direction a budget estimate must never take.
+`cost()` reports page 2 as if it will be loaded. It is skipped whenever no pager rendered,
+and an estimate that under-states is the one direction a budget estimate must never take.
+
+**A clicked page costs exactly what a navigated one costs** (D400 clause 5). Clicking is
+cheaper in wall-clock than a navigation and that must never turn into paging faster or
+further: the same two ledger lines, the same sub-caps, the same dwell.
 
 ## The order it runs in, and why
 
@@ -69,9 +84,11 @@ under-states is the one direction a budget estimate must never take.
 
 2. **`leads`** — one metered search page.
 
-3. **`leads2` only if `leads` proved the pager offers a `page=N` href.** Otherwise it is
-   skipped, unspent, with the reason on the receipt. This is the gate that keeps the probe
-   inside M5 CONTEXT rule 4.
+3. **`leads2`, reached the way page 1 proved the UI reaches it.** An href carrying `page=N`
+   makes it a navigation; a buttons-only pager makes it a click on **next** (D400). A page
+   that rendered no pager at all is skipped, unspent, with the reason on the receipt —
+   there is no page 2 to reach and spending one to find that out measures nothing. This is
+   the gate that keeps the probe inside M5 CONTEXT rule 4.
 
 4. **`accounts`** — one metered search page.
 
@@ -110,5 +127,8 @@ and is why its fixtures stay gitignored while `FIELD-MAP.md` and
   and the pagination verdict.
 - `tests/salesnav-probe-verdicts.test.ts` — the seat gate, the page-2 gate, the source
   verdict, and every warning branch.
+- `tests/salesnav-pager-click.test.ts` — the click: name matching, every refusal branch,
+  wheel-to-reveal, and the body-side arrival check. Its headline assertion is that nothing
+  is clicked on any refusal path.
 - `tests/salesnav-fieldmap.test.ts` — every FIELD-MAP path against the promoted fixture.
   Skips itself when the fixture is absent, because a gitignored fixture is not a defect.

@@ -188,3 +188,32 @@ Not fixed here: promotion is Task 16's module, the two fixtures this work needed
 extracted directly, and changing the dedupe rule affects every capability's fixture
 directory. Belongs with whoever next touches promotion, with a test that promotes two
 snapshots of different urls and asserts both land.
+
+## `CDP_CONNECTION_CLOSED` mid-run on the Sales Nav surface (2026-08-11, D402)
+
+The browser-level websocket closed mid-run in 2 of 4 probe runs on 2026-08-10, killing runs
+that had already committed their search-page spend.
+
+What is measured, and it is not a diagnosis:
+
+- Same websocket id before and after, so **Chrome never restarted** — the transport died,
+  not the browser.
+- Both deaths followed a body fetch on `salesApiNavChrome`.
+- They landed at ~22s and ~43s into the run. Keepalive is 30s, so it never fired on the
+  first one; the frame cap is 512 MB, so size is not the bound either.
+- The rails held both times: spend committed before the load, the page-2 gate denying by
+  default, the seat verdict returning `null` rather than `false`. That is why this is
+  survivable rather than urgent.
+
+**The approach settled here:** instrument before theorising. Log the close code and reason
+from the websocket `close` event (they are currently dropped), and log the last CDP method
+and target id before the close, so the next occurrence says whether it was a protocol error,
+a target detach, or a genuine socket reset. Only then decide between a shorter keepalive, a
+per-target session instead of the browser-level one, and a reconnect-and-resume path.
+
+Do **not** wrap salesnav code in a retry to route around it: the fault is core CDP, a retry
+that re-loads a page LinkedIn already served spends the metered page twice, and a
+transport-level defect hidden behind a retry is one nobody measures again.
+
+Mitigated meanwhile by D401 (the probe's budget raised 6 → 10), which is what lets a run
+that dies this way be retried the same day.

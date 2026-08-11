@@ -24,7 +24,11 @@ function outcome(surface: SalesNavSurface, over: Partial<SurfaceOutcome> = {}): 
     search_page_spent: surface !== "home",
     api_response: true,
     captured: 3,
+    arrival: "navigate",
+    click: null,
+    paging: null,
     salesnav_ish: 1,
+    salesnav_ish_api: 1,
     unmatched_salesnav_ish: 0,
     misses: 0,
     layout_settled: true,
@@ -87,40 +91,60 @@ describe("noSeatError", () => {
 });
 
 describe("mayLoadPageTwo — page 2 is not spent on an assumption", () => {
-  it("allows it only when page 1's own pager offered a page url", () => {
-    expect(mayLoadPageTwo(outcome("leads", { pagination: "url" })).ok).toBe(true);
+  // The page decides how it is reached, never the flag.
+  it("navigates when page 1's own pager offered a page url", () => {
+    const gate = mayLoadPageTwo(outcome("leads", { pagination: "url" }));
+    expect(gate.ok).toBe(true);
+    expect(gate.mode).toBe("navigate");
   });
 
-  it("refuses when the pager is click-only, and says a decision is needed", () => {
+  // Before D400 this was the refusal branch; the refusal is what produced the
+  // grant. It must not silently become a navigation to a synthesized page=2 url
+  // — that is the "teleporting" form the reference worker refused.
+  it("clicks when the pager is buttons only, per the D400 grant", () => {
     const gate = mayLoadPageTwo(outcome("leads", { pagination: "click-only" }));
-    expect(gate.ok).toBe(false);
-    expect(gate.reason).toContain("[DECISION NEEDED]");
-    expect(gate.reason).toContain("click");
+    expect(gate.ok).toBe(true);
+    expect(gate.mode).toBe("click");
+    expect(gate.reason).toContain("D400");
   });
 
-  it("refuses when no pager rendered", () => {
-    expect(mayLoadPageTwo(outcome("leads", { pagination: "none" })).ok).toBe(false);
+  it("refuses when no pager rendered — there is no page 2 to reach", () => {
+    const gate = mayLoadPageTwo(outcome("leads", { pagination: "none" }));
+    expect(gate.ok).toBe(false);
+    expect(gate.mode).toBeNull();
   });
 
   it("refuses when page 1 never completed, or was never attempted", () => {
     expect(mayLoadPageTwo(undefined).ok).toBe(false);
     expect(mayLoadPageTwo(outcome("leads", { stage: "read", pagination: "url" })).ok).toBe(false);
+    // Including the click branch: a click needs a rendered pager to click in.
+    expect(mayLoadPageTwo(outcome("leads", { stage: "measure", pagination: "click-only" })).ok).toBe(false);
   });
 });
 
 describe("sourceVerdict — the milestone's fork, per surface", () => {
   it("is true when rows rendered and a body carried them", () => {
-    expect(sourceVerdict([outcome("leads", { salesnav_ish: 4 })])).toEqual({ leads: true });
+    expect(sourceVerdict([outcome("leads", { salesnav_ish: 4, salesnav_ish_api: 4 })])).toEqual({ leads: true });
   });
 
   it("is false when rows rendered and no body carried them", () => {
-    expect(sourceVerdict([outcome("leads", { salesnav_ish: 0 })])).toEqual({ leads: false });
+    expect(sourceVerdict([outcome("leads", { salesnav_ish: 0, salesnav_ish_api: 0 })])).toEqual({ leads: false });
+  });
+
+  // The one way this verdict could be wrong in the unsafe direction. The
+  // surface's own document response is `isSalesNavIsh` the moment it
+  // server-renders a `/sales/lead/` link into its markup — counting it would
+  // answer "the rows are in a labeled body" for a page whose rows are markup,
+  // and skip the `[DECISION NEEDED]` that grows CLAUDE.md's exception list.
+  it("does not count the surface's own document response as a labeled body", () => {
+    const documentOnly = outcome("leads", { salesnav_ish: 1, salesnav_ish_api: 0 });
+    expect(sourceVerdict([documentOnly])).toEqual({ leads: false });
   });
 
   // A page with no rows says nothing about where rows live. Recording it as
   // "not in a body" would be a verdict the run did not earn.
   it("is null when nothing rendered", () => {
-    const empty = outcome("leads", { salesnav_ish: 0, surface_report: report() });
+    const empty = outcome("leads", { salesnav_ish: 0, salesnav_ish_api: 0, surface_report: report() });
     expect(sourceVerdict([empty])).toEqual({ leads: null });
   });
 
@@ -145,16 +169,67 @@ describe("pushSurfaceWarnings", () => {
 
   it("raises the DOM-only decision when rows rendered but no body carried them", () => {
     const w: Warning[] = [];
-    pushSurfaceWarnings(w, [outcome("leads", { salesnav_ish: 0 })], { hasSeat: true, evidence: "" });
+    pushSurfaceWarnings(w, [outcome("leads", { salesnav_ish: 0, salesnav_ish_api: 0 })], { hasSeat: true, evidence: "" });
     const found = w.find((x) => x.code === "ROWS_DOM_ONLY")!;
     expect(found.field).toContain("[DECISION NEEDED]");
     expect(found.field).toContain("exception");
   });
 
-  it("raises the click decision on a click-only pager", () => {
+  // Same trap as the verdict's: a document response carrying markup rows must
+  // not silence the DOM-only finding.
+  it("still raises DOM-only when only the document response carried rows", () => {
+    const w: Warning[] = [];
+    pushSurfaceWarnings(w, [outcome("leads", { salesnav_ish: 2, salesnav_ish_api: 0 })], { hasSeat: true, evidence: "" });
+    expect(codes(w)).toContain("ROWS_DOM_ONLY");
+  });
+
+  // No longer a blocking decision (D400), and still reported: a build that
+  // started serving hrefs again would page by navigation, and this line is how
+  // that change shows up on a receipt.
+  it("records a click-only pager as measured, not as a blocked decision", () => {
     const w: Warning[] = [];
     pushSurfaceWarnings(w, [outcome("leads", { pagination: "click-only" })], { hasSeat: true, evidence: "" });
-    expect(w.find((x) => x.code === "PAGINATION_CLICK_ONLY")!.field).toContain("D323");
+    const found = w.find((x) => x.code === "PAGINATION_CLICK_ONLY")!;
+    expect(found.field).toContain("D400");
+    expect(found.field).not.toContain("[DECISION NEEDED]");
+  });
+
+  describe("the arrival check for a clicked page (D400 clause 6)", () => {
+    it("says nothing when the body reports an advanced offset", () => {
+      const w: Warning[] = [];
+      pushSurfaceWarnings(
+        w,
+        [outcome("leads2", { arrival: "click", paging: { start: 25, count: 25 } })],
+        { hasSeat: true, evidence: "" },
+      );
+      expect(codes(w)).not.toContain("PAGE_DID_NOT_ADVANCE");
+    });
+
+    it("warns when the click produced no paging evidence at all", () => {
+      const w: Warning[] = [];
+      pushSurfaceWarnings(w, [outcome("leads2", { arrival: "click", paging: null })], { hasSeat: true, evidence: "" });
+      expect(w.find((x) => x.code === "PAGE_DID_NOT_ADVANCE")!.field).toContain("page 2");
+    });
+
+    // The failure this exists for: the click landed on something that
+    // re-rendered page 1. A fixture promoted from it would be page 1 filed as
+    // page 2, and nothing downstream could tell.
+    it("warns when the body still reports offset zero", () => {
+      const w: Warning[] = [];
+      pushSurfaceWarnings(
+        w,
+        [outcome("leads2", { arrival: "click", paging: { start: 0, count: 25 } })],
+        { hasSeat: true, evidence: "" },
+      );
+      expect(codes(w)).toContain("PAGE_DID_NOT_ADVANCE");
+    });
+
+    // A navigated page is checked by its url, not by this.
+    it("does not apply to a surface that was navigated to", () => {
+      const w: Warning[] = [];
+      pushSurfaceWarnings(w, [outcome("leads", { arrival: "navigate", paging: null })], { hasSeat: true, evidence: "" });
+      expect(codes(w)).not.toContain("PAGE_DID_NOT_ADVANCE");
+    });
   });
 
   // A page that rendered nothing must not also be reported as DOM-only: that
