@@ -5148,3 +5148,36 @@ The target id is run ownership evidence, not a heuristic over the operator's ope
 unrecorded page is ever adopted. Two deliberate mutations prove both directions: dropping the
 handoff makes the runner composition test red, and accepting a missing target makes the
 browser-session refusal test red.
+
+## D410 — "Has a target" means a page target; a windowless Chrome is not an empty list (2026-08-11, review)
+
+Two Task 39 runs died 33ms and 49ms in with `CDP_PROTOCOL_ERROR` and Chrome's own words:
+`Storage.getCookies was rejected by Chrome: Browser context management is not supported.`
+That is the B5/D122 condition exactly — a Chrome with no window, on which every browser-level
+command fails until someone restarts it. `hasLiveTarget` exists to keep preflight off such a
+browser, and it did not.
+
+**Why it did not.** It asked whether `/json/list` was non-empty. A windowless Chrome does not
+serve an empty list: it still lists `iframe`, `browser_ui` and `service_worker` targets. The
+live automation Chrome answered with five entries of which one was a page — so on the run
+where the page was gone and the other four remained, the guard passed and preflight reused a
+browser that could not serve a single command. The predicate now requires a target of type
+`page`, which is the only kind that proves a browser context exists to manage.
+
+**It was diagnosed from the archive, not from a theory.** The failing runs were attributed to
+a second worktree holding Chrome. They were not: a lease collision reports `TAB_LEASE_HELD`,
+these reported a protocol error, they died far too fast to have launched anything, and a run
+between the two failures succeeded. The receipts named the real cause; nobody had read them.
+
+**A second, unproven gap closed with it.** The launch path returned as soon as
+`/json/version` answered, which the launcher's own comments call necessary but not sufficient.
+It now applies the same page-target test inside the existing wait loop and deadline. This one
+is belt-and-braces: it was reasoned from the code, and a cold-start reproduction attempt did
+**not** fire it in either direction, so it is recorded as a gap closed rather than a bug
+measured.
+
+**What stays true:** the error is still classified retryable, because a *new invocation* after
+Chrome recovers does succeed. What changes is that the toolkit no longer reuses the broken
+browser in the first place — it falls through to the launch path, which already reports a held
+profile properly. No automatic retry was added anywhere; BACKLOG's instruction on this fault
+was to instrument before theorising, and that is what finally resolved it.
