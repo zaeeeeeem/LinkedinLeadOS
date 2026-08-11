@@ -1,5 +1,37 @@
 # STATE
 
+## Lead vocabulary harvest ran live — Task 43 (2026-08-11)
+
+Run `01KZR9KTGPVR1BB03WPQS6YVMB`, exit 0, stop reason `operator-stop` (PAUSE file), 418s.
+**Spend: 1 page load, 25 search pages charged; 15 `salesApiLeadSearch` requests actually
+observed**, so 10 units are over-counted exactly as D440 intends. 309 bodies archived, 0 misses
+on the metered endpoints. The receipt states 1 navigation and **0 clicks, 0 keystrokes, 0 wheel
+events** after it — D441 held.
+
+D443 raised the ceilings for this day only: global `searchPagesPerDay` 50 -> 75 and the
+capability sub-cap 25 -> 50, on operator grant, so both taxonomy sessions fit in 2026-08-11.
+**These must be reverted to 50 / 25 once the Account session has run.** Day usage after this
+run: 48 search pages of the temporary 75.
+
+The vocabulary endpoint is `salesApiFacetTypeahead` (D444), mapped in
+`src/core/salesnav-query/FILTER-MAP.md`. Eight closed enums came back complete in one request
+each — INDUSTRY 494 rows, FUNCTION 26, PROFILE_LANGUAGE 22, SENIORITY_V2 10, COMPANY_SIZE 9,
+COMPANY_TYPE 8, TENURE 5, RELATIONSHIP 4. Geography and title are prefix-gated and cannot be
+enumerated; this run holds "United States" (`103644278`), 3 US states and a handful of metros
+from the prefixes `uni`/`unite`, and 23 title rows from `founder`/`owner`/`ceo`.
+
+Nothing is parsed into the registry yet — that is the next step and it needs agreement on the
+classifier first. Per D442 the operator-scoped bodies in this archive (PERSONA, ACCOUNT_LIST,
+LEAD_LIST, COMPANY_WITH_LIST, LEAD_INTERACTIONS, SAVED_LEADS_AND_ACCOUNTS) route to the private
+overlay and must not reach `vocabulary.registry.json`. `CONNECTION_OF` returned 0 elements, so
+no graph edge is in the archive at all.
+
+Next: agree the classifier, then run `salesnav.filters.vocab --operation=harvest
+--run-ids=01KZR9KTGPVR1BB03WPQS6YVMB` offline. The Account session is still owed and is the
+only source for the six ACCOUNT-only enums (`FORTUNE`, `JOB_OPPORTUNITIES`,
+`ACCOUNT_ACTIVITIES`, `NUM_OF_FOLLOWERS`, `COMPANY_SIZE_ACCOUNT_SEARCH`,
+`RELATIONSHIP_ACCOUNT_SEARCH`); it costs 1 of the 3 remaining page loads.
+
 ## Merged to main — Tasks 41 and 43 (2026-08-11)
 
 Both M6 offline tasks are on `main`: `242924e` (Task 41, filter grammar and builder,

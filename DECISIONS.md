@@ -5545,3 +5545,59 @@ capture is never edited after the fact. The offline classifier routes or refuses
 not promote them into a public fixture or committed registry. Rejected: treating every filter
 suggestion as harmless vocabulary. A company/person suggestion is an entity observation, not a
 taxonomy row, and committing it would turn an operator-private graph edge into repository data.
+
+## D443 — The daily search ceiling is raised to 75 for the taxonomy harvest day (2026-08-11)
+
+Operator grant, 2026-08-11, given explicitly after being shown that the prior ceilings made a
+same-day Lead + Account harvest impossible. The global `searchPagesPerDay` moves 50 -> 75 and
+`salesnav.filters.harvest`'s own daily sub-cap moves 25 -> 50. `pageLoadsPerDay` for the
+capability stays at 4, so the number of sessions that can exist at all is unchanged.
+
+Why: both Task 43 sessions declare the 25-per-invocation maximum, D440 charges each allowance
+in full before navigation, and 23 search pages were already spent today. 23 + 25 + 25 = 73,
+which the old global 50 and the old sub-cap 25 both refused. The operator's stated reason is
+that the full filter taxonomy is wanted in one pass so it can serve as the committed base
+vocabulary rather than being assembled across days.
+
+What this costs: 75 search pages in a day is real, recorded account exposure well above the
+spec §8 default, on the one account that cannot be burned. It is a loosening of the account's
+own protection, not a tuning change. It is written as a constant so it is visible in review and
+in the diff, and it is not reachable by a flag — the rule that the ledger cannot be bypassed by
+a flag is intact.
+
+Rejected: a `--budget` override at the call site. That would make the ceiling invisible in the
+repository and set the precedent that a busy session can argue its way past the ledger. Also
+rejected: splitting the Account session to 2026-08-12, which is the safer option and was offered
+and declined.
+
+**This raise is for the harvest day. It should be reverted to 50 / 25 once both Task 43
+sessions have run**, and a later session that finds it still at 75 should treat that as drift
+rather than as the new default.
+
+## D444 — The vocabulary endpoint is `salesApiFacetTypeahead`, and its two request patterns split what is harvestable (2026-08-11)
+
+Measured, not assumed: run `01KZR9KTGPVR1BB03WPQS6YVMB`, 309 archived bodies, 32 of them
+`salesApiFacetTypeahead`. Full map in `src/core/salesnav-query/FILTER-MAP.md`.
+
+Option values live at `GET /sales-api/salesApiFacetTypeahead?q=query&start=0&count=<n>&type=<TYPE>`
+and nowhere else. `salesApiSearchFilterLayout` carries the filter *schema* and not one option
+value, which the Task 41 catalog work already implied and this run confirms. The `type` parameter
+is the catalog's `facetTypeaheadType`, so the mapping from filter to vocabulary is many-to-one:
+three tenure filters share `TENURE`, two title filters share `TITLE`.
+
+The catalog's `typeaheadSupported` boolean predicts the request pattern, which is what makes
+completeness decidable per facet rather than a guess. `false` means one `count=100` request on
+open returning the entire closed enum — INDUSTRY (494 rows), FUNCTION (26), PROFILE_LANGUAGE
+(22), SENIORITY_V2 (10), COMPANY_SIZE (9), COMPANY_TYPE (8), TENURE (5), RELATIONSHIP (4) are
+complete and can be committed. `true` means a seed plus one debounced `count=10` request per
+keystroke, so BING_GEO and TITLE yield only what was typed for. INDUSTRY is the interesting
+case: it is typeahead-supported yet its seed returns all 494 rows, so it is complete anyway —
+completeness is read off the response, never off the flag alone.
+
+Consequence for the builder: geography and title can never be enumerated. Any filter value for
+those must either come from a prefix the operator has already harvested or be resolved at
+composition time, which is the substance of the typing-grant question and is not settled here.
+
+Rejected: treating a typeahead seed as an enum because it looks like a full list. BING_GEO's
+seed is 13 continent-scale regions and contains neither "United States" nor any state; a builder
+that trusted it would silently compose the wrong geography.
