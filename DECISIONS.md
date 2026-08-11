@@ -5271,3 +5271,17 @@ yet they fire *after* the page has been charged, because the paged contract spen
 loads. Moving those two checks ahead of the spend would make an impossible resume free. That is
 a change to the Task 35 contract's ordering, not to this capability, so it is recorded in
 BACKLOG rather than made here.
+
+## D390 — Accounts mirrors the leads composition; the shared seam remains `runPaged` (2026-08-11)
+
+Task 40 duplicates the vertical composition explicitly and imports the exact Task 35
+`runPaged` function. It does not generalize the leads runner after one live vertical. A typed
+assignment plus a function-identity test pins that inheritance, so an accounts-only loop or a
+wrapper cannot quietly replace the proved spend/archive/checkpoint contract.
+
+The alternative was a generic Sales Navigator source parameterized by endpoint, parser,
+vertical, cursor kind, fingerprint key and provenance column. That would reduce textual
+duplication, but it would make the first accounts page-2 measurement also the first proof of a
+new abstraction. Keeping two honest vertical compositions makes D406's opposite identity
+rules visible: leads hash `objectUrn`; accounts hash the plain company `entityUrn`; neither
+ever hashes per-execution `trackingId`.

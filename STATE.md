@@ -1,5 +1,34 @@
 # STATE
 
+## In progress — Task 40 `salesnav.accounts.list` end to end (2026-08-11)
+
+Baseline and research checkpoints passed in an isolated worktree. The full suite reports
+**1,727 passed / 14 explicit environment skips (1,741 total)**; the Sales Navigator field-map
+suite ran all 17 assertions with 0 skips. The chosen composition is recorded in
+`docs/plans/m5-l2-salesnav/tasks/task-40-approach.md`: mirror Task 39 per vertical, preserve
+the opposite account identity rule explicitly, and pin the shared Task 35 `runPaged` export
+with a compile-time/import assertion rather than paying for another resume gate.
+
+**Spend: 0 / 4 search pages, 0 / 4 page loads.** No LinkedIn contact in this checkpoint.
+Next: implement and mutation-check the offline account composition, then request the
+operator-supplied company-search URL and approval immediately before the default live run.
+
+### Offline composition checkpoint (2026-08-11)
+
+`salesnav.accounts.list` now mirrors Task 39 through the same typed `runPaged` export while
+keeping account semantics explicit: company-search endpoint and route, plain company-urn
+fingerprints, `sn_accounts`, and company-only provenance. With local Supabase enabled, the
+full suite increased from 1,741 to **1,756 passed / 0 skipped**; typecheck and diff checks are
+clean. Three deliberate mutations went red: fingerprinting on per-execution `trackingId`,
+substituting a different function for the Task 35 runner, and writing the company identity to
+`person_urn`.
+
+All four review shapes are walked in `task-40-approach.md`. The independent store baseline is
+0 persons, 0 companies, 3 searches, 147 search results and 3 runs; the shared ledger has 0
+`salesnav.accounts.list` lines. **Spend remains 0 / 4 search pages, 0 / 4 page loads.** No
+LinkedIn contact. The Task 36 archive still carries an operator-supplied company-search URL;
+next is explicit approval to reuse it for the one default two-page live invocation.
+
 ## In progress — Task 39 `salesnav.leads.list` end to end (2026-08-11)
 
 Research and offline implementation checkpoints are complete; both supervised live gates remain. The
