@@ -1,0 +1,34 @@
+{
+  "elements": [
+    {
+      "createdAt": 1786406400000,
+      "filters": [
+        {
+          "singleFilterMetadata": {
+            "searchFilterConfig": {
+              "presentationType": "TYPEAHEAD",
+              "title": "Current job title"
+            },
+            "type": "CURRENT_TITLE",
+            "values": [
+              {
+                "displayValue": "SYNTHETIC_THIRD_PARTY_TITLE",
+                "id": "SYNTHETIC_TITLE_ID",
+                "selectionType": "INCLUDED"
+              }
+            ]
+          }
+        }
+      ],
+      "id": 1111111111,
+      "lastViewedAt": 1786492800000,
+      "name": "SYNTHETIC_OPERATOR_LEAD_SEARCH",
+      "seat": "SYNTHETIC_SEAT"
+    }
+  ],
+  "paging": {
+    "count": 1,
+    "links": [],
+    "start": 0
+  }
+}

@@ -2162,6 +2162,51 @@ grant only the unique enabled `button[data-x--link--saved-searches]` on `/sales/
 resolved-or-refused and clicked through `HumanCursor`; no child controls and no
 other non-pager click inherit the grant.
 
+## Task 37 checkpoint 2 — D408 probe ready, awaiting supervised live run (2026-08-11)
+
+D408 closed checkpoint 1's blocker and D409 replaced the per-click ask with the
+standing four-part test. The measured Saved searches control now uses the same
+resolved-or-refused trusted-click primitive as the pager: exact selector,
+anchored accessible name, `HumanCursor`, wheel reveal and D404's centre-pixel
+hit test. The helper was generalized in place; no second click implementation
+exists.
+
+The probe-first `salesnav.savedsearch.list` entry point is registered and costs
+1 page load / 0 search pages / 0 profile opens. It navigates `/sales/`, spends
+before the load, takes the D408 click, archives every response plus the open-panel
+snapshot, records the click on the receipt, and deliberately withholds parse rows
+until the first real fixture exists (D152). **Spend remains 0 of 2 page loads and
+0 of 0 search pages.**
+
+Offline gate: **1688 passed, 14 skipped; typecheck clean.** Mutation checks bite:
+disabling the ambiguous-control refusal fails 5 click tests, and moving spend
+after navigation fails the named ordering test. Next: operator-supervised default
+probe run, promote and meaning-map the measured body offline, then implement the
+pure parser and use the second page load for the default end-to-end gate.
+
+## Task 37 checkpoint 3 — two live loads, Account tab measured (2026-08-11)
+
+Two operator-supervised default runs exited 0 with no challenge and the lease
+released: `01KZQC4969NN9WQ9CBVPZ6NY1Y` and
+`01KZQC6PQAN3ZZ6ZW3T0PXB6XQ`. Each spent exactly 1 page load / 0 search pages;
+the task has used **2 of the planned 2 page loads and 0 of 0 search pages**.
+
+Run 1 measured the empty state. The operator then created one saved search and
+asked for a positive verification. Run 2 still received an empty 58-byte
+`salesApiSavedSearchesV2` envelope because the panel defaults to Lead; its
+archived snapshot measured a separate Account tab. It also exposed a probe bug:
+29 pending home rails landed after the click cursor and were attributed to the
+panel. The capture now drains home traffic before taking that cursor.
+
+The Account tab passes all four D409 parts: it switches only the operator's own
+panel, creates no third-party trace, is measured as the unique enabled
+`button[role="tab"]` with the full fixed Account accessible name, and has no
+href. It is implemented through the same trusted-control helper and records a
+second click on the receipt; no live click has been taken yet. A third supervised
+load is required to capture the positive body. That makes the real probe spend
+3 page loads rather than the task file's planned 2; it must be recorded, not
+hidden inside the earlier number.
+
 ## Task 38 — parsers and search store path, complete (2026-08-11, offline)
 
 Fixture gate passed before parser work: the promoted leads page 1, leads page 2 and accounts
@@ -2204,3 +2249,39 @@ with no description, lost its `search_results` position entirely. Refusal is now
 matching `company.people`; a missing content field emits `PARSE_FIELD_MISSING` and the row is
 stored without it. Three tests added, all mutation-checked. Suite 1679 passing, typecheck clean,
 live spend still 0/0.
+
+## Complete — Task 37, saved-search list (2026-08-11, live)
+
+`salesnav.savedsearch.list` now returns the operator's Lead and Account saved
+searches from archived `salesApiSavedSearchesV2` bodies. The positive supervised
+run `01KZQCS8XZDDYSDGMT5SB81YBS` captured exactly one row in each vertical after
+the operator created both: 1,054 Lead bytes and 1,390 Account bytes, no challenge,
+exit 0, lease released. D408's panel click and D361's D409 Account-tab click are
+both named on the receipt; no row or L3 control was clicked.
+
+**Spend: 3 page loads used against 2 planned; 0 of 0 search pages.** The third
+load was not absorbed: run 1 measured the empty list, run 2 showed the saved row
+was under the non-default Account tab and measured that tab, and run 3 lawfully
+clicked it and captured one row in both verticals. The capability's steady-state
+cost remains 1 page load / 0 search pages / 0 profile opens.
+
+The committed fixtures are synthetic and the real bytes stay raw-archived.
+`FIELD-MAP.md` pins every body path and the measured people/company
+`savedSearchId` routes. Receipts allow the operator-authored labels but expose no
+filter value, keyword text, seat data or result-row name (D364). Store identities
+are vertical-prefixed (D362). Listing makes zero database writes; D363 mints the
+immutable `searches` definition at first execution, at the cost of an existence
+check/reuse path in Tasks 39/40 and no database inventory for never-run searches.
+
+**Four review shapes walked.** (1) Every watch is released and the tap drained in
+`finally`; spend precedes navigation, click records are appended immediately, and
+listing leaves no partial store state. (2) classified lower-layer failures pass
+unchanged; a labeled but unparseable body is distinct parse drift, while a valid
+empty envelope is success. (3) the 50-row bound, vertical attribution, endpoint
+identity, URL meaning and privacy all have named tests; mutations to each failed
+before restoration. (4) the capability composes the shared trusted-control helper,
+raw archive reader and pure parser in one typed test path rather than forking any
+of them.
+
+**Verification:** 1,698 passed, 14 store integrations skipped with explicit
+missing-local-Supabase messages; `npx tsc --noEmit` and `git diff --check` clean.

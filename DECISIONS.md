@@ -5070,3 +5070,67 @@ attention, it was the property being tested for. Asking twice about the same pro
 two identical arguments and one blocked task. What makes it *stay* safe is the record — every
 click taken under this authority is named on the receipt and written here in the same session.
 An unrecorded click is the violation, not the click itself.
+
+## D361 — The Account saved-search tab passed D409 and was clicked (2026-08-11)
+
+Run `01KZQCS8XZDDYSDGMT5SB81YBS` took the unique enabled
+`button[role="tab"][aria-label="Account- View all account saved searches"]` after
+the preceding run had archived and measured it. All four D409 parts held: changing
+tabs leaves no third-party trace; it acts only on the operator's own saved-search
+panel; the exact selector and anchored accessible name are resolved-or-refused
+through the shared trusted-control helper; and the button has no href or other url
+that reaches the same panel state.
+
+The click loaded a 1,390-byte `salesApiSavedSearchesV2` body containing the
+operator's one Account saved-search row. The receipt records this click after
+D408's panel click. No saved-search row, result, filter, or L3 control was clicked.
+
+## D362 — Saved-search store identity is prefixed by vertical (2026-08-11)
+
+The measured Lead and Account bodies each expose a positive numeric `id`, but one
+row from each vertical cannot prove those remote namespaces are globally disjoint.
+The toolkit therefore uses `sn_leads:<remote-id>` and
+`sn_accounts:<remote-id>` as `searches.search_id`, while retaining the unprefixed
+remote id solely for the UI-measured `savedSearchId` query value. Treating the raw
+number as globally unique was rejected because Task 38's insert-only writer would
+turn a cross-vertical collision into either a fatal duplicate or, if weakened,
+misattached immutable results.
+
+## D363 — Mint a `searches` row at first execution, not list time (2026-08-11)
+
+`salesnav.savedsearch.list` is observational and performs zero store writes. The
+matching Task 39 or Task 40 capability inserts the immutable search definition
+immediately before inserting its first result rows. Later executions reuse that
+identity and must not call the insert-only `insertSearch` again; D371 continues to
+refuse a duplicate rather than moving old provenance.
+
+The cost is an explicit first-execution branch and no database inventory of saved
+searches that were listed but never run. A deleted or renamed LinkedIn saved search
+also has no list-time history in `searches`; its archived list body remains the
+evidence. The benefit is that a read-only list does not mint durable definitions,
+and every stored definition is guaranteed to have been selected for execution.
+This choice is feasible because the list returns both the stable prefixed identity
+and the UI-measured `filter_url`; `filter_json` may remain null until an execution
+has a separately measured need for it.
+
+## D364 — Operator labels may appear; filter and third-party values may not (2026-08-11)
+
+A saved-search label is the operator's own text and is the human selector needed
+to choose between returned searches, so it may appear on this operator-owned
+receipt. Filter titles and values, keyword text, seat data, and result-row names
+remain only in the raw archive. The receipt exposes only `filters_count` and
+`has_keywords` for those fields. A synthetic leak test serializes the full receipt
+and logs, permits both operator labels, and refuses representative third-party
+filter and keyword strings.
+
+## D365 — Saved-search rows are selected by endpoint identity plus envelope (2026-08-11)
+
+The positive bodies contain neither the literal `savedSearch` marker nor a saved-
+search urn. Marker-only classification therefore reported a real one-row body as
+empty. The parser source is now the path-named `salesApiSavedSearchesV2` endpoint,
+validated by an `elements` array, following D407's source-selection lesson.
+
+All row fields come from that archived body. The re-execution URL is derived from
+its id plus the response's measured vertical: `/sales/search/people` for Lead and
+`/sales/search/company` for Account, with only `savedSearchId`. The archived DOM
+was used to corroborate that navigation form, never to supply a row field.

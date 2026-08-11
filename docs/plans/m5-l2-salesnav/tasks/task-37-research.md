@@ -63,3 +63,19 @@ and mint `searches` rows at first execution, when Task 39/40 can bind the saved
 search to a real run and Task 38's migration contract is present. Receipt labels
 should be allowed because they are the operator's own words and the identifier
 needed to choose a search; third-party result names remain forbidden.
+
+## Resolved by the positive probe — 2026-08-11
+
+D408 granted the panel control and D409 replaced the ask-first procedure. Three
+supervised loads followed. The last, `01KZQCS8XZDDYSDGMT5SB81YBS`, captured one
+Lead and one Account row from two `salesApiSavedSearchesV2` bodies after the
+operator created one saved search in each vertical. The Account tab had first
+been measured from the preceding run's archived snapshot; D361 records why its
+click passed every D409 part and what it loaded.
+
+The initial storage recommendation is adopted as D363: list time stays
+observational and the immutable `searches` row is minted immediately before first
+execution stores results. D364 permits only the operator-authored label on the
+receipt. The real bodies fixed the field paths and endpoint predicate in
+`FIELD-MAP.md`; synthetic committed fixtures retain no operator or third-party
+values.
