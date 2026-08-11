@@ -1,5 +1,29 @@
 # STATE
 
+## M5 gate — MET (2026-08-11)
+
+All three L2 Sales Navigator capabilities have passed live, operator-supervised gates, and
+`task-40-accounts-list-e2e` is merged to `main` at `d7f9fa8`. On `main`: typecheck clean,
+**1,762 tests passed / 0 skipped** across 115 files.
+
+| Gate requirement | Status |
+|---|---|
+| `salesnav.savedsearch.list` — one default run, exit 0, truthful receipt | passed (Task 37) |
+| `salesnav.leads.list` — default run **and** killed-then-resumed run, no double spend | passed (Task 39, gates A and B) |
+| `salesnav.accounts.list` — one default run, exit 0, verified independently | passed (Task 40, run `01KZQNM34D61NTBDQNDVSZ45AV`) |
+
+Every gate was verified independently of its receipt — Supabase queries, archive listings and
+ledger reads, not the tool's own output.
+
+**Deferred at the gate, by operator decision:** the third-page session-pin measurement (D413)
+is not run. The gate is two pages and two pages are proved. Captured in `BACKLOG.md`; it blocks
+only raising `--pages` above 2, and nothing in M5 or the M6 entry depends on it.
+
+**Next: M6** — `salesnav.filters.build` / `filters.apply` (spec §11), the self-test loop rather
+than a reader. Also still open and unscheduled: the classic search family
+(`classic.search.people` / `companies` / `posts`, `jobs.search`), cut from M5 as a different
+surface family needing its own probe. Where those land is an operator call at M6 approval.
+
 ## Done — Task 40 `salesnav.accounts.list` end to end (2026-08-11)
 
 The live gate passed on run `01KZQNM34D61NTBDQNDVSZ45AV`: two pages, one Next click, 50 rows

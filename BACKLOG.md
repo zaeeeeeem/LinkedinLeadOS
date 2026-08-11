@@ -236,3 +236,27 @@ and must not be weakened to save a page.
 
 Not done in Task 39 because it changes the Task 35 paged contract, which more than one
 capability consumes.
+
+## A third page's session pin is unmeasured (D413, 2026-08-11)
+
+Both salesnav verticals pin every page of a run to the `sessionId` the *first* page's request
+executed under. After a pager click the address bar carries a freshly minted session that no
+request used (D413). Whether page 3's request goes to the wire under the page-1 session or
+under that newer one has never been exercised: every live gate to date ran the default 2 pages.
+
+If it uses the newer session, `--pages 3` refuses with `SALESNAV_SESSION_CHANGED` after paying
+for the page — a false refusal that looks exactly like the real one.
+
+**Approach settled at capture time.** Measure before writing anything: one supervised
+`--pages 3` run on whichever vertical has budget, then read the *captured requests* for pages
+1–3 and compare their `trackingParam=(sessionId:…)` values. Two outcomes, both cheap:
+
+- All three agree → the pin is correct as written; record the measurement and raise the
+  default cap with no code change.
+- Page 3 differs → the pin is per-click, not per-run, and the refusal rule needs to compare
+  against the previous page's executed session rather than the run's first. Do not relax the
+  refusal to "warn" — joining two result sets silently is the failure this check exists to
+  stop.
+
+Deferred by the operator on 2026-08-11 at Task 40 merge: the M5 gate is two pages and is met;
+this only blocks raising `--pages` above 2.
