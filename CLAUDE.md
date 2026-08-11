@@ -147,11 +147,28 @@ drafting) · L5 orchestration (campaigns, sequences, schedulers) · MCP surface 
   inside the panel it opens. It is granted because the control is a button with no href, so
   there is no url to navigate to, and because it opens the operator's *own* saved searches.
 
-  Both are granted for the same reason and bounded by it: each creates no edge, sends nothing,
-  and leaves no trace on any third party's account. That reason is exactly why neither opens
-  the door to a third click — not "load more", not a lead panel, not a filter chip, not a
-  saved-search row, and no L3 write. **A new click is a new operator grant, measured first and
-  named in this list, or it does not happen.**
+  Both were granted for the same reason, and that reason is now the standing test (D409,
+  operator grant 2026-08-11). **A click that passes it is taken without asking first, and
+  reported afterwards.** The test has four parts, all of which must hold:
+
+  1. It creates **no edge**, sends nothing, and leaves **no trace on any third party's
+     account** — nothing the other side could see, now or in an audit log.
+  2. It acts on the **operator's own surface**: revealing, navigating or expanding what the
+     operator can already see.
+  3. It is **measured first** — the control exists in an archived snapshot, addressed by a
+     stable attribute or accessible name, and is **resolved or refused, never guessed**.
+  4. There is **no url that reaches the same place**. A navigable url always wins; a click is
+     what you do when D357 has nothing to hand back.
+
+  **What still stops and asks, every time, no exceptions:** any **L3 write** — connect,
+  message, comment, react, follow, endorse, post, save-to-list, or anything that notifies a
+  third party. Those are out of scope this phase (see Scope) and no click grant reaches them.
+  A control whose effect you cannot predict is not "measured"; measure it or leave it.
+
+  Every click taken under this authority is **named on the receipt and written into
+  `DECISIONS.md` in the same session**, with what it was, why it passed all four parts, and
+  what it loaded. The operator reviews after the fact, not before — which only works if the
+  record is complete, so an unrecorded click is the violation, not the click.
 - **Raw first.** Archive the untouched response body before parsing anything. Parsed rows are
   a projection, never the only copy.
 - **Never `Runtime.enable` or `Page.enable`.** `consoleAPICalled` is the classic CDP detection

@@ -5047,3 +5047,26 @@ in the CLAUDE.md list, or it does not happen.
 **Scope conditions carried over from D400.** The spend contract and sub-caps apply to whatever
 the click loads exactly as to a navigated page. What arrived is read from the captured
 response body, never from the button that was pressed.
+
+## D409 — Clicks that pass the test are taken and reported, not asked about first (2026-08-11)
+
+Operator grant, 2026-08-11, replacing the ask-first procedure of D400/D408. Those two grants
+were each requested, argued and approved individually, and the argument was the same both
+times: the control creates no edge, sends nothing, and leaves no trace on any third party.
+That test is now standing authority. A click that passes it is taken; the operator reviews the
+record afterwards.
+
+The test is in `CLAUDE.md` and has four parts, all required: no third-party trace; the
+operator's own surface; measured first from an archived snapshot and resolved-or-refused; and
+no url that reaches the same place, because a navigable url always beats a click (D357).
+
+**L3 writes are untouched by this.** Connect, message, comment, react, follow, endorse, post,
+save-to-list — anything that notifies a third party — remain out of scope this phase and no
+click authority reaches them. That boundary was not part of the grant and was not asked about;
+it stays where the Scope section puts it.
+
+Why the change was safe to make: what made D400 and D408 approvable was never the operator's
+attention, it was the property being tested for. Asking twice about the same property produced
+two identical arguments and one blocked task. What makes it *stay* safe is the record — every
+click taken under this authority is named on the receipt and written here in the same session.
+An unrecorded click is the violation, not the click itself.
