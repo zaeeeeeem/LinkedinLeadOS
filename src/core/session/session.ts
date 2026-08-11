@@ -53,7 +53,7 @@ export class BrowserSession {
 
   /** The single resident worker tab, created in the background so the operator's
    *  window is never yanked, and reused for the whole session (D10). */
-  async openWorkerTab(url: string = WORKER_TAB_START_URL): Promise<WorkerTab> {
+  async openWorkerTab(url: string = WORKER_TAB_START_URL, resumeTargetId?: string): Promise<WorkerTab> {
     if (this.#tab) {
       // Two worker tabs would defeat the single-holder tab lease (§8) by
       // construction, so this is a programming error, not a retryable condition.
@@ -67,6 +67,21 @@ export class BrowserSession {
     }
 
     let targetId: string;
+    if (resumeTargetId !== undefined) {
+      const targets = await this.listPageTargets();
+      if (!targets.some((target) => target.targetId === resumeTargetId)) {
+        throw new CapabilityError({
+          code: "RUN_WORKER_TARGET_UNAVAILABLE",
+          exit: EXIT.GENERIC,
+          action: "HALT_AND_NOTIFY",
+          retryable: false,
+          message: "the worker tab recorded by this run no longer exists; refusing to reload a proved page",
+        });
+      }
+      this.#tab = await WorkerTab.attach(this.client, resumeTargetId);
+      return this.#tab;
+    }
+
     try {
       const created = await this.client.send<{ targetId: string }>("Target.createTarget", {
         url,

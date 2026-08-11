@@ -30,6 +30,11 @@ by counting unrelated tap captures (D403). The checkpoint carries only page numb
 offsets, a hash of stable person urns, the Sales Navigator `sessionId`, and click metadata—no
 third-party names, headlines or URLs.
 
+A hard-killed process also leaves its worker target id in `run.json`. Resume reattaches only
+to that exact run-owned page so a click-only next page keeps the proved result-set session;
+if Chrome no longer has the target, it refuses rather than loading page 1 again. Normal
+teardown clears the id because it closes the worker tab.
+
 The tab must still be on the prior proved page and carry the same `sessionId` before Next is
 pressed. A changed session is a different result set and raises `SALESNAV_SESSION_CHANGED`;
 an unchanged pager/body offset raises `PAGE_DID_NOT_ADVANCE`. A challenge merges its marker

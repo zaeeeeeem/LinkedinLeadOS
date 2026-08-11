@@ -72,6 +72,21 @@ challenge gate classified it as an interstitial. Gate A otherwise met every acce
 **Gate spend: 2 / 8 search pages, 2 / 8 page loads.** Gate B (kill and resume) remains and
 requires separate operator approval before its initial live invocation.
 
+### Gate B pre-kill review found and fixed the missing browser half of resume (2026-08-11)
+
+Review shape 1 at the actual kill point found a blocker before spending: the paged checkpoint
+preserved page 1's bytes/session, but every new CLI process created a blank worker tab. A
+resume could therefore neither press Next from the proved page nor reload page 1 without
+violating the no-reload/no-respend gate. D385 now persists the run-owned worker target before
+work, reattaches that exact surviving target after a hard kill, clears it after normal
+teardown, and refuses if Chrome no longer has it. It never searches or adopts the operator's
+other tabs. Typecheck and the full **1715-test** suite pass; both handoff and missing-target
+mutations go red.
+
+No gate-B process has started and **gate spend remains 2 / 8 search pages, 2 / 8 page loads**.
+The operator's approval for the initial gate-B invocation is recorded; full-suite verification
+and commit precede that live run.
+
 ## Task 36 reviewed, amended, unblocked and completed (2026-08-11)
 
 Task 35 was already merged to `main` (`acde15b`) on 2026-08-10; only Task 36 was ever

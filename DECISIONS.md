@@ -5128,3 +5128,23 @@ This click produced the second of two archive-proved pages. Direct ledger inspec
 exactly 2 page loads and 2 search pages, and direct store inspection found 49 immutable result
 positions with no duplicate `(search_id,page,position)` key. The click is recorded here in the
 same session as required; no nested or additional control was pressed.
+
+## D385 — A hard-kill resume reattaches only to that run's recorded worker tab (2026-08-11)
+
+The runner now records its worker target id in `run.json` immediately after preflight and
+clears it after normal teardown. A hard kill cannot run that cleanup, so `--run-id` offers the
+surviving target to the next browser session. Chrome must still list that exact id as a page;
+if it is absent, resume halts with `RUN_WORKER_TARGET_UNAVAILABLE` rather than creating a blank
+tab and quietly reloading a proved page.
+
+This is necessary for clicked pagination. A completed page checkpoint carries the Sales
+Navigator result-set session, but the old runner always created a new `about:blank` worker on
+resume. Page 2 then had neither the prior session nor a resolved Next destination, making Task
+39's kill gate impossible despite the archive/spend checkpoint being correct. Cold-loading
+page 1 lost because it would reload a proved page without a ledger charge; charging it again
+lost because the acceptance criterion explicitly forbids re-spending proved pages.
+
+The target id is run ownership evidence, not a heuristic over the operator's open tabs. No
+unrecorded page is ever adopted. Two deliberate mutations prove both directions: dropping the
+handoff makes the runner composition test red, and accepting a missing target makes the
+browser-session refusal test red.

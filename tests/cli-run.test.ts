@@ -81,6 +81,7 @@ class FakeSession implements SessionLike {
   readonly tab = new FakeTab();
   closed = false;
   tabsOpened = 0;
+  resumeTargetIds: (string | undefined)[] = [];
   cookies: { name: string; domain: string; expires?: number; session?: boolean }[] = [
     { name: "li_at", domain: ".www.linkedin.com", expires: FUTURE },
     { name: "sessionid", domain: ".example.com", expires: FUTURE },
@@ -101,8 +102,9 @@ class FakeSession implements SessionLike {
     on: () => () => {},
   };
 
-  async openWorkerTab(): Promise<TabLike> {
+  async openWorkerTab(_url?: string, resumeTargetId?: string): Promise<TabLike> {
     this.tabsOpened += 1;
+    this.resumeTargetIds.push(resumeTargetId);
     return this.tab;
   }
   async close(): Promise<void> {
@@ -241,6 +243,16 @@ describe("the happy path", () => {
     expect(second.receipt.run_id).toBe(first.receipt.run_id);
     const meta = JSON.parse(readFileSync(join(paths.runsDir, first.receipt.run_id, "run.json"), "utf8"));
     expect(meta.resumed_at).toHaveLength(1);
+  });
+
+  it("offers only the worker target recorded by that run to a hard-kill resume", async () => {
+    const interrupted = RunContext.open({ capability: "test.ok", runsDir: paths.runsDir });
+    interrupted.rememberWorkerTarget("target-1");
+    const { outcome, session } = invoke({ def: okCapability(), flags: { runId: interrupted.runId } });
+    const { receipt } = await outcome;
+    expect(receipt.ok).toBe(true);
+    expect(session.resumeTargetIds).toEqual(["target-1"]);
+    expect(JSON.parse(readFileSync(interrupted.paths.meta, "utf8")).worker_target_id).toBeUndefined();
   });
 });
 
