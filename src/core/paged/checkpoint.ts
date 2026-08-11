@@ -174,17 +174,35 @@ export async function reconcile(o: {
   const attempt = state.attempt;
   if (attempt) {
     const claimed = new Set(kept.flatMap((p) => p.archive_ids));
-    const mine = entries
-      .filter((e) => e.seq >= attempt.archive_seq_before && !claimed.has(e.file))
-      .map((e) => e.file);
+    // Two shapes, and which one this attempt used decides what "all its bytes
+    // are on disk" means.
+    //
+    // **Named ids** — the source archived its own bytes and said which. Every
+    // named id must be present, and only those ids are this page's. This is the
+    // live, tap-driven shape: the archive also holds every other body the page
+    // fetched, so counting entries in the range would find more than `expected`
+    // on an ordinary page and refuse to adopt a page that is entirely on disk,
+    // which is D346 read backwards.
+    //
+    // **A count** — the loop wrote the bytes itself, so the ids did not exist
+    // when the attempt was recorded. Everything above the attempt's high-water
+    // mark is this page's by construction, and a count short of `expected` is a
+    // torn write. Anything short is torn, never adopted: a partial page silently
+    // promoted is the one failure no later step could detect.
+    const named = attempt.archive_ids;
+    const mine = named !== undefined
+      ? named.filter((id) => present.has(id))
+      : entries
+          .filter((e) => e.seq >= attempt.archive_seq_before && !claimed.has(e.file))
+          .map((e) => e.file);
 
     // `spend_confirmed` is redundant with `expected` — a page is only loaded
     // after its spend commits — and is required anyway, because adoption keeps
     // the attempt's own spend and must never keep one nobody watched land.
-    const whole = !torn
-      && attempt.spend_confirmed
-      && attempt.expected !== null && attempt.expected > 0
-      && mine.length === attempt.expected;
+    const complete = named !== undefined
+      ? named.length > 0 && mine.length === named.length
+      : attempt.expected !== null && attempt.expected > 0 && mine.length === attempt.expected;
+    const whole = !torn && attempt.spend_confirmed && complete;
 
     if (whole) {
       kept.push({

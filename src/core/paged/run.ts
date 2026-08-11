@@ -333,8 +333,9 @@ async function archivePage(o: {
 }): Promise<string[]> {
   const { load, attempt, state } = o;
 
-  const record = (expected: number) => {
+  const record = (expected: number, ids?: readonly string[]) => {
     attempt.expected = expected;
+    if (ids !== undefined) attempt.archive_ids = [...ids];
     attempt.items = load.items ?? 0;
     attempt.hasMore = load.hasMore;
     if (load.fingerprint !== undefined) attempt.fingerprint = load.fingerprint;
@@ -356,7 +357,11 @@ async function archivePage(o: {
 
   if (load.archived && load.archived.length > 0) {
     const ids = load.archived.map((entry) => entry.file);
-    record(ids.length);
+    // The ids, not only the count: this source's bytes are already down, and
+    // the archive beside them holds every other body the page fetched. A resume
+    // that counted entries instead would find more than `expected` on an
+    // ordinary page and re-spend one it could have adopted.
+    record(ids.length, ids);
     return ids;
   }
 

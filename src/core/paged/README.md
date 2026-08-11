@@ -48,6 +48,16 @@ Two things follow from that table and are deliberate:
   archived bytes are not tidied away, and a partially archived page cannot be
   told from a whole one after the fact. They are reported as
   `RESUMED_ORPHAN_CAPTURES`, counted, and claimed by no page.
+- **"All its bytes" means something different per source shape (D403).** A
+  source that hands the loop its captures has no ids until they are written, so
+  everything above the attempt's high-water mark is that page's by construction
+  and a **count** short of `expected` is a torn write. A source that archives
+  through the network tap already knows its ids and records them — and must,
+  because the tap also archives every other body the page fetched, so counting
+  entries there would exceed `expected` on an ordinary page and re-spend a page
+  that was entirely on disk. Adoption then means **every named id is present**.
+  Both shapes refuse the same way: anything short is torn, re-loaded and
+  re-paid, never adopted on the checkpoint's own claim.
 - **One ledger line can be unattributable.** The window between a line
   committing and the checkpoint recording it is one write wide and cannot be
   closed by any ordering. The run reports it as `unconfirmed` — a bound, not a

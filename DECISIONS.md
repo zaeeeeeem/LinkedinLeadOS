@@ -4844,3 +4844,31 @@ verdict returning `null` rather than `false`), which is the property that makes 
 survivable rather than urgent.
 
 Carried in `BACKLOG.md`; D401's raised budget is the mitigation until it is diagnosed.
+
+## D403 — A tap-driven page is adopted by the ids it named, not by counting the archive (2026-08-11)
+
+Found reviewing Task 35 after its merge. `runPaged` supports two source shapes: one hands the
+loop its captures to write, the other reports bytes it already archived through the network
+tap. Resume adopted an in-flight attempt when the number of archive entries above its
+high-water mark equalled the count it recorded.
+
+**That is right for the first shape and wrong for the second.** A tap archives *everything the
+page fetched* — chrome, entitlements, telemetry — while the load claims only the bodies it
+wants. So on any ordinary live page the entry count exceeds the claimed count, adoption fails,
+and a page whose bytes are entirely on disk is re-loaded and **re-paid** on every resume.
+That is D346 (a fully archived page is adopted, never paid for twice) read backwards, and the
+`search_page` it wastes is the scarcest budget in the system.
+
+Latent, not live: every existing test uses the first shape, and no capability consumes the
+loop yet. Task 39 would have been the first to hit it, where a resume bug and a parse-drift
+bug look identical from a receipt.
+
+Fixed by recording the ids rather than only the count. `PageAttempt.archive_ids` is written for
+a source that names its own bytes, and adoption then means **every named id is present on
+disk** — the archive may hold anything else beside them. The counting rule stays for the shape
+that has no ids to record, where everything above the high-water mark is the page's by
+construction. Both keep the same refusal: anything short is torn, re-loaded and re-paid, never
+adopted on the checkpoint's own claim.
+
+`tests/paged-run-tap-source.test.ts` pins it, including the mutation — with the id path
+disabled the adoption test fails on a double charge.

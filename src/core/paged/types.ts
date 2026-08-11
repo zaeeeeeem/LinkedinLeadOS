@@ -131,6 +131,19 @@ export type PageAttempt = {
   spend_confirmed: boolean;
   spent_at: string;
   archive_seq_before: number;
+  /**
+   * The archive ids this attempt claims, when the source archived its own bytes
+   * and could name them.
+   *
+   * Named ids rather than a count, because on a tap-driven source the archive
+   * holds *everything the page fetched* while the load reports only the bodies
+   * it wants claimed. Counting entries above `archive_seq_before` there would
+   * find more than `expected` on every ordinary page and refuse to adopt a page
+   * whose bytes are all on disk — which is D346 read backwards. Absent for a
+   * source that hands the loop its captures to write, where the ids do not exist
+   * until they are written and `expected` is the tear detector.
+   */
+  archive_ids?: string[];
   expected: number | null;
   items: number | null;
   hasMore: boolean | null;

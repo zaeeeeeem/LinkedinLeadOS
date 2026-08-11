@@ -4,7 +4,8 @@
 
 Task 35 was already merged to `main` (`acde15b`) on 2026-08-10; only Task 36 was ever
 outstanding. Reviewed against its task file and `CONTEXT.md`: three changes and one
-renumber. **Tests: 1638 pass, typecheck clean. Zero LinkedIn contact.**
+renumber, plus one defect fixed in Task 35's core (D403). **Tests: 1654 pass, typecheck
+clean, zero LinkedIn contact.**
 
 **The operator granted the pagination click (D400).** Next and previous, inside a pager,
 located by accessible name, resolved-or-refused, trusted `HumanCursor` click, wheel to
@@ -35,6 +36,18 @@ taken between tasks.
 
 **Still open:** the accounts search is unmeasured (D402's transport fault), and the fault
 itself is undiagnosed and now carried in `BACKLOG.md` with an instrument-first approach.
+
+**[BUG] fixed in Task 35's core, found reviewing it after merge (D403).** `runPaged`
+adopted an in-flight page by *counting* archive entries above the attempt's high-water mark.
+That is right for a source that hands the loop its captures and wrong for one that archives
+through the network tap — the tap also archives every other body the page fetched, so the
+count exceeds what the load claimed on any ordinary live page, adoption fails, and a page
+whose bytes are all on disk is re-loaded and **re-paid** on every resume. D346 backwards, on
+the scarcest budget in the system. Latent: every existing test used the first shape and no
+capability consumes the loop yet — Task 39 would have been the first to hit it, where a
+resume bug and a parse-drift bug look identical from a receipt. Fixed by recording the ids
+(`PageAttempt.archive_ids`) and adopting on their presence;
+`tests/paged-run-tap-source.test.ts` pins it and the mutation bites.
 
 ## Complete — Task 36, the Sales Navigator surface probe (2026-08-10, live, operator-authorized)
 
