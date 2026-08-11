@@ -11,7 +11,8 @@ import {
   type LeaseRecord,
 } from "../src/core/lease/tab-lease.js";
 import { CapabilityError, EXIT } from "../src/core/run/receipt.js";
-import { LEASE_SCRATCH_PREFIX } from "../src/core/lease/constants.js";
+import { defaultLeasePath, LEASE_SCRATCH_PREFIX } from "../src/core/lease/constants.js";
+import { defaultRunsDir } from "../src/core/run/paths.js";
 
 let dir: string;
 let path: string;
@@ -28,6 +29,10 @@ afterEach(async () => {
 
 const read = async (): Promise<LeaseRecord> =>
   JSON.parse(await readFile(path, "utf8")) as LeaseRecord;
+
+it("anchors the default lease beside the shared cross-worktree budget ledger", () => {
+  expect(defaultLeasePath()).toBe(join(defaultRunsDir(), "tab.lock"));
+});
 
 /** A pid that is guaranteed dead: spawn a process, wait for it to exit, reuse its pid. */
 async function deadPid(): Promise<number> {

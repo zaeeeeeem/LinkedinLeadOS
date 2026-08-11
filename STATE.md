@@ -1,5 +1,43 @@
 # STATE
 
+## In progress — Task 39 `salesnav.leads.list` end to end (2026-08-11)
+
+Research and offline implementation checkpoints are complete; both supervised live gates remain. The
+fixture-backed baseline is **1679 passing / 14 skipped**, exactly the handoff count, and
+`fixtures/salesnav.probe/` contains both pinned leads pages. The chosen composition is recorded
+in `docs/plans/m5-l2-salesnav/tasks/task-39-approach.md`: the tap returns exact archive ids to
+`runPaged`, body offsets and `sessionId` prove arrival, and final storage re-reads every page
+the archive-backed checkpoint proves so prior/adopted pages converge after a kill.
+
+No shared pager edit: Task 37 currently has uncommitted changes in
+`src/capabilities/salesnav.probe/pager.ts`; Task 39 consumes its stable export only.
+
+**[BUG] fixed before live use (D383):** the default budget ledger already resolves all linked
+worktrees to the main repository, but the tab lease used each process's current directory.
+Parallel Task 37/39 processes could therefore hold different lock files while driving the
+same dedicated Chrome. The lease now uses the shared run root too; a test pins the two paths
+to the same parent.
+
+The capability now runs through the lease, budget, tap, archive-backed paged loop and store.
+It proves arrivals from the named lead-search body's offset, returns exact tap archive ids,
+reprojects every archive-proved page on resume, and writes `searches` / `search_results`
+without an entity writer. Typecheck is clean and the final full suite reports
+**1710 passing / 0 skipped** with local Supabase enabled. Six deliberate mutations went red:
+using a worktree-local lease, removing exact archive-id naming, replacing the merged
+challenge checkpoint, collapsing page-bounded store writes, bypassing `--no-store`, and
+downgrading paging parse drift.
+
+**Local-data incident:** I invoked `npm run db:verify` without first inspecting that script;
+it runs `supabase db reset`. Migrations and the verification checks completed, but there is
+no seed file and the local tables now contain 0 runs, 0 persons, 0 companies, 0 searches and
+0 search results. Any unseeded local rows that existed before the reset are not recoverable
+from the database. No live LinkedIn run caused this reset.
+
+**Spend: 0 / 8 search pages, 0 / 8 page loads.** No LinkedIn contact in this checkpoint.
+The shared ledger currently reports 8 global search pages and 25 global page loads in the
+rolling day, while `salesnav.leads.list` itself remains 0 / 20 for both kinds. The corrected
+shared tab lease is free. Local pre-live entity/search tables are empty after the reset above.
+
 ## Task 36 reviewed, amended, unblocked and completed (2026-08-11)
 
 Task 35 was already merged to `main` (`acde15b`) on 2026-08-10; only Task 36 was ever

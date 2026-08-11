@@ -2,7 +2,7 @@ import { createServer, type Server } from "node:http";
 import type { AddressInfo } from "node:net";
 import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest";
 import { getStore, resetStore } from "../src/core/store/client.js";
-import { insertSearch, insertSearchResults, MAX_SEARCH_RESULTS_PER_WRITE } from "../src/core/store/searches.js";
+import { ensureSearch, insertSearch, insertSearchResults, MAX_SEARCH_RESULTS_PER_WRITE } from "../src/core/store/searches.js";
 import { StoreWriteError } from "../src/core/store/persons.js";
 
 type Request = { method: string; url: string; prefer: string; body: unknown };
@@ -10,6 +10,7 @@ let server: Server;
 let baseUrl = "";
 let requests: Request[] = [];
 let stored: Array<Record<string, unknown>> = [];
+let storedSearches: Array<Record<string, unknown>> = [];
 let failNextWrite = false;
 
 beforeAll(async () => {
@@ -23,7 +24,10 @@ beforeAll(async () => {
       const decoded = decodeURIComponent(req.url ?? "");
       let status = 200;
       let reply: unknown = [];
-      if (req.method === "GET" && decoded.startsWith("/rest/v1/search_results")) {
+      if (req.method === "GET" && decoded.startsWith("/rest/v1/searches")) {
+        const searchId = /search_id=eq\.([^&]+)/.exec(decoded)?.[1];
+        reply = storedSearches.filter((row) => row["search_id"] === searchId);
+      } else if (req.method === "GET" && decoded.startsWith("/rest/v1/search_results")) {
         const searchId = /search_id=eq\.([^&]+)/.exec(decoded)?.[1];
         const page = Number(/page=eq\.(\d+)/.exec(decoded)?.[1]);
         reply = stored.filter((row) => row["search_id"] === searchId && row["page"] === page)
@@ -40,6 +44,7 @@ beforeAll(async () => {
           else { stored.push(...rows); reply = rows.map((_, index) => ({ id: stored.length - rows.length + index + 1 })); }
         }
       } else if (req.method === "POST" && decoded.startsWith("/rest/v1/searches")) {
+        storedSearches.push(body as Record<string, unknown>);
         reply = [{ search_id: (body as Record<string, unknown>)["search_id"] }];
       }
       const wantsObject = String(req.headers["accept"] ?? "").includes("pgrst.object");
@@ -53,7 +58,7 @@ beforeAll(async () => {
 });
 
 afterAll(async () => new Promise<void>((resolve) => server.close(() => resolve())));
-afterEach(() => { requests = []; stored = []; failNextWrite = false; resetStore(); });
+afterEach(() => { requests = []; stored = []; storedSearches = []; failNextWrite = false; resetStore(); });
 const client = () => getStore({ config: { url: baseUrl, serviceRoleKey: "stub" } });
 const lead = (search_id: string, position = 1) => ({ search_id, page: 1, position, person_urn: "urn:li:member:42", run_ref: null } as const);
 
@@ -67,6 +72,16 @@ describe("search store through real supabase-js", () => {
     expect(request.url).not.toContain("on_conflict");
     expect(request.prefer).not.toContain("resolution=merge-duplicates");
     expect(request.body).not.toHaveProperty("created_at");
+  });
+
+  it("adopts an identical search definition on resume and refuses a changed one", async () => {
+    const store = client();
+    const original = { search_id: "run-a", kind: "sn_leads" as const, filter_url: "https://www.linkedin.com/sales/search/people", filter_json: null };
+    expect(await ensureSearch(original, { client: store })).toMatchObject({ inserted: true });
+    expect(await ensureSearch(original, { client: store })).toMatchObject({ inserted: false });
+    expect(requests.filter((request) => request.method === "POST" && request.url.includes("/searches"))).toHaveLength(1);
+    await expect(ensureSearch({ ...original, filter_url: "https://www.linkedin.com/sales/search/people?changed=1" }, { client: store }))
+      .rejects.toMatchObject({ code: "SEARCH_RESULT_INVALID" });
   });
 
   it("keeps the same lead as two append-only observations in two searches", async () => {

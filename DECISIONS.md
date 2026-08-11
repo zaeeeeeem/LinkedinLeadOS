@@ -5070,3 +5070,49 @@ attention, it was the property being tested for. Asking twice about the same pro
 two identical arguments and one blocked task. What makes it *stay* safe is the record — every
 click taken under this authority is named on the receipt and written here in the same session.
 An unrecorded click is the violation, not the click itself.
+
+## D380 — A search observation is identified by its run, not by the saved search (2026-08-11)
+
+`salesnav.leads.list` uses the run id as `search_id`. Resume keeps both ids; a fresh rerun gets
+a fresh pair and therefore records a second observation, as the task requires.
+
+The saved-search id lost because `searches` definitions are insert-only (D371). Reusing one
+would make a second execution either fail before loading or move prior result rows under a new
+filter definition. It remains inside `filter_url`, where it describes the target without
+pretending to identify one execution.
+
+## D381 — Store rows are rebuilt from proved archives after the paged loop (2026-08-11)
+
+Search-result writes run after `runPaged`, by re-reading every archive id in every reconciled
+`CompletedPage`. That includes a page loaded by a prior process and an in-flight page adopted
+from exact tap archive ids. Writes are split one page per call because the store's existing
+bound is 25 rows.
+
+Writing inside `loadPage` lost because neither ordering is honest under a kill: store-before-
+checkpoint can leave rows for a page the paged core must re-spend, while checkpoint-before-
+store can leave a proved page whose rows resume never visits. Archive-first projection makes
+the archive the common proof and lets the insert-only writer converge independently.
+
+## D382 — Task 39 mirrors the run parent required by search provenance (2026-08-11)
+
+`search_results.run_ref` is a real foreign key by D94, but the repository had no writer for
+`runs`. Task 39 adds the minimal lifecycle needed by the first foreign-keyed provenance
+caller: ensure the parent before work, leave `running` behind on a hard kill, reopen the same
+capability on resume, and finalize measured cost/status on classified success or failure.
+
+Writing `run_ref = null` lost because it would make the README's provenance claim false and
+discard the one relation the schema explicitly says the toolkit can always create. Removing
+the foreign key or editing the applied migration would be a larger and unsafe deviation.
+
+## D383 — The tab lease shares the repository state root across worktrees (2026-08-11)
+
+The default tab lease now lives beside the shared budget ledger under `defaultRunsDir()`.
+Before this change it used `process.cwd()/runs/tab.lock`, so Task 37 and Task 39 running from
+different linked worktrees could each acquire a different file and simultaneously claim the
+same dedicated Chrome tab. That violated the single-holder property precisely where parallel
+M5 work made it consequential.
+
+Keeping a worktree-local lease lost because a lease is account/browser safety state, not a
+build artifact. The budget path already resolves linked worktrees to the main repository for
+the same reason (D301); using that root makes budget and browser serialization agree without
+changing explicit test-only lease paths.
