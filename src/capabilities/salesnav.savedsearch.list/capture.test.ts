@@ -1,0 +1,97 @@
+import { describe, expect, it } from "vitest";
+import { CapabilityError, EXIT } from "../../core/run/receipt.js";
+import { captureSavedSearches, type SavedSearchCaptureDeps } from "./capture.js";
+import { SAVED_SEARCHES_CONTROL } from "./control.js";
+import { isSavedSearchIsh } from "./patterns.js";
+
+function archived(file: string) {
+  return {
+    seq: 1, id: "capture-1", file, path: `/tmp/${file}`, shapeHash: "shape",
+    url: "https://www.linkedin.com/sales-api/salesApiSavedSearches", status: 200,
+    capturedAt: "2026-08-11T00:00:00.000Z", bytes: 80,
+  };
+}
+
+function harness(o: { clickError?: Error } = {}) {
+  const events: string[] = [];
+  let releases = 0;
+  let drains = 0;
+  const body = '{"entityUrn":"urn:li:fs_salesSavedSearch:SYNTHETIC"}';
+  const capture = {
+    seq: 1, pattern: "salesapi-saved-searches", patterns: ["salesapi-saved-searches", "sales-api-any"],
+    requestId: "request-1", url: "https://www.linkedin.com/sales-api/salesApiSavedSearches",
+    status: 200, body, bytes: body.length, archived: archived("0001-shape.json.gz"),
+    capturedAt: "2026-08-11T00:00:00.000Z",
+  };
+  const tap = {
+    cursor: 0,
+    watch: () => { events.push("watch"); return () => { releases++; }; },
+    drain: async () => { events.push("drain"); drains++; },
+    captures: () => [capture],
+    misses: () => [],
+  };
+  const ctx = {
+    run: { runId: "RUN", log: () => undefined },
+    args: {},
+    budget: {
+      check: async () => { events.push("check"); },
+      spend: async () => { events.push("spend"); },
+    },
+    browser: {
+      tab: {
+        ensureForeground: async () => ({ ok: true, via: "already", state: { hidden: false } }),
+        navigate: async () => { events.push("navigate"); },
+      },
+      tap,
+      cursor: { pause: async () => 0 },
+      archive: {},
+    },
+  };
+  const deps: SavedSearchCaptureDeps = {
+    gate: async () => ({ kind: "clean", clean: true, signal: "none", detail: "test" }),
+    wait: async () => capture,
+    click: async (input) => {
+      events.push("click");
+      expect(input.spec).toEqual(SAVED_SEARCHES_CONTROL);
+      if (o.clickError) throw o.clickError;
+      return {
+        kind: "saved searches", control: "Saved searches", tag: "button",
+        revealPasses: 0, x: 100, y: 50,
+      };
+    },
+    snapshot: async () => ({
+      archived: archived("0002-dom.html.gz"), probe: null, rendered: true,
+      failure: null, detail: null,
+    }),
+  };
+  return { ctx: ctx as any, deps, events, releases: () => releases, drains: () => drains };
+}
+
+describe("salesnav.savedsearch.list capture — spend and cleanup", () => {
+  it("spends before navigation and records the exact granted click", async () => {
+    const h = harness();
+    const result = await captureSavedSearches(h.ctx, h.deps);
+    expect(h.events.indexOf("spend")).toBeLessThan(h.events.indexOf("navigate"));
+    expect(h.events.indexOf("navigate")).toBeLessThan(h.events.indexOf("click"));
+    expect(result.click.kind).toBe("saved searches");
+    expect(result.payloads).toHaveLength(1);
+    expect(h.drains()).toBe(1);
+    expect(h.releases()).toBeGreaterThan(0);
+  });
+
+  it("drains and releases every watch when the trusted click refuses", async () => {
+    const lower = new CapabilityError({
+      code: "SAVED_SEARCHES_CONTROL_AMBIGUOUS", exit: EXIT.GENERIC,
+      action: "HALT_AND_NOTIFY", retryable: false, message: "two controls",
+    });
+    const h = harness({ clickError: lower });
+    await expect(captureSavedSearches(h.ctx, h.deps)).rejects.toBe(lower);
+    expect(h.drains()).toBe(1);
+    expect(h.releases()).toBeGreaterThan(0);
+  });
+
+  it("recognizes a saved-search body by content, not by endpoint alone", () => {
+    expect(isSavedSearchIsh('{"entityUrn":"urn:li:fs_salesSavedSearch:SYNTHETIC"}')).toBe(true);
+    expect(isSavedSearchIsh('{"elements":[]}')).toBe(false);
+  });
+});

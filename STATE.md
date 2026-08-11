@@ -2162,6 +2162,28 @@ grant only the unique enabled `button[data-x--link--saved-searches]` on `/sales/
 resolved-or-refused and clicked through `HumanCursor`; no child controls and no
 other non-pager click inherit the grant.
 
+## Task 37 checkpoint 2 — D408 probe ready, awaiting supervised live run (2026-08-11)
+
+D408 closed checkpoint 1's blocker and D409 replaced the per-click ask with the
+standing four-part test. The measured Saved searches control now uses the same
+resolved-or-refused trusted-click primitive as the pager: exact selector,
+anchored accessible name, `HumanCursor`, wheel reveal and D404's centre-pixel
+hit test. The helper was generalized in place; no second click implementation
+exists.
+
+The probe-first `salesnav.savedsearch.list` entry point is registered and costs
+1 page load / 0 search pages / 0 profile opens. It navigates `/sales/`, spends
+before the load, takes the D408 click, archives every response plus the open-panel
+snapshot, records the click on the receipt, and deliberately withholds parse rows
+until the first real fixture exists (D152). **Spend remains 0 of 2 page loads and
+0 of 0 search pages.**
+
+Offline gate: **1688 passed, 14 skipped; typecheck clean.** Mutation checks bite:
+disabling the ambiguous-control refusal fails 5 click tests, and moving spend
+after navigation fails the named ordering test. Next: operator-supervised default
+probe run, promote and meaning-map the measured body offline, then implement the
+pure parser and use the second page load for the default end-to-end gate.
+
 ## Task 38 — parsers and search store path, complete (2026-08-11, offline)
 
 Fixture gate passed before parser work: the promoted leads page 1, leads page 2 and accounts

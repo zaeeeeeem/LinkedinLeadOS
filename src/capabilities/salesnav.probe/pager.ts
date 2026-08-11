@@ -4,7 +4,8 @@ import { MAX_ATTRIBUTE_CHARS } from "./constants.js";
 import { SEARCH_RESULT_PATTERNS } from "./patterns.js";
 
 /**
- * The one click this toolkit performs: a pagination control.
+ * The resolved-or-refused trusted-click primitive shared by the bounded click
+ * classes in D400/D408/D409.
  *
  * Granted by **D400** (operator, 2026-08-11) after D352 measured that Sales
  * Navigator's pager renders 12 buttons and 0 anchors — no href carries `page=N`
@@ -81,6 +82,35 @@ export const REVEAL_PROGRESS_PX = 4;
 /** Wheel-and-retry attempts before the control is declared unreachable. */
 export const MAX_REVEAL_ATTEMPTS = 3;
 
+export type TrustedControlSpec = {
+  /** CSS selector for the control itself. It is never widened at runtime. */
+  selector: string;
+  /** Optional scope selectors, in preference order. The first match wins. */
+  scopeSelectors?: readonly string[];
+  /** Anchored accessible-name allowlist. */
+  accessibleName: RegExp;
+  /** Receipt-safe name for the control class, never third-party data. */
+  label: string;
+  /** Stable error-code family for this control class. */
+  codePrefix: string;
+  /** Optional legacy code kept stable for existing consumers. */
+  unreadableCode?: string;
+  /** Decision that grants the click. */
+  decision: string;
+};
+
+export function pagerControlSpec(direction: PagerDirection): TrustedControlSpec {
+  return {
+    selector: "button, a",
+    scopeSelectors: PAGER_SELECTORS,
+    accessibleName: PAGER_CONTROL_NAMES[direction],
+    label: `${direction} pager`,
+    codePrefix: "PAGER_CONTROL",
+    unreadableCode: "PAGER_UNREADABLE",
+    decision: "D400",
+  };
+}
+
 export type ControlLocation = {
   /** How many controls in the pager matched the allowlist. Anything but 1 is a
    *  refusal — this is reported so the receipt says *which* refusal. */
@@ -126,16 +156,19 @@ function refusal(code: string, message: string, evidence?: string): CapabilityEr
  *
  * It never throws — an unreadable page returns `null` and the caller refuses.
  */
-export function pagerControlExpression(direction: PagerDirection): string {
+export function trustedControlExpression(spec: TrustedControlSpec): string {
   return `(() => {
   try {
-    var NAMES = ${JSON.stringify(PAGER_CONTROL_NAMES[direction].source)};
-    var re = new RegExp(NAMES, 'i');
-    var SELECTORS = ${JSON.stringify([...PAGER_SELECTORS])};
+    var NAMES = ${JSON.stringify(spec.accessibleName.source)};
+    var FLAGS = ${JSON.stringify(spec.accessibleName.flags)};
+    var re = new RegExp(NAMES, FLAGS);
+    var SELECTOR = ${JSON.stringify(spec.selector)};
+    var SCOPES = ${JSON.stringify([...(spec.scopeSelectors ?? [])])};
 
-    var pager = null;
-    for (var s = 0; s < SELECTORS.length && !pager; s++) {
-      pager = document.querySelector(SELECTORS[s]);
+    var scope = document;
+    for (var s = 0; s < SCOPES.length && scope === document; s++) {
+      var candidateScope = document.querySelector(SCOPES[s]);
+      if (candidateScope) scope = candidateScope;
     }
     var vw = window.innerWidth || 0;
     var vh = window.innerHeight || 0;
@@ -155,7 +188,7 @@ export function pagerControlExpression(direction: PagerDirection): string {
       x: 0, y: 0, width: 0, height: 0, inView: false, obscured: false,
       viewportWidth: vw, viewportHeight: vh, scrollerX: sx, scrollerY: sy,
     };
-    if (!pager) return base;
+    if (SCOPES.length > 0 && scope === document) return base;
 
     // The accessible name, in the order a screen reader would resolve it.
     var nameOf = function (el) {
@@ -164,7 +197,7 @@ export function pagerControlExpression(direction: PagerDirection): string {
     };
 
     var hits = [];
-    var controls = pager.querySelectorAll('button, a');
+    var controls = scope.querySelectorAll(SELECTOR);
     for (var c = 0; c < controls.length; c++) {
       if (re.test(nameOf(controls[c]))) hits.push(controls[c]);
     }
@@ -197,6 +230,12 @@ export function pagerControlExpression(direction: PagerDirection): string {
     return base;
   } catch (e) { return null; }
 })()`;
+}
+
+/** Backwards-compatible pager wrapper; new bounded click classes use the
+ * generic expression directly. */
+export function pagerControlExpression(direction: PagerDirection): string {
+  return trustedControlExpression(pagerControlSpec(direction));
 }
 
 function num(v: unknown): number {
@@ -244,36 +283,51 @@ export function controlRefusal(
   location: ControlLocation | null,
   direction: PagerDirection,
 ): CapabilityError | null {
+  // Preserve the established public error code while the generic helper uses
+  // one regular family for new control classes.
   if (location === null) {
     return refusal("PAGER_UNREADABLE", `the page would not answer where its ${direction} control is`);
   }
+  return trustedControlRefusal(location, pagerControlSpec(direction));
+}
+
+export function trustedControlRefusal(
+  location: ControlLocation | null,
+  spec: TrustedControlSpec,
+): CapabilityError | null {
+  if (location === null) {
+    return refusal(
+      spec.unreadableCode ?? `${spec.codePrefix}_UNREADABLE`,
+      `the page would not answer where its ${spec.label} control is`,
+    );
+  }
   if (location.matches === 0) {
     return refusal(
-      "PAGER_CONTROL_NOT_FOUND",
-      `no control inside the pager has an accessible name matching ${direction} — refusing to click ` +
-        `anything else on the page (D400)`,
+      `${spec.codePrefix}_NOT_FOUND`,
+      `no ${spec.label} control matches its selector and accessible name — refusing to click ` +
+        `anything else on the page (${spec.decision})`,
     );
   }
   if (location.matches > 1) {
     return refusal(
-      "PAGER_CONTROL_AMBIGUOUS",
-      `${location.matches} controls inside the pager match ${direction}; a click is resolved or ` +
-        `refused, never guessed (D400)`,
+      `${spec.codePrefix}_AMBIGUOUS`,
+      `${location.matches} controls match ${spec.label}; a click is resolved or ` +
+        `refused, never guessed (${spec.decision})`,
       `matches=${location.matches}`,
     );
   }
   if (location.disabled) {
     return refusal(
-      "PAGER_CONTROL_DISABLED",
-      `the ${direction} control is disabled — the page it would reach does not exist, so this is a ` +
+      `${spec.codePrefix}_DISABLED`,
+      `the ${spec.label} control is disabled — the place it would reach does not exist, so this is a ` +
         `stop rather than a click to attempt`,
       location.name ?? undefined,
     );
   }
   if (location.width <= 0 || location.height <= 0) {
     return refusal(
-      "PAGER_CONTROL_NOT_RENDERED",
-      `the ${direction} control has no box, so nothing on screen corresponds to it`,
+      `${spec.codePrefix}_NOT_RENDERED`,
+      `the ${spec.label} control has no box, so nothing on screen corresponds to it`,
     );
   }
   return null;
@@ -300,6 +354,8 @@ export type ClickReport = {
   y: number;
 };
 
+export type TrustedClickReport = Omit<ClickReport, "direction"> & { kind: string };
+
 /**
  * Locate, reveal, click. The only click in the toolkit.
  *
@@ -317,11 +373,27 @@ export async function clickPagerControl(o: {
   direction: PagerDirection;
   timeoutMs?: number;
 }): Promise<ClickReport> {
+  const report = await clickTrustedControl({
+    tab: o.tab,
+    cursor: o.cursor,
+    spec: pagerControlSpec(o.direction),
+    ...(o.timeoutMs === undefined ? {} : { timeoutMs: o.timeoutMs }),
+  });
+  const { kind: _kind, ...click } = report;
+  return { direction: o.direction, ...click };
+}
+
+export async function clickTrustedControl(o: {
+  tab: PagerTab;
+  cursor: PagerCursor;
+  spec: TrustedControlSpec;
+  timeoutMs?: number;
+}): Promise<TrustedClickReport> {
   const locate = async (): Promise<ControlLocation | null> =>
-    interpretControl(await o.tab.evaluate<unknown>(pagerControlExpression(o.direction), o.timeoutMs));
+    interpretControl(await o.tab.evaluate<unknown>(trustedControlExpression(o.spec), o.timeoutMs));
 
   let location = await locate();
-  let refused = controlRefusal(location, o.direction);
+  let refused = trustedControlRefusal(location, o.spec);
   if (refused) throw refused;
 
   let passes = 0;
@@ -334,7 +406,7 @@ export async function clickPagerControl(o: {
     await o.cursor.pause();
     passes++;
     location = await locate();
-    refused = controlRefusal(location, o.direction);
+    refused = trustedControlRefusal(location, o.spec);
     if (refused) throw refused;
     // A scroller already at its end does not move, and wheeling it again will
     // not either. Stop rather than spend the remaining passes proving it.
@@ -343,16 +415,16 @@ export async function clickPagerControl(o: {
 
   if (location !== null && location.obscured) {
     throw refusal(
-      "PAGER_CONTROL_OBSCURED",
-      `the ${o.direction} control is on screen but the pixel at its centre belongs to something else — ` +
+      `${o.spec.codePrefix}_OBSCURED`,
+      `the ${o.spec.label} control is on screen but the pixel at its centre belongs to something else — ` +
         `an overlay, a sticky bar or a modal. Clicking it would click that instead, so this stops`,
       `at ${Math.round(location.x)},${Math.round(location.y)} of ${location.viewportWidth}x${location.viewportHeight}`,
     );
   }
   if (location === null || !location.inView) {
     throw refusal(
-      "PAGER_CONTROL_OFFSCREEN",
-      `the ${o.direction} control would not come into view after ${passes} wheel pass(es); a click at ` +
+      `${o.spec.codePrefix}_OFFSCREEN`,
+      `the ${o.spec.label} control would not come into view after ${passes} wheel pass(es); a click at ` +
         `coordinates the pointer cannot actually reach is a click on whatever is there instead`,
       location === null
         ? undefined
@@ -362,7 +434,7 @@ export async function clickPagerControl(o: {
 
   await o.cursor.click(location.x, location.y);
   return {
-    direction: o.direction,
+    kind: o.spec.label,
     control: location.name,
     tag: location.tag,
     revealPasses: passes,

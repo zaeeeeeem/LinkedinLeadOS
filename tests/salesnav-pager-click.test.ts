@@ -1,8 +1,9 @@
 import { describe, expect, it } from "vitest";
 import {
-  clickPagerControl, controlRefusal, interpretControl, MAX_REVEAL_ATTEMPTS, PAGER_CONTROL_NAMES,
-  pagerControlExpression, pagingFromCaptures, pagingOffsetOf,
-  type ControlLocation, type PagerDirection,
+  clickPagerControl, clickTrustedControl, controlRefusal, interpretControl, MAX_REVEAL_ATTEMPTS,
+  PAGER_CONTROL_NAMES, pagerControlExpression, pagingFromCaptures, pagingOffsetOf,
+  trustedControlExpression, trustedControlRefusal,
+  type ControlLocation, type PagerDirection, type TrustedControlSpec,
 } from "../src/capabilities/salesnav.probe/pager.js";
 import { CapabilityError } from "../src/core/run/receipt.js";
 
@@ -31,6 +32,50 @@ function location(over: Partial<ControlLocation> = {}): ControlLocation {
     ...over,
   };
 }
+
+const savedSearchesControl: TrustedControlSpec = {
+  selector: "button[data-x--link--saved-searches]",
+  accessibleName: /^saved searches$/i,
+  label: "saved searches",
+  codePrefix: "SAVED_SEARCHES_CONTROL",
+  decision: "D408",
+};
+
+describe("trusted control generalization — the D408 control stays exact", () => {
+  it("carries the measured selector and anchored accessible name into one read", () => {
+    const js = trustedControlExpression(savedSearchesControl);
+    expect(js).toContain("button[data-x--link--saved-searches]");
+    expect(js).toContain("^saved searches$");
+    expect(js).toContain("elementFromPoint");
+    expect(js).not.toContain(".click()");
+    expect(js).not.toContain("scrollIntoView");
+  });
+
+  it("uses its own refusal family and never falls through to another button", () => {
+    expect(trustedControlRefusal(location({ matches: 0 }), savedSearchesControl)?.code)
+      .toBe("SAVED_SEARCHES_CONTROL_NOT_FOUND");
+    expect(trustedControlRefusal(location({ matches: 2 }), savedSearchesControl)?.code)
+      .toBe("SAVED_SEARCHES_CONTROL_AMBIGUOUS");
+  });
+
+  it("clicks exactly once only after the generic resolver returns one enabled hit", async () => {
+    const cursor = cursorOf();
+    const report = await clickTrustedControl({
+      tab: tabOf({ name: "Saved searches" }), cursor, spec: savedSearchesControl,
+    });
+    expect(cursor.clicks).toEqual([{ x: 600, y: 400 }]);
+    expect(report).toMatchObject({ kind: "saved searches", control: "Saved searches", revealPasses: 0 });
+  });
+
+  it("clicks nothing for every resolved-or-refused failure", async () => {
+    for (const bad of [{ matches: 0 }, { matches: 2 }, { disabled: true }, { width: 0 }]) {
+      const cursor = cursorOf();
+      await expect(clickTrustedControl({ tab: tabOf(bad), cursor, spec: savedSearchesControl }))
+        .rejects.toBeInstanceOf(CapabilityError);
+      expect(cursor.clicks).toEqual([]);
+    }
+  });
+});
 
 describe("PAGER_CONTROL_NAMES — anchored, because a loose match is an unapproved click", () => {
   const matches = (d: PagerDirection, name: string): boolean => PAGER_CONTROL_NAMES[d].test(name);
