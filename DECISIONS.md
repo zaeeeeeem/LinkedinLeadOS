@@ -5356,3 +5356,130 @@ preserves the behaviour Task 39 proved live wherever the two sources agree.
 page's request may execute under that newer session and be refused against the page-1 pin.
 The default gate is two pages, so this has never been exercised. Measure it before raising
 `--pages` above 2 on either vertical.
+
+## D420 — Filter vocabulary is a committed public registry with a private archive-root overlay (2026-08-11)
+
+`salesnav.filters.build` reads a committed JSON registry for vocabulary rows that are safe to
+share and a second, gitignored registry under the shared `runs/` root for operator-scoped
+rows such as PERSONA, ACCOUNT_LIST, LEAD_LIST, CRM values and saved-search ids. Both use the
+same typed row schema and require provenance down to run id plus archive body or request-meta
+file. Lookup merges them by vocabulary identity and refuses a conflicting duplicate rather
+than letting one silently shadow the other.
+
+Supabase lost because this task's defining property is an offline builder whose dependency
+graph stays local and portable. Making lookup require a configured database would turn a pure
+syntax-and-provenance check into an external-service dependency, while a single committed file
+cannot hold the operator-private ids the task explicitly forbids putting in git. The overlay
+keeps those rows usable on this machine without weakening the committed-registry audit trail.
+
+## D421 — Raw-text filters are typed but refused until their request grammar is measured (2026-08-11)
+
+The catalog says which facets have `rawTextSupported: true`, but none of the archived request
+URLs or saved-search bodies shows how a raw-text value is serialized inside `query=`. The
+builder therefore accepts raw text as a typed spec shape, validates the catalog flag, and then
+refuses with `FILTER_RAW_TEXT_GRAMMAR_UNMEASURED` naming the missing measurement. It does not
+guess whether LinkedIn wants a value with no id, an id equal to the text, or another envelope.
+
+Treating the catalog flag as syntax evidence lost because it proves only that the UI offers
+the feature, not what request the UI issues. Omitting raw text from the type lost because an
+agent could not distinguish "unsupported by this facet" from "supported by LinkedIn but not
+yet harvested"; the explicit refusal preserves that distinction for Task 43.
+
+## D422 — Keywords remain representable and unbuildable until a search-query URL carries them (2026-08-11)
+
+The account saved-search body has a `keywords` field, so `FilterSpec` keeps optional keywords,
+but every captured `q=searchQuery` request URL has filters only. A saved-search record proves
+that LinkedIn stores keywords; it does not prove whether a composed search URL puts them inside
+`query=`, beside it as another parameter, or in a differently named field. A spec with
+keywords therefore refuses with `FILTER_KEYWORDS_GRAMMAR_UNMEASURED` until Task 43 captures a
+UI-issued request that settles the spelling.
+
+Serializing the obvious-looking `keywords:<text>` lost under the same rule as D421: an endpoint
+or field name that happens to be plausible is still invented when no measured request names it.
+
+## D423 — The catalog pins 46 body types and reports 44 emittable types separately (operator decision, 2026-08-11)
+
+The operator chose Option A after the promoted body contradicted the plan's 45-type count. The
+literal catalog is **46 distinct type names**: 35 LEAD rows plus 17 ACCOUNT rows, with six type
+names shared across verticals. Pinning tests keep every one because the fixture is a drift
+sentinel for what LinkedIn sent, not a projection of what the builder happens to emit.
+
+`GEOGRAPHY` and `HEADQUARTERS_LOCATION` are aggregate presentation parents. Their child types
+carry the request grammar, so the builder refuses the parents and reports **44 emittable type
+names** separately. Counting 45 lost because no defensible set operation over the captured body
+produces it; it was an arithmetic error in the draft plan, now corrected in the M6 README,
+CONTEXT and Task 41 contract.
+
+## D424 — Omitting an entity value's display text needs its own request provenance (2026-08-11)
+
+A vocabulary row proves that an id and display text belong together; it does not by itself
+prove every legal request spelling for that value. The archived CXO request omits `text`, while
+the saved-search body supplies its display text. Vocabulary rows therefore carry a separate
+`textOmissionProvenance` list containing only request-URL sources. The builder emits an id-only
+value only when that list proves the exact vertical, facet and id; the strict decoder likewise
+needs that omission evidence to reconstruct the typed spec.
+
+Treating any known id as safe to emit without text lost because it generalized one observed
+request shape to all vocabulary. Requiring text unconditionally also lost because it could not
+reconstruct the measured CXO query byte-for-byte. The separate evidence field preserves both
+the semantic tuple and the exact request spelling without inventing either.
+
+## D425 — Archive harvests are bounded, atomic per registry, and audit every named source (2026-08-11)
+
+The file-backed vocabulary accepts at most 50 source runs per harvest, 1,000 meta files per
+run, 10,000 rows and 100 ordinary plus 100 omission-provenance records per row. Each registry
+replacement is written to a unique temporary file and atomically renamed. A two-registry
+harvest writes the private overlay first and reports exactly which registry committed if the
+second write fails; rerunning is idempotent because merges deduplicate provenance identities.
+
+Audit does not pass after finding one convenient source. It re-harvests each named source and
+requires its exact archive id, source kind, file and locator to resolve. Unbounded archive walks,
+in-place JSON writes and first-match audits all lost because they turn an offline evidence store
+into a denial-of-service, partial-file, or stale-provenance failure surface.
+
+## D426 — Query evidence is promoted as a scrubbed archive-shaped fixture (review fix, 2026-08-11)
+
+Task 41's first implementation proved its query grammar and vocabulary harvester against the
+operator machine's gitignored `runs/` tree. Those tests could not run on a fresh clone. The
+portable evidence now mirrors the original `run/raw` layout under the committed query fixture
+directory and retains each source run id, archive id and original file hash in a manifest.
+
+Public filter ids and display values remain because they are the measured vocabulary the task
+exists to preserve. Operator-owned saved-search ids and labels, seat data, operator-scoped
+filter ids and text, and per-execution session values are replaced with explicit scrub tokens;
+the manifest names each scrubbed field but never its value. Committing the raw URLs/bodies lost
+on the privacy boundary, while synthetic hand-authored fixtures lost because they would no
+longer prove the production archive parser against a measured envelope.
+
+## D427 — The query decoder is a strict inverse, not a projection (review fix, 2026-08-11)
+
+`decodeBuiltFilterSpec` now rejects unknown, duplicate and missing fields at the root, filter,
+value, range and recent-search levels; it also rejects filters containing both value and range
+branches. The decoded object is run back through `filterSpecSchema` before it is returned.
+
+Weakening the comment to call the decoder a projection lost because its purpose is to detect a
+builder accidentally emitting a field the typed spec cannot represent. Silently dropping that
+field would make the round-trip property green precisely when the builder had changed meaning.
+
+## D428 — Range inputs canonicalize once at schema ingress and otherwise refuse (review fix, 2026-08-11)
+
+Numeric JSON inputs are converted to canonical decimal strings by `filterSpecSchema`. Strings
+must already be canonical decimals: no surrounding whitespace, hexadecimal prefix, exponent
+notation, leading zeros or negative zero. The builder then validates integer/natural input type,
+minimum value, accepted values and sub-filter ids from the catalog before emitting the atom.
+
+Trimming or interpreting JavaScript's full `Number()` grammar lost because it would turn an
+operator's unmeasured spelling into a request LinkedIn's UI never issued. Emitting the raw string
+lost for the same reason. One canonical representation also makes numeric CLI input and decoded
+query specs compare honestly.
+
+## D429 — One corrupt archive capture is skipped visibly; it does not erase a harvest (review fix, 2026-08-11)
+
+The harvester matches exact Sales Navigator endpoint pathnames, accepts absolute or relative
+archived URLs, and only consumes 2xx captures. Invalid metadata, query grammar, body gzip/JSON or
+response status produces a typed per-capture warning; other valid files and runs continue.
+Capability receipts aggregate those warnings and count the skipped captures.
+
+Aborting the full multi-run harvest lost because an unrelated typeahead sibling or one truncated
+sidecar could discard every valid vocabulary row. Silent skipping also lost: a missing response
+and a corrupt response require different operator actions, so each warning has its own code.

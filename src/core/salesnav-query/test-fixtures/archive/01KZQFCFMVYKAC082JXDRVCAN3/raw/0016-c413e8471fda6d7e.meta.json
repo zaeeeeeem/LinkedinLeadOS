@@ -1,0 +1,4 @@
+{
+  "status": 200,
+  "url": "https://www.linkedin.com/sales-api/salesApiLeadSearch?q=searchQuery&query=(recentSearchParam:(doLogHistory:true),filters:List((type:PERSONA,values:List((id:SCRUBBED_OPERATOR_FILTER_ID,selectionType:INCLUDED)))))&start=0&count=25&decorationId=com.linkedin.sales.deco.desktop.searchv2.LeadSearchResult-14"
+}

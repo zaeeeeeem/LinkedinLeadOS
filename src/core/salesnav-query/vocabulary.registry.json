@@ -1,0 +1,202 @@
+{
+  "version": 1,
+  "rows": [
+    {
+      "rowId": "89724059ec423120ee99e2b7",
+      "vertical": "ACCOUNT",
+      "facet": "COMPANY_HEADCOUNT",
+      "id": "B",
+      "text": "1-10",
+      "operatorScoped": false,
+      "provenance": [
+        {
+          "kind": "archive-body",
+          "runId": "01KZQCS8XZDDYSDGMT5SB81YBS",
+          "archiveId": "0039-93b72711dc6cac2e",
+          "file": "01KZQCS8XZDDYSDGMT5SB81YBS/raw/0039-93b72711dc6cac2e.json.gz",
+          "locator": "$.elements[0].filters[0].singleFilterMetadata.values[0]"
+        },
+        {
+          "kind": "request-url",
+          "runId": "01KZQ5TXC23T3FFBJ72P8CE85J",
+          "archiveId": "0016-67ea927af64cc179",
+          "file": "01KZQ5TXC23T3FFBJ72P8CE85J/raw/0016-67ea927af64cc179.meta.json",
+          "locator": "query.filters[0].values[0]"
+        }
+      ],
+      "textOmissionProvenance": []
+    },
+    {
+      "rowId": "402ef40a1564a97f8732bdbc",
+      "vertical": "ACCOUNT",
+      "facet": "COMPANY_HEADCOUNT",
+      "id": "C",
+      "text": "11-50",
+      "operatorScoped": false,
+      "provenance": [
+        {
+          "kind": "archive-body",
+          "runId": "01KZQCS8XZDDYSDGMT5SB81YBS",
+          "archiveId": "0039-93b72711dc6cac2e",
+          "file": "01KZQCS8XZDDYSDGMT5SB81YBS/raw/0039-93b72711dc6cac2e.json.gz",
+          "locator": "$.elements[0].filters[0].singleFilterMetadata.values[1]"
+        },
+        {
+          "kind": "request-url",
+          "runId": "01KZQ5TXC23T3FFBJ72P8CE85J",
+          "archiveId": "0016-67ea927af64cc179",
+          "file": "01KZQ5TXC23T3FFBJ72P8CE85J/raw/0016-67ea927af64cc179.meta.json",
+          "locator": "query.filters[0].values[1]"
+        }
+      ],
+      "textOmissionProvenance": []
+    },
+    {
+      "rowId": "e79214f7029eea705545b39f",
+      "vertical": "ACCOUNT",
+      "facet": "INDUSTRY",
+      "id": "4",
+      "text": "Software Development",
+      "operatorScoped": false,
+      "provenance": [
+        {
+          "kind": "archive-body",
+          "runId": "01KZQCS8XZDDYSDGMT5SB81YBS",
+          "archiveId": "0039-93b72711dc6cac2e",
+          "file": "01KZQCS8XZDDYSDGMT5SB81YBS/raw/0039-93b72711dc6cac2e.json.gz",
+          "locator": "$.elements[0].filters[2].singleFilterMetadata.values[0]"
+        },
+        {
+          "kind": "request-url",
+          "runId": "01KZQ5TXC23T3FFBJ72P8CE85J",
+          "archiveId": "0016-67ea927af64cc179",
+          "file": "01KZQ5TXC23T3FFBJ72P8CE85J/raw/0016-67ea927af64cc179.meta.json",
+          "locator": "query.filters[2].values[0]"
+        }
+      ],
+      "textOmissionProvenance": []
+    },
+    {
+      "rowId": "5bba517889f59a398a6b4e1d",
+      "vertical": "ACCOUNT",
+      "facet": "JOB_OPPORTUNITIES",
+      "id": "JO1",
+      "text": "Hiring on Linkedin",
+      "operatorScoped": false,
+      "provenance": [
+        {
+          "kind": "archive-body",
+          "runId": "01KZQCS8XZDDYSDGMT5SB81YBS",
+          "archiveId": "0039-93b72711dc6cac2e",
+          "file": "01KZQCS8XZDDYSDGMT5SB81YBS/raw/0039-93b72711dc6cac2e.json.gz",
+          "locator": "$.elements[0].filters[4].singleFilterMetadata.values[0]"
+        },
+        {
+          "kind": "request-url",
+          "runId": "01KZQ5TXC23T3FFBJ72P8CE85J",
+          "archiveId": "0016-67ea927af64cc179",
+          "file": "01KZQ5TXC23T3FFBJ72P8CE85J/raw/0016-67ea927af64cc179.meta.json",
+          "locator": "query.filters[3].values[0]"
+        }
+      ],
+      "textOmissionProvenance": []
+    },
+    {
+      "rowId": "95b88c053ef9a223aaa82328",
+      "vertical": "ACCOUNT",
+      "facet": "REGION",
+      "id": "103644278",
+      "text": "United States",
+      "operatorScoped": false,
+      "provenance": [
+        {
+          "kind": "archive-body",
+          "runId": "01KZQCS8XZDDYSDGMT5SB81YBS",
+          "archiveId": "0039-93b72711dc6cac2e",
+          "file": "01KZQCS8XZDDYSDGMT5SB81YBS/raw/0039-93b72711dc6cac2e.json.gz",
+          "locator": "$.elements[0].filters[1].singleFilterMetadata.values[0]"
+        },
+        {
+          "kind": "request-url",
+          "runId": "01KZQ5TXC23T3FFBJ72P8CE85J",
+          "archiveId": "0016-67ea927af64cc179",
+          "file": "01KZQ5TXC23T3FFBJ72P8CE85J/raw/0016-67ea927af64cc179.meta.json",
+          "locator": "query.filters[1].values[0]"
+        }
+      ],
+      "textOmissionProvenance": []
+    },
+    {
+      "rowId": "065bb55eba13c7bab0ea911c",
+      "vertical": "LEAD",
+      "facet": "COMPANY_HEADCOUNT",
+      "id": "B",
+      "text": "1-10",
+      "operatorScoped": false,
+      "provenance": [
+        {
+          "kind": "archive-body",
+          "runId": "01KZQCS8XZDDYSDGMT5SB81YBS",
+          "archiveId": "0037-6721a5820194c523",
+          "file": "01KZQCS8XZDDYSDGMT5SB81YBS/raw/0037-6721a5820194c523.json.gz",
+          "locator": "$.elements[0].filters[0].singleFilterMetadata.values[0]"
+        }
+      ],
+      "textOmissionProvenance": []
+    },
+    {
+      "rowId": "5aa03026b82603bcee8222ed",
+      "vertical": "LEAD",
+      "facet": "COMPANY_HEADCOUNT",
+      "id": "C",
+      "text": "11-50",
+      "operatorScoped": false,
+      "provenance": [
+        {
+          "kind": "archive-body",
+          "runId": "01KZQCS8XZDDYSDGMT5SB81YBS",
+          "archiveId": "0037-6721a5820194c523",
+          "file": "01KZQCS8XZDDYSDGMT5SB81YBS/raw/0037-6721a5820194c523.json.gz",
+          "locator": "$.elements[0].filters[0].singleFilterMetadata.values[1]"
+        }
+      ],
+      "textOmissionProvenance": []
+    },
+    {
+      "rowId": "f95405204ce5b221fa179006",
+      "vertical": "LEAD",
+      "facet": "INDUSTRY",
+      "id": "4",
+      "text": "Software Development",
+      "operatorScoped": false,
+      "provenance": [
+        {
+          "kind": "archive-body",
+          "runId": "01KZQCS8XZDDYSDGMT5SB81YBS",
+          "archiveId": "0037-6721a5820194c523",
+          "file": "01KZQCS8XZDDYSDGMT5SB81YBS/raw/0037-6721a5820194c523.json.gz",
+          "locator": "$.elements[0].filters[2].singleFilterMetadata.values[0]"
+        }
+      ],
+      "textOmissionProvenance": []
+    },
+    {
+      "rowId": "d625588e215db4b478915e55",
+      "vertical": "LEAD",
+      "facet": "REGION",
+      "id": "103644278",
+      "text": "United States",
+      "operatorScoped": false,
+      "provenance": [
+        {
+          "kind": "archive-body",
+          "runId": "01KZQCS8XZDDYSDGMT5SB81YBS",
+          "archiveId": "0037-6721a5820194c523",
+          "file": "01KZQCS8XZDDYSDGMT5SB81YBS/raw/0037-6721a5820194c523.json.gz",
+          "locator": "$.elements[0].filters[1].singleFilterMetadata.values[0]"
+        }
+      ],
+      "textOmissionProvenance": []
+    }
+  ]
+}
