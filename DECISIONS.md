@@ -5483,3 +5483,65 @@ Capability receipts aggregate those warnings and count the skipped captures.
 Aborting the full multi-run harvest lost because an unrelated typeahead sibling or one truncated
 sidecar could discard every valid vocabulary row. Silent skipping also lost: a missing response
 and a corrupt response require different operator actions, so each warning has its own code.
+
+## D440 — The whole human-driven search allowance is charged before navigation (2026-08-11)
+
+`salesnav.filters.harvest` charges one page load and its full declared search-page allowance
+before its single navigation. The allowance defaults to 12 and cannot exceed 25. Unused units
+remain charged: a crash during the human phase can waste budget, but it cannot erase searches
+the operator already caused before the passive observer reconciled them.
+
+After the handoff, the operator—not the capability—causes filter traffic. Those search pages
+cannot be spent before the operator's hand sends them without pretending the capability can
+control a human action one by one, so the declared allowance is a conservative reservation.
+The observer deduplicates proved `salesApiLeadSearch` / `salesApiAccountSearch` requests by CDP
+request id across archived captures and recorded misses, stops when the allowance is reached,
+and reports observed requests separately from charged units. A retry has a new request id and
+uses another reserved unit.
+
+Preflight checks the full allowance before the atomic ledger spend. Observation refuses to
+start unless the full allowance is already charged. The cold page consequently remains
+over-counted when it issues no search, and every unused human-action unit remains over-counted
+at teardown; neither is refunded because the ledger is append-only safety evidence.
+The capability's daily sub-cap is 4 page loads / 25 search pages / 0 profile opens: the four
+page loads are Task 43's hard cross-session budget, and the search ceiling is half the global
+day rather than the uncapped-by-omission fallback.
+
+Rejected: charging newly observed requests during or after the session. It is more exact on a
+clean exit, but a process death between a human action and the next passive poll permanently
+under-counts account exposure. Exact-on-success lost to fail-safe-on-crash. The operator lowers
+the declared allowance to the agreed plan rather than receiving unused units back.
+
+## D441 — The human handoff is a typed no-input boundary on the same worker tab (2026-08-11)
+
+The sanctioned two-driver shape is one temporal boundary, not simultaneous control. The
+capability acquires the ordinary lease, foregrounds the automation-profile worker tab,
+pre-charges, navigates once and passes the post-navigation challenge gate. It then announces
+the handoff and calls an observer whose type accepts only the tap, clock and stop
+predicate—no tab and no cursor—so it cannot click, type, wheel or navigate by construction.
+
+The operator uses that same worker tab by hand. One Ctrl-C or the run's `PAUSE` file ends the
+observation; the capability resumes read-only challenge checking and teardown only after the
+operator has stopped. The receipt and event log both state zero capability input events after
+navigation. This is the Task 43 exception shape to D10; it grants no new automated interaction
+class and does not apply outside an explicit operator-driven harvest session.
+
+Rejected: observing the operator's personal Chrome. It would cross D9's profile boundary and
+make the tab lease meaningless. Rejected: keeping the capability active through periodic DOM
+or cursor work. The tap already observes the network, and any extra input would make the
+zero-interaction claim false.
+
+## D442 — Only public taxonomy vocabulary may enter the committed registry (2026-08-11)
+
+Task 43 inherits D420's public registry plus gitignored archive-root overlay and narrows the
+live session to taxonomy facets. Geography, industry, seniority, function, title and closed
+enum display values may be committed when their archive provenance resolves. PERSONA,
+ACCOUNT_LIST, LEAD_LIST, CRM facets and saved-search ids remain operator-scoped in the private
+overlay; CURRENT_COMPANY and CONNECTION_OF are not harvested because their suggestions expose
+real entities tied to the operator's graph.
+
+The run archive may contain those values if the operator opens the wrong control, because raw
+capture is never edited after the fact. The offline classifier routes or refuses them; it does
+not promote them into a public fixture or committed registry. Rejected: treating every filter
+suggestion as harmless vocabulary. A company/person suggestion is an entity observation, not a
+taxonomy row, and committing it would turn an operator-private graph edge into repository data.

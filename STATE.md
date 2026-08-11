@@ -1,5 +1,58 @@
 # STATE
 
+## In progress — Task 43 operator-driven vocabulary harvest (2026-08-11)
+
+Task 43 is isolated in worktree
+`/Users/talhat/Claude/Projects/StartupStruggle/LinkedinLeadsOS-task43` on branch
+`codex/task-43-vocab-harvest`, forked from Task 41 commit `b10ade6`. The required M6 → M5 →
+M4 → M1–M3 context chain, Task 43 contract, recording chain, relevant spec sections,
+reserved decision range and the existing paged/budget/Sales Navigator/filter-query sources
+have been read. D440–D449 are free.
+
+The inherited baseline is typecheck-clean. Its serial offline suite is **1,740 passed / 47
+environment skips across 120 files**; the skips are the two Supabase integration files because
+their environment variables are not configured in this worktree. The Task 43 dependency from
+Task 41 is present: archive-backed vocabulary registry/overlay, harvester and audit.
+
+The pre-measurement implementation boundary is fixed by D152: build and prove the passive
+observer first, but write no typeahead/dropdown response parser until an operator-driven live
+archive exists. **Spend: 0 / 4 capability-initiated page loads; 0 search pages. No LinkedIn
+contact.** Next: implement the one-navigation, zero-input-event observer with explicit session
+stop/accounting, then request fresh operator approval and the agreed taxonomy target list
+immediately before the first live invocation.
+
+### Offline observer checkpoint — ready for the first supervised session (2026-08-11)
+
+`salesnav.filters.harvest` now opens one measured Lead or Account search route, hands the
+automation-profile worker tab to the operator, and enters a passive observer whose type has no
+tab or cursor. The receipt/event-log contract reports one navigation and zero capability
+clicks, keystrokes and wheel events after handoff. One Ctrl-C, the run's `PAUSE` file, the
+time limit or the declared search-page budget ends observation; response challenges still use
+the ordinary screenshot/checkpoint halt.
+
+D440 records spend accounting: the full declared human-session allowance is charged before
+navigation, so a process death can waste units but cannot erase already-caused searches. The
+observer reconciles UI-issued lead/account requests from CDP request ids across captures and
+misses and reports observed requests separately from the deliberately conservative charge. The
+per-invocation allowance defaults to 12 and cannot exceed 25; the daily capability cap is 4
+page loads / 25 search pages / 0 profile opens. D441 records the typed human-handoff boundary.
+D442 keeps entity/graph facets out of the committed taxonomy registry. The broad-net scan is
+capped at 10,000 capture records and the final two-second quiet window rechecks accounting
+before teardown.
+
+Verification after these changes: `npm run typecheck`; focused observer/budget suite **54/54**;
+full serial suite **1,747 passed / 47 environment skips across 122 files**. The two skipped
+files are unchanged Supabase integration suites whose environment variables are not configured
+in this worktree. Direct shared-ledger inspection is unchanged at **146 lines / 19,289 bytes**,
+SHA-256 `6c3e467826fe401a05c9ce5c73c37a358388a645be942da75bbe0f8936e20442`,
+and archive listing finds **0** Task 43 run records. **Spend remains 0 / 4 capability-initiated
+page loads and 0 search pages; no LinkedIn contact.**
+
+Cold resume: run the first Lead harvest only after the operator supplies the exact taxonomy
+facet/prefix plan and gives fresh approval immediately before invocation. Do not add a
+typeahead/dropdown parser yet: D152 requires the live archive first. A failed or stopped
+invocation does not authorize another one.
+
 ## Built — Task 41 filter grammar and offline builder (2026-08-11)
 
 Research checkpoint complete in isolated worktree `codex/task-41-filter-grammar`. The four
