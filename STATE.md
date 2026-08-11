@@ -49,6 +49,30 @@ resume bug and a parse-drift bug look identical from a receipt. Fixed by recordi
 (`PageAttempt.archive_ids`) and adopting on their presence;
 `tests/paged-run-tap-source.test.ts` pins it and the mutation bites.
 
+**Proved live, 2026-08-11: page 2 by click, exit 0** (run `01KZQ4S9FYEB5NCBPQC8FZSGK5`,
+2 page loads / 2 search pages, no challenge). `<button aria-label="Next">`, one match,
+clicked at 1232,750 after one wheel pass; `salesApiLeadSearch` reported `paging.start 0` on
+page 1 and `25` on page 2, and the `sessionId` held across the click. The arrival check ran
+off the body, not the label (D404). **Both lead-search fixtures — page 1 and page 2 — are now
+promoted**, which is the deliverable Task 36 was previously short of on the leads side, and
+the FIELD-MAP pinning test passes unchanged against them (no parse drift in 24 hours).
+
+The first attempt refused (`PAGER_CONTROL_OFFSCREEN`) and the refusal was a defect in the
+reveal rule, not the page: `inView` demanded 80px of clearance from every viewport edge, and
+the pager rests at the bottom of `div#search-results-container` which the page read has
+already scrolled to the end of. It fired on the page's normal resting state. Replaced with a
+`document.elementFromPoint` hit test — does the pixel we are about to press belong to this
+control — which also separates **obscured** from **offscreen**; the reveal loop now stops
+when a pass moves the control less than 4px (D404).
+
+**The CDP transport fault did not reproduce** across the two runs. It stays open (D402).
+
+**Still unmeasured: the accounts search.** It needs an accounts search url the UI itself
+produced — the bare `/sales/search/company` renders an empty entry state (D357), no such url
+appears in the archived `/sales/home` snapshot, and synthesizing a filter url is refused
+until M6. **Operator input needed:** a saved accounts search or a company-search url copied
+from the UI.
+
 ## Complete — Task 36, the Sales Navigator surface probe (2026-08-10, live, operator-authorized)
 
 `src/capabilities/salesnav.probe/` plus `FIELD-MAP.md`. Branch

@@ -56,10 +56,26 @@ export const PAGER_SELECTORS = [
   '[class*="pagination"]',
 ] as const;
 
-/** How close to the viewport edge a control may sit and still be clicked
- *  without scrolling first. A control under a sticky footer is "visible" by
- *  rect and unclickable in fact. */
-export const VIEWPORT_MARGIN_PX = 80;
+/**
+ * Whether the control is clickable is decided by a **hit test**, not by a margin.
+ *
+ * The first live run refused here, correctly and uselessly: the reveal read
+ * called the control out of view because its centre sat within 80px of the
+ * viewport's bottom edge, and the pager lives at the bottom of
+ * `div#search-results-container`, which the page read had already scrolled to
+ * the end of. Nothing could move, so three wheel passes changed nothing and the
+ * click was refused — a rule that fires on the page's normal resting state.
+ *
+ * `document.elementFromPoint` answers the question the margin was proxying for:
+ * *does the pixel we are about to press belong to this control?* A control under
+ * a sticky overlay fails it, a control 10px from the bottom edge passes it, and
+ * neither answer is a guess about layout.
+ */
+export const HIT_TEST = true;
+
+/** A reveal pass that moves the control less than this has not moved it. Stops
+ *  the loop wheeling against a scroller that is already at its end. */
+export const REVEAL_PROGRESS_PX = 4;
 
 /** Wheel-and-retry attempts before the control is declared unreachable. */
 export const MAX_REVEAL_ATTEMPTS = 3;
@@ -78,9 +94,13 @@ export type ControlLocation = {
   y: number;
   width: number;
   height: number;
-  /** True when the centre sits inside the viewport with `VIEWPORT_MARGIN_PX` to
-   *  spare on every side. */
+  /** True when the centre is inside the viewport **and** the pixel at that
+   *  centre belongs to this control — the hit test, not a margin. */
   inView: boolean;
+  /** True when the centre is inside the viewport but the pixel at it belongs to
+   *  something else: an overlay, a sticky bar, a modal. Distinguished from
+   *  simply being off-screen because scrolling does not fix it. */
+  obscured: boolean;
   viewportWidth: number;
   viewportHeight: number;
   /** Centre of the element that scrolls this surface, for aiming the wheel —
@@ -111,7 +131,6 @@ export function pagerControlExpression(direction: PagerDirection): string {
     var NAMES = ${JSON.stringify(PAGER_CONTROL_NAMES[direction].source)};
     var re = new RegExp(NAMES, 'i');
     var SELECTORS = ${JSON.stringify([...PAGER_SELECTORS])};
-    var MARGIN = ${VIEWPORT_MARGIN_PX};
 
     var pager = null;
     for (var s = 0; s < SELECTORS.length && !pager; s++) {
@@ -132,7 +151,7 @@ export function pagerControlExpression(direction: PagerDirection): string {
 
     var base = {
       matches: 0, name: null, tag: null, disabled: false,
-      x: 0, y: 0, width: 0, height: 0, inView: false,
+      x: 0, y: 0, width: 0, height: 0, inView: false, obscured: false,
       viewportWidth: vw, viewportHeight: vh, scrollerX: sx, scrollerY: sy,
     };
     if (!pager) return base;
@@ -159,9 +178,21 @@ export function pagerControlExpression(direction: PagerDirection): string {
     base.tag = (el.tagName || '').toLowerCase();
     base.disabled = !!(el.disabled || el.getAttribute('aria-disabled') === 'true');
     base.x = cx; base.y = cy; base.width = r.width; base.height = r.height;
-    base.inView = r.width > 0 && r.height > 0
-      && cx > MARGIN && cx < vw - MARGIN
-      && cy > MARGIN && cy < vh - MARGIN;
+
+    // The hit test: does the pixel we would press belong to this control? A
+    // margin cannot answer that — it rejects a control resting legitimately at
+    // the bottom of a scrolled-to-the-end list, and accepts one buried under a
+    // modal in the middle of the screen.
+    var onScreen = r.width > 0 && r.height > 0 && cx >= 0 && cx < vw && cy >= 0 && cy < vh;
+    var hit = false;
+    if (onScreen) {
+      try {
+        var top = document.elementFromPoint(cx, cy);
+        hit = !!top && (top === el || el.contains(top));
+      } catch (e2) { hit = false; }
+    }
+    base.inView = onScreen && hit;
+    base.obscured = onScreen && !hit;
     return base;
   } catch (e) { return null; }
 })()`;
@@ -193,6 +224,7 @@ export function interpretControl(raw: unknown): ControlLocation | null {
     width: num(o["width"]),
     height: num(o["height"]),
     inView: o["inView"] === true,
+    obscured: o["obscured"] === true,
     viewportWidth: num(o["viewportWidth"]),
     viewportHeight: num(o["viewportHeight"]),
     scrollerX: num(o["scrollerX"]),
@@ -292,8 +324,9 @@ export async function clickPagerControl(o: {
   if (refused) throw refused;
 
   let passes = 0;
-  while (location !== null && !location.inView && passes < MAX_REVEAL_ATTEMPTS) {
+  while (location !== null && !location.inView && !location.obscured && passes < MAX_REVEAL_ATTEMPTS) {
     // Toward the control, aimed inside the box that actually scrolls.
+    const before = location.y;
     const delta = Math.round(location.y - location.viewportHeight / 2);
     if (delta === 0) break;
     await o.cursor.wheel(location.scrollerX, location.scrollerY, delta);
@@ -302,13 +335,27 @@ export async function clickPagerControl(o: {
     location = await locate();
     refused = controlRefusal(location, o.direction);
     if (refused) throw refused;
+    // A scroller already at its end does not move, and wheeling it again will
+    // not either. Stop rather than spend the remaining passes proving it.
+    if (location !== null && Math.abs(location.y - before) < REVEAL_PROGRESS_PX) break;
   }
 
+  if (location !== null && location.obscured) {
+    throw refusal(
+      "PAGER_CONTROL_OBSCURED",
+      `the ${o.direction} control is on screen but the pixel at its centre belongs to something else — ` +
+        `an overlay, a sticky bar or a modal. Clicking it would click that instead, so this stops`,
+      `at ${Math.round(location.x)},${Math.round(location.y)} of ${location.viewportWidth}x${location.viewportHeight}`,
+    );
+  }
   if (location === null || !location.inView) {
     throw refusal(
       "PAGER_CONTROL_OFFSCREEN",
       `the ${o.direction} control would not come into view after ${passes} wheel pass(es); a click at ` +
         `coordinates the pointer cannot actually reach is a click on whatever is there instead`,
+      location === null
+        ? undefined
+        : `at ${Math.round(location.x)},${Math.round(location.y)} of ${location.viewportWidth}x${location.viewportHeight}`,
     );
   }
 

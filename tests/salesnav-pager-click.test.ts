@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   clickPagerControl, controlRefusal, interpretControl, MAX_REVEAL_ATTEMPTS, PAGER_CONTROL_NAMES,
-  pagerControlExpression, pagingFromCaptures, pagingOffsetOf, VIEWPORT_MARGIN_PX,
+  pagerControlExpression, pagingFromCaptures, pagingOffsetOf,
   type ControlLocation, type PagerDirection,
 } from "../src/capabilities/salesnav.probe/pager.js";
 import { CapabilityError } from "../src/core/run/receipt.js";
@@ -23,6 +23,7 @@ function location(over: Partial<ControlLocation> = {}): ControlLocation {
     width: 40,
     height: 40,
     inView: true,
+    obscured: false,
     viewportWidth: 1280,
     viewportHeight: 800,
     scrollerX: 640,
@@ -53,7 +54,9 @@ describe("pagerControlExpression", () => {
   it("is one round trip and carries the pager selectors and the margin", () => {
     const js = pagerControlExpression("next");
     expect(js).toContain("artdeco-pagination");
-    expect(js).toContain(String(VIEWPORT_MARGIN_PX));
+    // The hit test, not a margin: the first live run refused a control that was
+    // plainly visible at the bottom of a scrolled-to-the-end list.
+    expect(js).toContain("elementFromPoint");
     // Never a synthetic DOM click, in the page or out of it.
     expect(js).not.toContain(".click()");
     expect(js).not.toContain("scrollIntoView");
@@ -84,9 +87,10 @@ describe("interpretControl — bounds enforced on the way in", () => {
   });
 
   it("treats every boolean as false unless the page said exactly true", () => {
-    const v = interpretControl({ matches: 1, disabled: "true", inView: 1 })!;
+    const v = interpretControl({ matches: 1, disabled: "true", inView: 1, obscured: "yes" })!;
     expect(v.disabled).toBe(false);
     expect(v.inView).toBe(false);
+    expect(v.obscured).toBe(false);
   });
 });
 
@@ -191,6 +195,41 @@ describe("clickPagerControl", () => {
       await expect(clickPagerControl({ tab: tabOf(bad), cursor, direction: "next" })).rejects.toThrow();
       expect(cursor.clicks).toEqual([]);
     }
+  });
+
+  // The defect the first live run found. The pager lives at the bottom of
+  // `div#search-results-container`, which the page read has already scrolled to
+  // the end of, so the control rests near the viewport's bottom edge and
+  // nothing can move it. A margin rule refuses there — on the page's normal
+  // resting state — and the hit test does not.
+  it("clicks a control resting at the bottom edge that no scroll can move", async () => {
+    const cursor = cursorOf();
+    // Two passes that change nothing: the scroller is already at its end.
+    const tab = tabOf({ inView: true, y: 780, viewportHeight: 800 });
+    const report = await clickPagerControl({ tab, cursor, direction: "next" });
+    expect(cursor.clicks).toEqual([{ x: 600, y: 780 }]);
+    expect(report.revealPasses).toBe(0);
+  });
+
+  it("gives up wheeling once a pass stops moving the control", async () => {
+    const cursor = cursorOf();
+    // Off-screen and immovable: every read returns the same y.
+    const tab = tabOf({ inView: false, y: 1400 });
+    await expect(clickPagerControl({ tab, cursor, direction: "next" }))
+      .rejects.toMatchObject({ code: "PAGER_CONTROL_OFFSCREEN" });
+    // One pass, not three: the second read showed no progress.
+    expect(cursor.wheels).toHaveLength(1);
+  });
+
+  // On screen and unreachable is a different failure from off screen, because
+  // scrolling does not fix it — and clicking anyway would press the overlay.
+  it("refuses a control whose own pixel belongs to an overlay", async () => {
+    const cursor = cursorOf();
+    const tab = tabOf({ inView: false, obscured: true });
+    await expect(clickPagerControl({ tab, cursor, direction: "next" }))
+      .rejects.toMatchObject({ code: "PAGER_CONTROL_OBSCURED" });
+    expect(cursor.clicks).toEqual([]);
+    expect(cursor.wheels).toEqual([]);
   });
 
   // A control that becomes ambiguous while being revealed must not be clicked

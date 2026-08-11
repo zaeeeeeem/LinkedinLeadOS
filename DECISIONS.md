@@ -4872,3 +4872,49 @@ adopted on the checkpoint's own claim.
 
 `tests/paged-run-tap-source.test.ts` pins it, including the mutation — with the id path
 disabled the adoption test fails on a double charge.
+
+## D404 — The click is proved live: page 2 arrived, and the body says so (2026-08-11)
+
+Run `01KZQ4S9FYEB5NCBPQC8FZSGK5`, exit 0, 2 page loads / 2 search pages, no challenge, lease
+released. The first click this toolkit has ever performed.
+
+- Control: `<button aria-label="Next">`, one match inside `#ember186.artdeco-pagination`,
+  enabled, clicked at 1232,750 after one wheel pass.
+- **Arrival confirmed from the body, not the button** (D400 clause 6): `salesApiLeadSearch`
+  reported `paging.start 0 / count 25` on page 1 and `start 25 / count 25` on page 2. The
+  pager's own label agreed — it read "Page 2 of 100" — but agreement is not what the check
+  rests on.
+- `sessionId` held across the click (`YjiaDdlCSnS+9Sj6YlTEJw==` on both pages), which is what
+  D360 requires for two page numbers to mean the same thing.
+
+**A finding worth its own line: after the click, the landed url carries `page=2`.** The pager
+still renders 12 buttons and 0 anchors, so nothing about this makes page 2 cold-navigable —
+the url exists only *after* the UI has been driven there, which is precisely the reference
+worker's "teleporting" form when synthesized instead. D352 stands: the UI does not offer a
+page-2 href, and `searchPageUrl()` remains a candidate renderer rather than a permission.
+
+**The first attempt (`01KZQ4J6E8NWH84B3MNSBW3VS9`) refused, and the refusal was a defect in
+the reveal rule, not in the page.** `inView` required the control's centre to sit 80px clear
+of every viewport edge. The pager lives at the bottom of `div#search-results-container`
+(4745/627 px), which the page read has already scrolled to the end of, so the control rests
+near the bottom edge and no wheel can move it — the rule fired on the page's normal resting
+state, three passes changed nothing, and it refused. It refused rather than clicking
+something else, which is the rails working; but it could never have succeeded.
+
+Replaced by a hit test: `document.elementFromPoint` at the click point must resolve to the
+control or a descendant. That answers the question the margin was proxying for — *does the
+pixel we are about to press belong to this control?* — and it distinguishes **obscured** (on
+screen, someone else's pixel, scrolling will not help, `PAGER_CONTROL_OBSCURED`) from
+**offscreen**. The reveal loop also stops once a pass moves the control less than 4px, rather
+than wheeling a scroller that is already at its end.
+
+## D405 — A bare `/` response classifies as `unrecognized` on this surface (2026-08-11)
+
+`RESPONSE_STATUS_UNRECOGNIZED`, n=1, "bare / — guest homepage, or a bounce (unverified)",
+on the run above. Recorded because M5 CONTEXT rule 3 requires every unrecognized Sales Nav
+verdict to be written down whether or not the classifier is extended.
+
+Not extended here. One 200 on `/` amid 101 captures, on a run that otherwise completed both
+pages and returned rows, is not evidence of a bounce — and weakening or widening the
+classifier on one sample is exactly what D60 says not to do. If it recurs on a run that also
+loses rows, that is the pair worth acting on.

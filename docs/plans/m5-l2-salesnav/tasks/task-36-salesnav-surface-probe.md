@@ -28,11 +28,21 @@ list does not grow** (D351) · **pagination is click-only** (D352).
 - **The budget rose 6/6 → 10/10** (D401), and the whole D351–D360 block shifted by one from
   the D350–D359 the branch was written against, because D350 was taken by Task 35's merge.
 
+**Proved live 2026-08-11** (`01KZQ4S9FYEB5NCBPQC8FZSGK5`, exit 0, 2 loads / 2 search pages):
+the click reaches page 2, the body confirms it (`paging.start` 0 → 25), the `sessionId` holds
+across it, and **both lead-search fixtures, page 1 and page 2, are promoted** — the leads-side
+deliverable this task was short of. The first attempt refused on a defect in the reveal rule,
+now replaced by a hit test (D404).
+
 **Still short: the accounts search is unmeasured.** Its run died on a
 `CDP_CONNECTION_CLOSED` fault (2 of 4 runs, undiagnosed, core CDP rather than this surface —
 D402, `BACKLOG.md`) and the 6/day cap was reached before a retry. Tasks 38/40 must treat
 every accounts-side field as unmeasured until a re-probe lands; the leads side is complete.
-The raised budget is what makes that re-probe possible the same day.
+The raised budget makes that re-probe possible the same day, but it needs one thing the
+probe may not invent: **an accounts search url the UI itself produced** — a saved search or a
+company-search url copied from Sales Navigator. `/sales/search/company` bare renders an empty
+entry state (D357), the archived `/sales/home` snapshot carries no such url, and synthesizing
+a filter url is M6's job. Operator input, not an agent decision.
 
 ## Objective
 
