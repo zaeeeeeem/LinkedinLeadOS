@@ -4999,3 +4999,25 @@ zero cost, no browser, no auth, and an unconditional `CAPABILITY_NOT_IMPLEMENTED
 Pretending the live runners exist was rejected. Tasks 39 and 40 replace these entry points
 when they compose capture, `runPaged`, parsing and storage; until then no invocation can
 accidentally spend a page merely because the parser directory became discoverable.
+
+## D373 — Only identity refuses a search row; missing content warns and keeps the position (2026-08-11, review)
+
+Task 38 shipped both parsers requiring every measured field on every row: a lead with no
+`geoRegion`, no `currentPositions` or no `openLink`, or a company with no `description` or
+`industry`, refused the whole row. That loses the row's place in `search_results`, which is
+the one thing that table exists to record — and it loses it for a person who is *harder* to
+enrich, not less real. A retired lead and a company with no blurb are ordinary, not drift.
+
+The rule is now the one `company.people` already established (`ParsedCompanyPerson`: identity
+required, `name?` and `headline?` optional). A row is refused for an unresolvable subject urn
+or the operator's own identity, and nothing else. Every other field is content: absent means
+`PARSE_FIELD_MISSING` naming the field, and the row is stored with the field omitted.
+
+Strictness was rejected as a drift detector because of *how* it failed: a renamed field would
+have emptied whole pages rather than raising a named warning. Refusals still leave a gap in
+the page's positions rather than shifting the rows below them, so a gap remains readable as a
+refusal. Positions inside a lead follow the same rule — one unreadable position is dropped and
+named, never fatal to the lead.
+
+Found in review, not by the suite: the branch's tests asserted the strict behaviour on a
+fixture where every field happened to be present, so nothing could bite.

@@ -23,16 +23,17 @@ suite("salesnav.accounts.list body parser", () => {
       expect(row.source).toBe("labeled-body");
       expect(row.company_urn).toMatch(/^urn:li:fs_salesCompany:\d+$/);
       expect(row.company_url).toBe(`https://www.linkedin.com/sales/company/${row.company_urn.split(":").at(-1)}`);
-      expect(row.company_name.length).toBeGreaterThan(0);
-      expect(row.industry.length).toBeGreaterThan(0);
-      expect(row.employee_count_range.length).toBeGreaterThan(0);
+      // Optional on the type, present on this measured page — see the leads note.
+      expect(row.company_name!.length).toBeGreaterThan(0);
+      expect(row.industry!.length).toBeGreaterThan(0);
+      expect(row.employee_count_range!.length).toBeGreaterThan(0);
       expect(["string", "number"]).toContain(typeof row.employee_display_count);
-      expect(row.description.length).toBeGreaterThan(0);
+      expect(row.description!.length).toBeGreaterThan(0);
       expect(row.company_picture.artifacts).toBeGreaterThan(0);
       expect(Array.isArray(row.spotlight_badges)).toBe(true);
       expect(Number.isInteger(row.list_count)).toBe(true);
       expect(typeof row.saved).toBe("boolean");
-      expect(row.tracking_id.length).toBeGreaterThan(0);
+      expect(row.tracking_id!.length).toBeGreaterThan(0);
       expect(row).not.toHaveProperty("location");
       expect(row).not.toHaveProperty("object_urn");
     }
@@ -56,6 +57,21 @@ suite("salesnav.accounts.list body parser", () => {
     expect(forbidden.rows.some((row) => row.company_urn === urn)).toBe(false);
     body.elements[1]!["entityUrn"] = "urn:li:fs_salesProfile:(not,a,company)";
     expect(parseSalesNavAccounts(JSON.stringify(body)).refused).toBe(1);
+  });
+
+  it("keeps a company whose content is gone and names every missing field", () => {
+    const body = JSON.parse(load()) as { elements: Array<Record<string, unknown>> };
+    for (const key of ["companyName", "industry", "employeeCountRange", "employeeDisplayCount", "description", "listCount", "saved", "trackingId"]) delete body.elements[0]![key];
+    const got = parseSalesNavAccounts(JSON.stringify(body));
+    expect(got.refused).toBe(0);
+    expect(got.rows).toHaveLength(25);
+    expect(got.rows[0]!.company_urn).toMatch(/^urn:li:fs_salesCompany:\d+$/);
+    expect(got.rows[0]!.company_name).toBeUndefined();
+    expect(got.rows[0]!.saved).toBeUndefined();
+    for (const field of ["companyName", "industry", "description", "listCount", "saved", "trackingId"]) {
+      expect(got.warnings, field).toContainEqual({ code: "PARSE_FIELD_MISSING", field, n: 1 });
+    }
+    expect(got.rows[1]!.position).toBe(2);
   });
 
   it("bounds the result array", () => {

@@ -37,8 +37,11 @@ suite("salesnav.leads.list body parser", () => {
       expect(row.sales_profile_urn).toMatch(/^urn:li:fs_salesProfile:\(/);
       const profileId = /^urn:li:fs_salesProfile:\(([^,]+),/.exec(row.sales_profile_urn)?.[1];
       expect(row.profile_url).toContain(`/sales/lead/${profileId},`);
-      expect(row.full_name.replace(/\s+/g, " ")).toBe(`${row.first_name} ${row.last_name}`.replace(/\s+/g, " "));
-      expect(row.location.length).toBeGreaterThan(0);
+      // Every field below is optional on the type and present on this measured
+      // page — that gap is the point: the fixture proves LinkedIn sends them,
+      // the type refuses to let a parser lose a row when it stops.
+      expect(row.full_name!.replace(/\s+/g, " ")).toBe(`${row.first_name} ${row.last_name}`.replace(/\s+/g, " "));
+      expect(row.location!.length).toBeGreaterThan(0);
       expect(Number.isInteger(row.degree)).toBe(true);
       expect(Number.isInteger(row.list_count)).toBe(true);
       expect(typeof row.tracking_id).toBe("string");
@@ -98,6 +101,38 @@ suite("salesnav.leads.list body parser", () => {
     expect(got.rows[0]!.spotlight_badges).toHaveLength(MAX_SALESNAV_BADGES_PER_ROW);
     expect(got.warnings).toContainEqual(expect.objectContaining({ field: "currentPositions", n: 2 }));
     expect(got.warnings).toContainEqual(expect.objectContaining({ field: "spotlightBadges", n: 3 }));
+  });
+
+  it("keeps a row whose content is gone and names every missing field", () => {
+    const body = JSON.parse(load(PAGE_ONE)) as { elements: Array<Record<string, unknown>> };
+    const stripped = body.elements[0]!;
+    for (const key of ["fullName", "firstName", "lastName", "geoRegion", "degree", "trackingId", "listCount", "currentPositions", "saved", "openLink"]) delete stripped[key];
+    const got = parseSalesNavLeads(JSON.stringify(body));
+    // The whole point: identity survived, so the position survived.
+    expect(got.refused).toBe(0);
+    expect(got.rows).toHaveLength(body.elements.length);
+    const row = got.rows[0]!;
+    expect(row.position).toBe(1);
+    expect(row.person_urn).toMatch(/^urn:li:member:\d+$/);
+    expect(row.full_name).toBeUndefined();
+    expect(row.current_positions).toEqual([]);
+    expect(row.saved).toBeUndefined();
+    for (const field of ["fullName", "geoRegion", "degree", "listCount", "currentPositions", "saved", "openLink"]) {
+      expect(got.warnings, field).toContainEqual({ code: "PARSE_FIELD_MISSING", field, n: 1 });
+    }
+    // The rows after it keep their own positions, unshifted.
+    expect(got.rows[1]!.position).toBe(2);
+  });
+
+  it("drops one unreadable position without dropping the lead", () => {
+    const body = JSON.parse(load(PAGE_ONE)) as { elements: Array<Record<string, unknown>> };
+    const positions = body.elements[0]!["currentPositions"] as Array<Record<string, unknown>>;
+    const kept = positions.length;
+    positions.push({ companyName: "", title: "", posId: "not-an-id" });
+    const got = parseSalesNavLeads(JSON.stringify(body));
+    expect(got.refused).toBe(0);
+    expect(got.rows[0]!.current_positions).toHaveLength(kept);
+    expect(got.warnings).toContainEqual({ code: "PARSE_FIELD_MISSING", field: "currentPositions.position", n: 1 });
   });
 
   it("refuses drifted paging rather than guessing a page", () => {

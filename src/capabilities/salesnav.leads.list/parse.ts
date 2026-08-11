@@ -6,7 +6,7 @@ export const MAX_SALESNAV_FIELD_CHARS = 20_000;
 type Json = Record<string, unknown>;
 
 export type SalesNavParseWarning = {
-  code: "PARSE_BODY_INVALID" | "PARSE_PAGING_INVALID" | "PARSE_ROW_REFUSED" | "PARSE_INPUT_TRUNCATED" | "PARSE_FIELD_TRUNCATED";
+  code: "PARSE_BODY_INVALID" | "PARSE_PAGING_INVALID" | "PARSE_ROW_REFUSED" | "PARSE_FIELD_MISSING" | "PARSE_INPUT_TRUNCATED" | "PARSE_FIELD_TRUNCATED";
   field: string;
   n: number;
 };
@@ -24,6 +24,13 @@ export type SalesNavPosition = {
   description?: string;
 };
 
+/**
+ * Identity — `person_urn`, `sales_profile_urn`, `profile_url` — is the only part
+ * of a row that is guaranteed, because it is the only part a row is refused for.
+ * Every other field is content: absent means LinkedIn did not send it, which is
+ * a `PARSE_FIELD_MISSING` warning to act on, not a reason to lose the row's
+ * place in the page. Same rule as `company.people`.
+ */
 export type SalesNavLeadRow = {
   source: "labeled-body";
   person_urn: string;
@@ -31,23 +38,23 @@ export type SalesNavLeadRow = {
   profile_url: string;
   page: number;
   position: number;
-  full_name: string;
-  first_name: string;
-  last_name: string;
-  location: string;
-  degree: number;
+  full_name?: string;
+  first_name?: string;
+  last_name?: string;
+  location?: string;
+  degree?: number;
   headline?: string;
   current_positions: SalesNavPosition[];
   spotlight_badges: Array<{ id?: string; display_value?: string }>;
-  tracking_id: string;
-  list_count: number;
-  saved: boolean;
-  viewed: boolean;
-  premium: boolean;
-  open_link: boolean;
-  memorialized: boolean;
-  pending_invitation: boolean;
-  block_third_party_data_sharing: boolean;
+  tracking_id?: string;
+  list_count?: number;
+  saved?: boolean;
+  viewed?: boolean;
+  premium?: boolean;
+  open_link?: boolean;
+  memorialized?: boolean;
+  pending_invitation?: boolean;
+  block_third_party_data_sharing?: boolean;
   profile_picture: { root_url?: string; artifacts: number };
 };
 
@@ -76,6 +83,19 @@ function bounded(value: string | null, field: string, warnings: SalesNavParseWar
   if (value.length <= MAX_SALESNAV_FIELD_CHARS) return value;
   warnings.push({ code: "PARSE_FIELD_TRUNCATED", field, n: value.length - MAX_SALESNAV_FIELD_CHARS });
   return value.slice(0, MAX_SALESNAV_FIELD_CHARS);
+}
+
+/** A content field the FIELD-MAP measured on every row. Its absence is drift. */
+function expected<T>(value: T | null | undefined, field: string, warnings: SalesNavParseWarning[]): T | undefined {
+  if (value === null || value === undefined) {
+    warnings.push({ code: "PARSE_FIELD_MISSING", field, n: 1 });
+    return undefined;
+  }
+  return value;
+}
+
+function flag(row: Json, key: string, warnings: SalesNavParseWarning[]): boolean | undefined {
+  return expected(typeof row[key] === "boolean" ? row[key] as boolean : null, key, warnings);
 }
 
 const MEMBER = /^urn:li:member:\d+$/;
@@ -178,27 +198,39 @@ export function parseSalesNavLeads(body: string, options: { sessionUrns?: readon
     const memberUrn = nonempty(row?.["objectUrn"]);
     const entityUrn = nonempty(row?.["entityUrn"]);
     const entity = entityUrn === null ? null : SALES_PROFILE.exec(entityUrn);
-    const fullName = bounded(nonempty(row?.["fullName"]), "fullName", warnings);
-    const firstName = bounded(nonempty(row?.["firstName"]), "firstName", warnings);
-    const lastName = bounded(nonempty(row?.["lastName"]), "lastName", warnings);
-    const location = bounded(nonempty(row?.["geoRegion"]), "geoRegion", warnings);
-    const degree = integer(row?.["degree"]);
-    const trackingId = nonempty(row?.["trackingId"]);
-    const listCount = integer(row?.["listCount"]);
-    const booleans = ["saved", "viewed", "premium", "openLink", "memorialized", "pendingInvitation", "blockThirdPartyDataSharing"] as const;
-    const positionsRaw = Array.isArray(row?.["currentPositions"]) ? row["currentPositions"] as unknown[] : [];
-    const positions = positionsRaw.slice(0, MAX_SALESNAV_POSITIONS_PER_LEAD).map((item) => parsePosition(item, warnings));
-    const valid = row !== null && memberUrn !== null && MEMBER.test(memberUrn) && entity !== null &&
-      fullName !== undefined && firstName !== undefined && lastName !== undefined && location !== undefined &&
-      degree !== null && trackingId !== null && listCount !== null && booleans.every((key) => typeof row[key] === "boolean") &&
-      positionsRaw.length > 0 && positions.every((item) => item !== null) &&
-      !session.has(memberUrn) && !session.has(entityUrn!) && !session.has(`profile:${entity?.[1]}`);
-    if (!valid) {
+    // Identity, and only identity, refuses a row: an unresolvable subject or the
+    // operator's own. Content is handled below, where absence warns instead.
+    const identified = row !== null && memberUrn !== null && MEMBER.test(memberUrn) && entity !== null &&
+      !session.has(memberUrn) && !session.has(entityUrn!) && !session.has(`profile:${entity[1]}`);
+    if (!identified) {
       refused += 1;
       warnings.push({ code: "PARSE_ROW_REFUSED", field: "elements", n: 1 });
       continue;
     }
+    const fullName = expected(bounded(nonempty(row["fullName"]), "fullName", warnings), "fullName", warnings);
+    const firstName = expected(bounded(nonempty(row["firstName"]), "firstName", warnings), "firstName", warnings);
+    const lastName = expected(bounded(nonempty(row["lastName"]), "lastName", warnings), "lastName", warnings);
+    const location = expected(bounded(nonempty(row["geoRegion"]), "geoRegion", warnings), "geoRegion", warnings);
+    const degree = expected(integer(row["degree"]), "degree", warnings);
+    const trackingId = expected(nonempty(row["trackingId"]), "trackingId", warnings);
+    const listCount = expected(integer(row["listCount"]), "listCount", warnings);
+    const saved = flag(row, "saved", warnings);
+    const viewed = flag(row, "viewed", warnings);
+    const premium = flag(row, "premium", warnings);
+    const openLink = flag(row, "openLink", warnings);
+    const memorialized = flag(row, "memorialized", warnings);
+    const pendingInvitation = flag(row, "pendingInvitation", warnings);
+    const blockThirdPartyDataSharing = flag(row, "blockThirdPartyDataSharing", warnings);
+
+    const positionsRaw = Array.isArray(row["currentPositions"]) ? row["currentPositions"] as unknown[] : [];
+    if (positionsRaw.length === 0) warnings.push({ code: "PARSE_FIELD_MISSING", field: "currentPositions", n: 1 });
     if (positionsRaw.length > MAX_SALESNAV_POSITIONS_PER_LEAD) warnings.push({ code: "PARSE_INPUT_TRUNCATED", field: "currentPositions", n: positionsRaw.length - MAX_SALESNAV_POSITIONS_PER_LEAD });
+    const considered = positionsRaw.slice(0, MAX_SALESNAV_POSITIONS_PER_LEAD);
+    const positions = considered.map((item) => parsePosition(item, warnings)).filter((item): item is SalesNavPosition => item !== null);
+    // A position that does not resolve is dropped and named; it never takes the
+    // whole row with it, and it never shifts another position's meaning.
+    if (positions.length < considered.length) warnings.push({ code: "PARSE_FIELD_MISSING", field: "currentPositions.position", n: considered.length - positions.length });
+
     const headline = bounded(nonempty(row["summary"]), "summary", warnings);
     rows.push({
       source: "labeled-body",
@@ -207,23 +239,23 @@ export function parseSalesNavLeads(body: string, options: { sessionUrns?: readon
       profile_url: `https://www.linkedin.com/sales/lead/${entity![1]},${entity![2]},${entity![3]}`,
       page,
       position: index + 1,
-      full_name: fullName,
-      first_name: firstName,
-      last_name: lastName,
-      location,
-      degree,
+      ...(fullName === undefined ? {} : { full_name: fullName }),
+      ...(firstName === undefined ? {} : { first_name: firstName }),
+      ...(lastName === undefined ? {} : { last_name: lastName }),
+      ...(location === undefined ? {} : { location }),
+      ...(degree === undefined ? {} : { degree }),
       ...(headline === undefined ? {} : { headline }),
-      current_positions: positions as SalesNavPosition[],
+      current_positions: positions,
       spotlight_badges: parseBadges(row["spotlightBadges"], warnings),
-      tracking_id: trackingId,
-      list_count: listCount,
-      saved: row["saved"] as boolean,
-      viewed: row["viewed"] as boolean,
-      premium: row["premium"] as boolean,
-      open_link: row["openLink"] as boolean,
-      memorialized: row["memorialized"] as boolean,
-      pending_invitation: row["pendingInvitation"] as boolean,
-      block_third_party_data_sharing: row["blockThirdPartyDataSharing"] as boolean,
+      ...(trackingId === undefined ? {} : { tracking_id: trackingId }),
+      ...(listCount === undefined ? {} : { list_count: listCount }),
+      ...(saved === undefined ? {} : { saved }),
+      ...(viewed === undefined ? {} : { viewed }),
+      ...(premium === undefined ? {} : { premium }),
+      ...(openLink === undefined ? {} : { open_link: openLink }),
+      ...(memorialized === undefined ? {} : { memorialized }),
+      ...(pendingInvitation === undefined ? {} : { pending_invitation: pendingInvitation }),
+      ...(blockThirdPartyDataSharing === undefined ? {} : { block_third_party_data_sharing: blockThirdPartyDataSharing }),
       profile_picture: picture(row["profilePictureDisplayImage"]),
     });
   }

@@ -2175,3 +2175,12 @@ the duplicate-position test; swapping both vertical keys failed both meaning che
 
 Spend: **0 / 0 page loads, 0 / 0 search pages**. No LinkedIn contact. Next: Task 39 wires
 the leads parser/store contract into `runPaged`; Task 40 does the accounts vertical.
+
+## Task 38 review fix — identity refuses a row, content warns (2026-08-11)
+
+Reviewed on merge. One defect fixed in place (D373): both search parsers required every
+measured field on every row, so a lead with no location or no current position, and a company
+with no description, lost its `search_results` position entirely. Refusal is now identity-only,
+matching `company.people`; a missing content field emits `PARSE_FIELD_MISSING` and the row is
+stored without it. Three tests added, all mutation-checked. Suite 1679 passing, typecheck clean,
+live spend still 0/0.

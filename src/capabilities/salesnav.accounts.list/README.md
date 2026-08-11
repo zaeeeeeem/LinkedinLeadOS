@@ -7,8 +7,11 @@ Task 38 supplies the pure page parser; Task 40 wires capture, pagination and the
 labeled row field pinned by the probe FIELD-MAP.
 
 Rows are tagged `source: "labeled-body"`. There is deliberately no location projection: the
-measured response carries location only in filter facets, not per account (D406). Invalid
-identity or required-field drift refuses the row; the parser never reads the DOM. No browser,
+measured response carries location only in filter facets, not per account (D406). A row is
+refused for its **identity only** — a malformed or non-company urn (D373) — and a refusal
+leaves a gap in the page's positions rather than shifting the rows below it. Every other field
+is content: its absence emits `PARSE_FIELD_MISSING` naming the field and the row is stored
+without it. The parser never reads the DOM. No browser,
 page load, search page, store write or receipt is involved in this module.
 
 The CLI name is registered as a zero-cost local refusal until Task 40 lands. It cannot acquire

@@ -3,23 +3,26 @@ export const MAX_SALESNAV_ACCOUNT_BADGES = 20;
 export const MAX_SALESNAV_ACCOUNT_FIELD_CHARS = 20_000;
 
 type Json = Record<string, unknown>;
-export type SalesNavAccountWarning = { code: "PARSE_BODY_INVALID" | "PARSE_PAGING_INVALID" | "PARSE_ROW_REFUSED" | "PARSE_INPUT_TRUNCATED" | "PARSE_FIELD_TRUNCATED"; field: string; n: number };
+export type SalesNavAccountWarning = { code: "PARSE_BODY_INVALID" | "PARSE_PAGING_INVALID" | "PARSE_ROW_REFUSED" | "PARSE_FIELD_MISSING" | "PARSE_INPUT_TRUNCATED" | "PARSE_FIELD_TRUNCATED"; field: string; n: number };
+/** Identity is `company_urn`/`company_url` and is the only refusal ground; every
+ *  other field is content, and its absence warns rather than dropping the row's
+ *  place in the page. Same rule as the leads parser and `company.people`. */
 export type SalesNavAccountRow = {
   source: "labeled-body";
   company_urn: string;
   company_url: string;
   page: number;
   position: number;
-  company_name: string;
-  industry: string;
-  employee_count_range: string;
-  employee_display_count: string | number;
-  description: string;
+  company_name?: string;
+  industry?: string;
+  employee_count_range?: string;
+  employee_display_count?: string | number;
+  description?: string;
   company_picture: { root_url?: string; artifacts: number };
   spotlight_badges: Array<{ id?: string; display_value?: string }>;
-  list_count: number;
-  saved: boolean;
-  tracking_id: string;
+  list_count?: number;
+  saved?: boolean;
+  tracking_id?: string;
 };
 export type SalesNavAccountsParseResult = { rows: SalesNavAccountRow[]; paging: { total: number; count: number; start: number; page: number } | null; inspected: number; refused: number; warnings: SalesNavAccountWarning[] };
 
@@ -30,6 +33,11 @@ function bounded(value: string | null, field: string, warnings: SalesNavAccountW
   if (value === null || value.length <= MAX_SALESNAV_ACCOUNT_FIELD_CHARS) return value;
   warnings.push({ code: "PARSE_FIELD_TRUNCATED", field, n: value.length - MAX_SALESNAV_ACCOUNT_FIELD_CHARS });
   return value.slice(0, MAX_SALESNAV_ACCOUNT_FIELD_CHARS);
+}
+/** A content field the FIELD-MAP measured on every row. Its absence is drift. */
+function expected<T>(value: T | null | undefined, field: string, warnings: SalesNavAccountWarning[]): T | undefined {
+  if (value === null || value === undefined) { warnings.push({ code: "PARSE_FIELD_MISSING", field, n: 1 }); return undefined; }
+  return value;
 }
 const COMPANY = /^urn:li:fs_salesCompany:(\d+)$/;
 function badges(value: unknown, warnings: SalesNavAccountWarning[]): Array<{ id?: string; display_value?: string }> {
@@ -60,16 +68,30 @@ export function parseSalesNavAccounts(body: string, options: { refusedUrns?: rea
   const refusedUrns = new Set(options.refusedUrns ?? []); const rows: SalesNavAccountRow[] = []; let refused = 0;
   for (let index = 0; index < selected.length; index++) {
     const row = object(selected[index]); const urn = nonempty(row?.["entityUrn"]); const id = urn === null ? null : COMPANY.exec(urn)?.[1] ?? null;
-    const companyName = bounded(nonempty(row?.["companyName"]), "companyName", warnings); const industry = bounded(nonempty(row?.["industry"]), "industry", warnings);
-    const range = bounded(nonempty(row?.["employeeCountRange"]), "employeeCountRange", warnings); const displayCount = row?.["employeeDisplayCount"];
-    const description = bounded(nonempty(row?.["description"]), "description", warnings); const listCount = integer(row?.["listCount"]); const trackingId = nonempty(row?.["trackingId"]);
-    const validCount = (typeof displayCount === "string" && displayCount.trim().length > 0) || (typeof displayCount === "number" && Number.isFinite(displayCount));
-    if (row === null || urn === null || id === null || refusedUrns.has(urn) || companyName === null || industry === null || range === null || !validCount || description === null || listCount === null || typeof row["saved"] !== "boolean" || trackingId === null) {
+    // Identity, and only identity, refuses a row.
+    if (row === null || urn === null || id === null || refusedUrns.has(urn)) {
       refused += 1; warnings.push({ code: "PARSE_ROW_REFUSED", field: "elements", n: 1 }); continue;
     }
+    const companyName = expected(bounded(nonempty(row["companyName"]), "companyName", warnings), "companyName", warnings);
+    const industry = expected(bounded(nonempty(row["industry"]), "industry", warnings), "industry", warnings);
+    const range = expected(bounded(nonempty(row["employeeCountRange"]), "employeeCountRange", warnings), "employeeCountRange", warnings);
+    const raw = row["employeeDisplayCount"];
+    const validCount = (typeof raw === "string" && raw.trim().length > 0) || (typeof raw === "number" && Number.isFinite(raw));
+    const displayCount = expected(validCount ? raw as string | number : null, "employeeDisplayCount", warnings);
+    const description = expected(bounded(nonempty(row["description"]), "description", warnings), "description", warnings);
+    const listCount = expected(integer(row["listCount"]), "listCount", warnings);
+    const saved = expected(typeof row["saved"] === "boolean" ? row["saved"] as boolean : null, "saved", warnings);
+    const trackingId = expected(nonempty(row["trackingId"]), "trackingId", warnings);
     rows.push({ source: "labeled-body", company_urn: urn, company_url: `https://www.linkedin.com/sales/company/${id}`, page, position: index + 1,
-      company_name: companyName, industry, employee_count_range: range, employee_display_count: displayCount as string | number, description,
-      company_picture: picture(row["companyPictureDisplayImage"]), spotlight_badges: badges(row["spotlightBadges"], warnings), list_count: listCount, saved: row["saved"] as boolean, tracking_id: trackingId });
+      ...(companyName === undefined ? {} : { company_name: companyName }),
+      ...(industry === undefined ? {} : { industry }),
+      ...(range === undefined ? {} : { employee_count_range: range }),
+      ...(displayCount === undefined ? {} : { employee_display_count: displayCount }),
+      ...(description === undefined ? {} : { description }),
+      company_picture: picture(row["companyPictureDisplayImage"]), spotlight_badges: badges(row["spotlightBadges"], warnings),
+      ...(listCount === undefined ? {} : { list_count: listCount }),
+      ...(saved === undefined ? {} : { saved }),
+      ...(trackingId === undefined ? {} : { tracking_id: trackingId }) });
   }
   return { rows, paging: { total, count, start, page }, inspected: selected.length, refused, warnings };
 }
