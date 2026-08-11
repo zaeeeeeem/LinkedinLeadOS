@@ -119,7 +119,16 @@ export async function execute(o: ExecuteOptions): Promise<Outcome> {
   // Before anything runs: the args schema. A capability must never begin work on
   // arguments it would have rejected — that is the difference between a typo and
   // a page load spent on one.
-  const parsed = def.args.safeParse({ ...o.rawArgs });
+  //
+  // On a resume, the run's own recorded arguments sit underneath the command
+  // line (D411). An omitted flag then means "as before" rather than "as the
+  // schema defaults", which is the difference between continuing a run and
+  // silently truncating one that has already paid for its pages. Anything
+  // typed on this invocation still wins.
+  const persisted = flags.runId === null
+    ? null
+    : RunContext.persistedArgs({ runId: flags.runId, ...(o.runsDir === undefined ? {} : { runsDir: o.runsDir }) });
+  const parsed = def.args.safeParse({ ...(persisted ?? {}), ...o.rawArgs });
   if (!parsed.success) {
     return failEarly(
       def.name,

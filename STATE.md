@@ -2307,3 +2307,29 @@ with no description, lost its `search_results` position entirely. Refusal is now
 matching `company.people`; a missing content field emits `PARSE_FIELD_MISSING` and the row is
 stored without it. Three tests added, all mutation-checked. Suite 1679 passing, typecheck clean,
 live spend still 0/0.
+
+## Task 39 gate B passed on review, with two fixes first (2026-08-11)
+
+Reviewed and completed on merge. Gate B was blocked by a misdiagnosis, not by Task 37: the two
+failing runs' own receipts named `Storage.getCookies ... Browser context management is not
+supported` — the B5 condition — at 33ms and 49ms, far too fast to have launched anything and
+with a protocol error rather than `TAB_LEASE_HELD`.
+
+**Two defects fixed (D410, D411).** `hasLiveTarget` asked whether `/json/list` was non-empty; a
+windowless Chrome still lists iframes and browser_ui, so the guard passed and preflight reused a
+browser that could not serve one command. It now requires a `page` target. And a resume rebuilt
+its arguments from the schema defaults rather than from the run's own `run.json`, which
+silently truncated a killed 3-page run and cost the pagination session it needed to finish.
+
+**Gate B, measured.** Fresh 2-page run, hard-killed after page 1 checkpointed, resumed with no
+flags at all. Recovered url and `pages`, `respent_pages: []`, exactly 1 new page charged. Ledger
+2 search pages for 2 distinct pages. Supabase: 49 rows, 24 + 25, zero duplicate
+`(search_id, page, position)`, 49 distinct person urns. `persons`, `companies` and `jobs` all
+still 0 rows — entity tables provably untouched.
+
+**Spend: 8 page loads / 8 search pages, exactly the gate's budget of 8**, across run A (2), the
+first gate attempt (3 charged, killed on page 3), its resume (0), one refused resume (1), and
+the corrected gate (2).
+
+Carried to BACKLOG: the two url-derived refusals fire after the spend because the paged contract
+spends before it loads. A `precheck` hook belongs in Task 35's contract, not here.

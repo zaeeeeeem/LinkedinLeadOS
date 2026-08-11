@@ -5181,3 +5181,30 @@ Chrome recovers does succeed. What changes is that the toolkit no longer reuses 
 browser in the first place — it falls through to the launch path, which already reports a held
 profile properly. No automatic retry was added anywhere; BACKLOG's instruction on this fault
 was to instrument before theorising, and that is what finally resolved it.
+
+## D411 — A resume starts from the run's own arguments, not from the schema defaults (2026-08-11, review)
+
+A killed 3-page run was resumed as `--run-id=<id>` with no other flags. `pages` fell back to
+its schema default of 2, so the resume adopted the two proved pages, declared itself finished
+at `stop: "page-limit"`, and tore down the tab. The next attempt — this time with `--pages=3` —
+refused with `SALESNAV_SESSION_CHANGED`, correctly, because the result-set session the third
+page needed was gone with that tab. One omitted flag turned a recoverable kill into an
+unrecoverable one and cost a search page proving it.
+
+The defaults are what the operator meant on a *fresh* run. On a resume they are a different
+instruction wearing the same shape, and the run has already spent real pages under the original
+one. `RunContext.persistedArgs` now reads `run.json` and the CLI merges it *underneath* this
+invocation's arguments, so an omitted flag means "as before" and anything typed still wins.
+
+Measured, not reasoned: the corrected gate ran two pages, was killed after page 1 checkpointed,
+and resumed with **no flags at all**. It recovered the url and `pages: 2`, adopted page 1 with
+`respent_pages: []`, spent exactly one more page, and finished with 49 rows across 24 + 25 and
+zero duplicate `(search_id, page, position)`. The ledger shows 2 search pages for 2 distinct
+pages loaded.
+
+Related, and left alone deliberately: `SALESNAV_SESSION_CHANGED` and
+`SALESNAV_PAGER_POSITION_CHANGED` are decided from the tab's own url with no LinkedIn contact,
+yet they fire *after* the page has been charged, because the paged contract spends before it
+loads. Moving those two checks ahead of the spend would make an impossible resume free. That is
+a change to the Task 35 contract's ordering, not to this capability, so it is recorded in
+BACKLOG rather than made here.

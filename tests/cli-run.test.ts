@@ -245,6 +245,42 @@ describe("the happy path", () => {
     expect(meta.resumed_at).toHaveLength(1);
   });
 
+  // D411. A resume that re-derives an omitted flag from the schema default is
+  // obeying a different instruction from the one the run has already spent
+  // pages under. `pages` is the one that bites: a killed 3-page run resumed
+  // without `--pages` stopped at the default and reported itself finished, and
+  // the pagination session it needed to finish was gone by the next try.
+  it("recovers a resumed run's own arguments for flags this invocation omits", async () => {
+    const seen: Array<Record<string, unknown>> = [];
+    const def = okCapability({
+      args: z.object({ note: z.string().optional(), pages: z.coerce.number().int().default(2) }).strict(),
+      run: async (ctx: { args: Record<string, unknown> }) => {
+        seen.push(ctx.args);
+        return { counts: { requested: 0, captured: 0, usable: 0, skipped: 0 } };
+      },
+    } as Partial<AnyCapability>);
+    const first = await invoke({ def, args: { pages: 3, note: "original" } }).outcome;
+    await invoke({ def, flags: { runId: first.receipt.run_id } }).outcome;
+    expect(seen).toHaveLength(2);
+    // Without the fix this is the schema default 2, and the run silently ends
+    // one page short of what it already paid for.
+    expect(seen[1]).toMatchObject({ pages: 3, note: "original" });
+  });
+
+  it("still lets this invocation override a recovered argument", async () => {
+    const seen: Array<Record<string, unknown>> = [];
+    const def = okCapability({
+      args: z.object({ pages: z.coerce.number().int().default(2) }).strict(),
+      run: async (ctx: { args: Record<string, unknown> }) => {
+        seen.push(ctx.args);
+        return { counts: { requested: 0, captured: 0, usable: 0, skipped: 0 } };
+      },
+    } as Partial<AnyCapability>);
+    const first = await invoke({ def, args: { pages: 3 } }).outcome;
+    await invoke({ def, args: { pages: 5 }, flags: { runId: first.receipt.run_id } }).outcome;
+    expect(seen[1]).toMatchObject({ pages: 5 });
+  });
+
   it("offers only the worker target recorded by that run to a hard-kill resume", async () => {
     const interrupted = RunContext.open({ capability: "test.ok", runsDir: paths.runsDir });
     interrupted.rememberWorkerTarget("target-1");
