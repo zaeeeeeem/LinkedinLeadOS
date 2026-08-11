@@ -17,10 +17,13 @@ describe("salesnav.savedsearch.list — probe-first composition", () => {
           patterns: [], captured: 1, profile_ish: 1, unmatched_profile_ish: 0, misses: 0,
           endpoints: [],
         },
-        click: {
+        clicks: [{
           kind: "saved searches", control: "Saved searches", tag: "button",
           revealPasses: 0, x: 100, y: 50,
-        },
+        }, {
+          kind: "saved account searches tab", control: "saved account searches tab", tag: "button",
+          revealPasses: 0, x: 100, y: 50,
+        }],
         warnings: [],
         foreground: { ok: true, via: "already" },
       }),
@@ -35,9 +38,11 @@ describe("salesnav.savedsearch.list — probe-first composition", () => {
     expect(result.counts).toEqual({ requested: 0, captured: 1, usable: 0, skipped: 0 });
     expect(result.data).toMatchObject({
       read: { saved_searches: null },
-      click: { kind: "saved searches", control: "Saved searches" },
+      clicks: [
+        { kind: "saved searches", control: "Saved searches" },
+        { kind: "saved account searches tab" },
+      ],
       storage: { mode: "archive-only-pending-decision" },
     });
   });
 });
-

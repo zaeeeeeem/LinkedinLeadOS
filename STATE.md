@@ -2184,6 +2184,29 @@ after navigation fails the named ordering test. Next: operator-supervised defaul
 probe run, promote and meaning-map the measured body offline, then implement the
 pure parser and use the second page load for the default end-to-end gate.
 
+## Task 37 checkpoint 3 — two live loads, Account tab measured (2026-08-11)
+
+Two operator-supervised default runs exited 0 with no challenge and the lease
+released: `01KZQC4969NN9WQ9CBVPZ6NY1Y` and
+`01KZQC6PQAN3ZZ6ZW3T0PXB6XQ`. Each spent exactly 1 page load / 0 search pages;
+the task has used **2 of the planned 2 page loads and 0 of 0 search pages**.
+
+Run 1 measured the empty state. The operator then created one saved search and
+asked for a positive verification. Run 2 still received an empty 58-byte
+`salesApiSavedSearchesV2` envelope because the panel defaults to Lead; its
+archived snapshot measured a separate Account tab. It also exposed a probe bug:
+29 pending home rails landed after the click cursor and were attributed to the
+panel. The capture now drains home traffic before taking that cursor.
+
+The Account tab passes all four D409 parts: it switches only the operator's own
+panel, creates no third-party trace, is measured as the unique enabled
+`button[role="tab"]` with the full fixed Account accessible name, and has no
+href. It is implemented through the same trusted-control helper and records a
+second click on the receipt; no live click has been taken yet. A third supervised
+load is required to capture the positive body. That makes the real probe spend
+3 page loads rather than the task file's planned 2; it must be recorded, not
+hidden inside the earlier number.
+
 ## Task 38 — parsers and search store path, complete (2026-08-11, offline)
 
 Fixture gate passed before parser work: the promoted leads page 1, leads page 2 and accounts

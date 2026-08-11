@@ -11,7 +11,7 @@ import { summarizeCaptures, type CaptureSummary } from "../profile.capture/patte
 import { SETTLE_MS_MAX, SETTLE_MS_MIN } from "../profile.capture/constants.js";
 import { clickTrustedControl, type TrustedClickReport } from "../salesnav.probe/pager.js";
 import { BROAD_PATTERN_NAME } from "../salesnav.probe/patterns.js";
-import { SAVED_SEARCHES_CONTROL } from "./control.js";
+import { SAVED_ACCOUNT_TAB_CONTROL, SAVED_SEARCHES_CONTROL } from "./control.js";
 import {
   SALESNAV_HOME_URL, SAVED_SEARCHES_CAPTURE_TIMEOUT_MS, SAVED_SEARCHES_CONTROL_TIMEOUT_MS,
   SAVED_SEARCHES_DOCUMENT_PATTERN, SAVED_SEARCHES_SNAPSHOT_TIMEOUT_MS,
@@ -28,7 +28,7 @@ export type SavedSearchCaptureResult = {
   payloads: SavedSearchPayloadRef[];
   snapshot: DomSnapshotResult | null;
   summary: CaptureSummary;
-  click: TrustedClickReport;
+  clicks: TrustedClickReport[];
   warnings: Warning[];
   foreground: { ok: boolean; via: string | null };
 };
@@ -79,7 +79,7 @@ export async function captureSavedSearches(
   const releases = SAVED_SEARCHES_PATTERNS.map((pattern) => tap.watch(pattern));
   let foreground: Awaited<ReturnType<typeof tab.ensureForeground>> | null = null;
   let snapshot: DomSnapshotResult | null = null;
-  let click: TrustedClickReport | null = null;
+  const clicks: TrustedClickReport[] = [];
   const checkpoint = { target: { kind: "saved-searches" }, phase: "navigate" as string };
   let panelSince = tap.cursor;
 
@@ -110,19 +110,25 @@ export async function captureSavedSearches(
     });
     await cursor.pause(SETTLE_MS_MIN, SETTLE_MS_MAX);
 
+    // Everything from the home load must land before the panel cursor is taken;
+    // otherwise late home rails are attributed to the click (the first positive
+    // probe did exactly that: 31 bodies "after" the click, 29 of them home).
+    await tap.drain();
+
     // D408/D409: exact measured selector, anchored accessible name, one match,
     // trusted HumanCursor click, wheel reveal and hit-test refusal.
     panelSince = tap.cursor;
     checkpoint.phase = "click-saved-searches";
-    click = await deps.click({
+    const panelClick = await deps.click({
       tab, cursor, spec: SAVED_SEARCHES_CONTROL, timeoutMs: SAVED_SEARCHES_CONTROL_TIMEOUT_MS,
     });
+    clicks.push(panelClick);
     run.log("nav.done", {
       phase: "savedsearch.click",
       item_ref: "salesnav:saved-searches",
       detail: {
-        click: click.kind, control: click.control, tag: click.tag,
-        reveal_passes: click.revealPasses,
+        click: panelClick.kind, control: panelClick.control, tag: panelClick.tag,
+        reveal_passes: panelClick.revealPasses,
       },
     });
 
@@ -137,6 +143,40 @@ export async function captureSavedSearches(
       warnings.push({
         code: "SAVED_SEARCHES_NO_RESPONSE", n: 1,
         field: "the measured control opened but no watched LinkedIn response arrived inside the capture window",
+      });
+    }
+    await cursor.pause(SETTLE_MS_MIN, SETTLE_MS_MAX);
+    await tap.drain();
+
+    // The open panel defaults to Lead. The archived snapshot from the positive
+    // probe measured the Account tab as a button-role tab with an exact
+    // accessible name and no href. It acts only on the operator's own panel and
+    // leaves no third-party trace, so all four D409 parts hold.
+    checkpoint.phase = "click-account-tab";
+    const accountSince = tap.cursor;
+    const accountClick = await deps.click({
+      tab, cursor, spec: SAVED_ACCOUNT_TAB_CONTROL, timeoutMs: SAVED_SEARCHES_CONTROL_TIMEOUT_MS,
+    });
+    clicks.push(accountClick);
+    run.log("nav.done", {
+      phase: "savedsearch.click",
+      item_ref: "salesnav:saved-account-searches",
+      detail: {
+        click: accountClick.kind, control: accountClick.control, tag: accountClick.tag,
+        reveal_passes: accountClick.revealPasses,
+      },
+    });
+    checkpoint.phase = "await-account-response";
+    try {
+      await deps.wait(tap, ["salesapi-saved-searches", BROAD_PATTERN_NAME], {
+        since: accountSince,
+        timeoutMs: args.captureTimeoutMs ?? SAVED_SEARCHES_CAPTURE_TIMEOUT_MS,
+      });
+    } catch (cause) {
+      if (!(cause instanceof CapabilityError) || cause.code !== "CAPTURE_TIMEOUT") throw cause;
+      warnings.push({
+        code: "SAVED_ACCOUNT_SEARCHES_NO_RESPONSE", n: 1,
+        field: "the measured Account tab opened but no watched LinkedIn response arrived inside the capture window",
       });
     }
     await cursor.pause(SETTLE_MS_MIN, SETTLE_MS_MAX);
@@ -162,9 +202,9 @@ export async function captureSavedSearches(
     for (const release of releases) release();
   }
 
-  if (click === null) throw transient(
+  if (clicks.length !== 2) throw transient(
     "SAVED_SEARCHES_CLICK_NOT_RECORDED",
-    "the Saved searches control was not recorded as clicked",
+    "both Saved searches controls were not recorded as clicked",
     `run=${run.runId}`,
   );
 
@@ -212,7 +252,7 @@ export async function captureSavedSearches(
       file: capture.archived.file, bytes: capture.bytes, patterns: [...capture.patterns],
     }));
   return {
-    payloads, snapshot, summary, click, warnings,
+    payloads, snapshot, summary, clicks, warnings,
     foreground: { ok: foreground?.ok ?? false, via: foreground?.via ?? null },
   };
 }

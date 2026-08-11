@@ -1,7 +1,8 @@
 import { describe, expect, it } from "vitest";
 import { CapabilityError, EXIT } from "../../core/run/receipt.js";
+import { trustedControlExpression } from "../salesnav.probe/pager.js";
 import { captureSavedSearches, type SavedSearchCaptureDeps } from "./capture.js";
-import { SAVED_SEARCHES_CONTROL } from "./control.js";
+import { SAVED_ACCOUNT_TAB_CONTROL, SAVED_SEARCHES_CONTROL } from "./control.js";
 import { isSavedSearchIsh } from "./patterns.js";
 
 function archived(file: string) {
@@ -52,10 +53,10 @@ function harness(o: { clickError?: Error } = {}) {
     wait: async () => capture,
     click: async (input) => {
       events.push("click");
-      expect(input.spec).toEqual(SAVED_SEARCHES_CONTROL);
+      expect([SAVED_SEARCHES_CONTROL, SAVED_ACCOUNT_TAB_CONTROL]).toContainEqual(input.spec);
       if (o.clickError) throw o.clickError;
       return {
-        kind: "saved searches", control: "Saved searches", tag: "button",
+        kind: input.spec.label, control: input.spec.label, tag: "button",
         revealPasses: 0, x: 100, y: 50,
       };
     },
@@ -73,9 +74,11 @@ describe("salesnav.savedsearch.list capture — spend and cleanup", () => {
     const result = await captureSavedSearches(h.ctx, h.deps);
     expect(h.events.indexOf("spend")).toBeLessThan(h.events.indexOf("navigate"));
     expect(h.events.indexOf("navigate")).toBeLessThan(h.events.indexOf("click"));
-    expect(result.click.kind).toBe("saved searches");
+    expect(result.clicks.map((click) => click.kind)).toEqual([
+      "saved searches", "saved account searches tab",
+    ]);
     expect(result.payloads).toHaveLength(1);
-    expect(h.drains()).toBe(1);
+    expect(h.drains()).toBe(3);
     expect(h.releases()).toBeGreaterThan(0);
   });
 
@@ -86,12 +89,19 @@ describe("salesnav.savedsearch.list capture — spend and cleanup", () => {
     });
     const h = harness({ clickError: lower });
     await expect(captureSavedSearches(h.ctx, h.deps)).rejects.toBe(lower);
-    expect(h.drains()).toBe(1);
+    expect(h.drains()).toBeGreaterThanOrEqual(1);
     expect(h.releases()).toBeGreaterThan(0);
   });
 
   it("recognizes a saved-search body by content, not by endpoint alone", () => {
     expect(isSavedSearchIsh('{"entityUrn":"urn:li:fs_salesSavedSearch:SYNTHETIC"}')).toBe(true);
     expect(isSavedSearchIsh('{"elements":[]}')).toBe(false);
+  });
+
+  it("pins the D409 Account tab to the measured button role and full accessible name", () => {
+    const expression = trustedControlExpression(SAVED_ACCOUNT_TAB_CONTROL);
+    expect(expression).toContain('button[role=\\"tab\\"][aria-label=\\"Account- View all account saved searches\\"]');
+    expect(expression).toContain("^account- view all account saved searches$");
+    expect(expression).not.toContain(".click()");
   });
 });

@@ -39,7 +39,7 @@ export function createSavedSearchListCapability(deps: SavedSearchListDeps = defa
           source: captured.payloads.length > 0 ? "labeled-body-measured" : "unresolved",
           target: { url: SALESNAV_HOME_URL },
           read: { saved_searches: null },
-          click: captured.click,
+          clicks: captured.clicks,
           storage: { mode: "archive-only-pending-decision" },
           probe: {
             labeled_payloads: captured.payloads.length,
@@ -61,4 +61,3 @@ export function createSavedSearchListCapability(deps: SavedSearchListDeps = defa
 
 export const capability = createSavedSearchListCapability();
 export default capability;
-
