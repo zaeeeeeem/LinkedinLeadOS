@@ -81,9 +81,21 @@ describe("salesnav.savedsearch.list — pure parser", () => {
     });
   });
 
+  // `paging.count` is the requested page size echoed back, not a total: both
+  // measured bodies answered `count: 50` to a request carrying `&count=50`
+  // while holding exactly one row. Nothing may read it as "how many saved
+  // searches the operator has".
+  it("reports paging.count as the requested page size, never as a total", () => {
+    const body = JSON.stringify({ elements: [{ id: 7, name: "L" }], paging: { count: 50, start: 0, links: [] } });
+    const parsed = parseSavedSearches(body, "sn_leads");
+    expect(parsed.searches).toHaveLength(1);
+    expect(parsed.requested_count).toBe(50);
+    expect(parsed).not.toHaveProperty("total");
+  });
+
   it("distinguishes a real empty list from a missing envelope", () => {
     expect(parseSavedSearches('{"elements":[],"paging":{"count":0}}', "sn_leads"))
-      .toMatchObject({ ok: true, searches: [], examined: 0, total: 0 });
+      .toMatchObject({ ok: true, searches: [], examined: 0, requested_count: 0 });
     expect(parseSavedSearches("{}", "sn_leads"))
       .toMatchObject({ ok: false, warnings: [{ code: "SAVED_SEARCH_ENVELOPE_MISSING" }] });
   });

@@ -23,7 +23,12 @@ export type ParseSavedSearchesResult = {
   ok: boolean;
   searches: SavedSearchRow[];
   examined: number;
-  total: number | null;
+  /** `$.paging.count`, which is the **requested page size** echoed back — the
+   *  measured bodies carry `count: 50` against the request's own `&count=50`
+   *  while holding one row each. This envelope carries **no total**: there is no
+   *  `paging.total` key and `paging.links` is empty. Do not read this as a
+   *  count of the operator's saved searches (D407's lesson, same shape). */
+  requested_count: number | null;
   warnings: SavedSearchParseWarning[];
 };
 
@@ -62,7 +67,7 @@ export function parseSavedSearches(body: string, kind: SearchKind): ParseSavedSe
   let root: unknown;
   try { root = JSON.parse(body); } catch {
     return {
-      ok: false, searches: [], examined: 0, total: null,
+      ok: false, searches: [], examined: 0, requested_count: null,
       warnings: [{ code: "SAVED_SEARCH_ENVELOPE_MISSING", n: 1, field: "body is not JSON" }],
     };
   }
@@ -70,7 +75,7 @@ export function parseSavedSearches(body: string, kind: SearchKind): ParseSavedSe
   const elements = envelope?.["elements"];
   if (!Array.isArray(elements)) {
     return {
-      ok: false, searches: [], examined: 0, total: null,
+      ok: false, searches: [], examined: 0, requested_count: null,
       warnings: [{ code: "SAVED_SEARCH_ENVELOPE_MISSING", n: 1, field: "$.elements[] is missing" }],
     };
   }
@@ -112,9 +117,9 @@ export function parseSavedSearches(body: string, kind: SearchKind): ParseSavedSe
   }
 
   const examined = rows.length;
-  const totalRaw = record(envelope?.["paging"])?.["count"];
-  const total = typeof totalRaw === "number" && Number.isInteger(totalRaw) && totalRaw >= 0
-    ? totalRaw
+  const countRaw = record(envelope?.["paging"])?.["count"];
+  const requestedCount = typeof countRaw === "number" && Number.isInteger(countRaw) && countRaw >= 0
+    ? countRaw
     : null;
   if (elements.length > MAX_SAVED_SEARCHES_PER_VERTICAL) warnings.push({
     code: "SAVED_SEARCHES_NOT_EXAMINED", n: elements.length - MAX_SAVED_SEARCHES_PER_VERTICAL,
@@ -140,5 +145,5 @@ export function parseSavedSearches(body: string, kind: SearchKind): ParseSavedSe
     code: "SAVED_SEARCH_LAST_VIEWED_AT_MISSING", n: noViewed,
     field: `${noViewed} of ${searches.length} usable rows had no absolute last-viewed time`,
   });
-  return { ok: true, searches, examined, total, warnings };
+  return { ok: true, searches, examined, requested_count: requestedCount, warnings };
 }

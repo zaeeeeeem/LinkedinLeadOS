@@ -16,6 +16,12 @@ in `$.elements[]`. No field below comes from the DOM.
 | keywords | body | `$.elements[].keywords` | absent on measured Lead row, present on measured Account row |
 | vertical | request context | n/a | first response followed D408's default Lead tab; second followed D409's Account tab |
 | filter URL | derived from body id + measured vertical | n/a | UI-produced row href is `/sales/search/{people|company}?savedSearchId=<id>` |
+| requested page size | body | `$.paging.count` | **not a total** — both bodies answered `count: 50` to a request carrying `&count=50` while holding one row each |
+
+There is **no total** anywhere in this envelope: no `paging.total` key, and
+`paging.links` is empty on both measured bodies. A caller that needs to know
+whether more saved searches exist has nothing here to read and must not infer it
+from `paging.count`.
 
 The committed synthetic fixtures pin the same paths without carrying the
 operator's labels, ids, filter values or seat identifier.
