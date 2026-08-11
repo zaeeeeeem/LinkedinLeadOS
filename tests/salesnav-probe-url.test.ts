@@ -120,6 +120,21 @@ describe("findSearchParam", () => {
   it("still stops at an encoded delimiter inside the query blob", () => {
     expect(findSearchParam(`${LEADS}?query=x%26sessionId%3Dinner%26page%3D2`, "sessionId")).toBe("inner");
   });
+
+  // The exact page-2 request url measured on the 2026-08-11 accounts gate. The
+  // session a search was executed under reaches the wire only in this shape.
+  it("reads the session out of the trackingParam blob a search request carries", () => {
+    const url = "https://www.linkedin.com/sales-api/salesApiAccountSearch?q=savedSearch&start=25"
+      + "&count=25&savedSearchId=2005212642&trackingParam=(sessionId:E3trPZCaTCW4/fkO8ctGOA==)"
+      + "&decorationId=com.linkedin.sales.deco.desktop.searchv2.AccountSearchResult-4";
+    expect(findSearchParam(url, "sessionId")).toBe("E3trPZCaTCW4/fkO8ctGOA==");
+  });
+
+  it("reads the same trackingParam session when it arrives percent-encoded", () => {
+    const url = "https://www.linkedin.com/sales-api/salesApiAccountSearch?start=25"
+      + "&trackingParam=(sessionId:9HhV%2F%2FAmT0iLnkgZji9ZMw%3D%3D)&count=25";
+    expect(findSearchParam(url, "sessionId")).toBe("9HhV//AmT0iLnkgZji9ZMw==");
+  });
 });
 
 describe("searchPageUrl", () => {

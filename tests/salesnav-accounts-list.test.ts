@@ -191,6 +191,45 @@ describe("Sales Navigator account page evidence", () => {
     expect((loaded.cursor as AccountsCursor)).toMatchObject({ page: 2, start: 25, session_id: "session-a", arrival: "click" });
   });
 
+  // Measured 2026-08-11: after the Next click the address bar carried a session
+  // that no request ever used, while the search request itself carried the one
+  // page 1 was pinned to. The captured request is the source of truth (D413).
+  it("pins page 2 on the request's session, not on the address bar", async () => {
+    const hit = capture(2);
+    hit.url = "https://www.linkedin.com/sales-api/salesApiAccountSearch?start=25&count=25"
+      + "&trackingParam=(sessionId:session-a)";
+    let currentUrl = "https://www.linkedin.com/sales/search/company?sessionId=session-a&page=1";
+    const tap = {
+      cursor: 0, watch: vi.fn(), waitFor: vi.fn(async () => hit), drain: vi.fn(async () => {}), captures: vi.fn(() => [hit]),
+    };
+    const runtime = {
+      gate: vi.fn(async () => ({ kind: "clean", clean: true, signal: "none", detail: "clean" })),
+      read: vi.fn(async () => ({ passes: 3, scrolled: 300, layout: { settled: true } })),
+      click: vi.fn(async () => {
+        // A freshly minted session appears in the url and nowhere else.
+        currentUrl = "https://www.linkedin.com/sales/search/company?sessionId=session-b&page=2";
+        return { direction: "next", control: "Next", tag: "button", revealPasses: 1, x: 10, y: 10 };
+      }),
+    } as unknown as AccountsSourceRuntime;
+    const browser = {
+      tap,
+      tab: { ensureForeground: async () => ({ ok: true, via: "already", state: null }), currentUrl: async () => currentUrl },
+      cursor: { pause: async () => 1 },
+    } as unknown as BrowserBundle;
+    const source = createAccountsSource({
+      browser,
+      run: { runId: "run", log: vi.fn(), checkpoint: vi.fn(), lastCheckpoint: <T,>() => ({}) as T },
+      target: {
+        kind: "salesnav-search", url: "https://www.linkedin.com/sales/search/company", ref: "salesnav:company",
+        vertical: "company", sessionId: null, savedSearchId: null, page: null,
+      },
+      sessionUrns: () => [],
+    }, runtime);
+    const prior: AccountsCursor = { kind: "salesnav-accounts/v1", session_id: "session-a", page: 1, start: 0, count: 25, arrival: "navigate" };
+    const loaded = await source.loadPage({ page: 2, pagesDone: 1, cursor: prior, respent: false });
+    expect((loaded.cursor as AccountsCursor).session_id).toBe("session-a");
+  });
+
   it("refuses a changed session before any pager click", async () => {
     const click = vi.fn();
     const browser = {

@@ -269,8 +269,16 @@ export function createLeadsSource(o: LeadsSourceOptions, runtime: LeadsSourceRun
         );
       }
 
+      // The captured request wins over the address bar (D413). The session that
+      // says which result-set execution these rows came from is the one the
+      // page sent to `salesApi*`; the address bar is a rendered surface, and
+      // after a pager click it was measured carrying a freshly minted session
+      // that no request ever used. Falling back to the url is still right for
+      // page 1, whose first request carries no `trackingParam` at all.
       const landedUrl = await tab.currentUrl();
-      const sessionId = sessionIdOf(landedUrl) ?? selected.captures.map((capture) => sessionIdOf(capture.url)).find((id) => id !== null) ?? null;
+      const sessionId = selected.captures.map((capture) => sessionIdOf(capture.url)).find((id) => id !== null)
+        ?? sessionIdOf(landedUrl)
+        ?? null;
       if (sessionId === null) {
         throw refusal("SALESNAV_SESSION_ID_UNAVAILABLE", "the arrived page carried no Sales Navigator session id, so its result set cannot be pinned");
       }

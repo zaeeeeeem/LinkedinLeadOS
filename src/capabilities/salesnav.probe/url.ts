@@ -132,9 +132,13 @@ function decodeOrNull(value: string): string | null {
  * escapes do not decode.
  */
 export function findSearchParam(rawUrl: string, name: string): string | null {
-  // Ends at a real delimiter only. `(`, `)` and `,` bound the blob's own
-  // `(key:value,key:value)` form; base64 contains none of them.
-  const direct = new RegExp(`${name}(?:=|%3D)([^&\\s"'(),]+)`, "i");
+  // `:` is a separator too, not only `=`. Sales Navigator's blob form is
+  // `(key:value,key:value)`, and the session a *search request* was executed
+  // under reaches the wire only as `trackingParam=(sessionId:<id>)` (D413).
+  //
+  // Ends at a real delimiter only. `(`, `)` and `,` bound that blob form;
+  // base64 contains none of them.
+  const direct = new RegExp(`${name}(?:=|%3D|:|%3A)([^&\\s"'(),]+)`, "i");
   for (const candidate of [decodeOrNull(rawUrl), rawUrl]) {
     if (candidate === null) continue;
     const hit = direct.exec(candidate);
