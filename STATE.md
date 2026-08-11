@@ -87,6 +87,22 @@ No gate-B process has started and **gate spend remains 2 / 8 search pages, 2 / 8
 The operator's approval for the initial gate-B invocation is recorded; full-suite verification
 and commit precede that live run.
 
+### Gate B — second preflight-only stop, waiting on Task 37 (2026-08-11)
+
+The approved attempt `01KZQG24YMTJ8G55RY8E2TYTR0` exited 6 at `Storage.getCookies` after
+49 ms, before a checkpoint, navigation, click or kill point. Direct ledger inspection proves
+0/0 for that run. Persons/companies retain their baseline digests; the database still has only
+gate A's one search and 49 result rows.
+
+Process inspection then found Task 37 actively driving the same automation Chrome (three
+process layers for one saved-search invocation). Its already-running branch predates D383 and
+therefore holds a worktree-local lease our corrected shared lock cannot see. That explains why
+the shared lease appeared free while Chrome was not actually exclusive. After a 45-second
+backoff Task 37 was still active, so Task 39 stopped rather than force or race it.
+
+**Gate spend remains 2 / 8 search pages, 2 / 8 page loads.** Gate B has not reached LinkedIn;
+another live invocation requires fresh operator approval after Task 37 is idle.
+
 ## Task 36 reviewed, amended, unblocked and completed (2026-08-11)
 
 Task 35 was already merged to `main` (`acde15b`) on 2026-08-10; only Task 36 was ever
