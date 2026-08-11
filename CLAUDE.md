@@ -131,15 +131,27 @@ drafting) · L5 orchestration (campaigns, sequences, schedulers) · MCP surface 
   always allowed everywhere.
 - **Never forge a request LinkedIn's own UI did not already issue.** No direct Voyager calls
   with the session cookie, however tempting.
-- **The only click this toolkit performs is a pagination control** (D400, operator grant
-  2026-08-11). Next, previous, or a numbered page button, inside a results pager, located by
-  accessible name and **resolved or refused — never guessed**; a trusted `HumanCursor` click,
-  never `element.click()`; brought into view by wheel notches, never `scrollIntoView`. It is
-  granted because it creates no edge, sends nothing and leaves no trace on any third party's
-  account — which is exactly why it opens the door to no other click: not "load more", not a
-  lead panel, not a filter chip, and no L3 write. The spend contract, the sub-caps and the
-  inter-page dwell apply to a clicked page exactly as to a navigated one, and **which page
-  arrived is read from the response body, never from the button.**
+- **This toolkit performs exactly two clicks, both named below and neither generalizable.**
+  Every click, whichever of the two, is **resolved or refused — never guessed**, is a trusted
+  `HumanCursor` click and never `element.click()`, and is brought into view by wheel notches
+  and never `scrollIntoView`.
+
+  **One — a pagination control** (D400, operator grant 2026-08-11). Next, previous, or a
+  numbered page button, inside a results pager, located by accessible name. The spend
+  contract, the sub-caps and the inter-page dwell apply to a clicked page exactly as to a
+  navigated one, and **which page arrived is read from the response body, never from the
+  button.**
+
+  **Two — the Sales Navigator Saved searches button** (D408, operator grant 2026-08-11): the
+  unique enabled `button[data-x--link--saved-searches]` on `/sales/`, and nothing nested
+  inside the panel it opens. It is granted because the control is a button with no href, so
+  there is no url to navigate to, and because it opens the operator's *own* saved searches.
+
+  Both are granted for the same reason and bounded by it: each creates no edge, sends nothing,
+  and leaves no trace on any third party's account. That reason is exactly why neither opens
+  the door to a third click — not "load more", not a lead panel, not a filter chip, not a
+  saved-search row, and no L3 write. **A new click is a new operator grant, measured first and
+  named in this list, or it does not happen.**
 - **Raw first.** Archive the untouched response body before parsing anything. Parsed rows are
   a projection, never the only copy.
 - **Never `Runtime.enable` or `Page.enable`.** `consoleAPICalled` is the classic CDP detection

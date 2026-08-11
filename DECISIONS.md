@@ -5021,3 +5021,29 @@ named, never fatal to the lead.
 
 Found in review, not by the suite: the branch's tests asserted the strict behaviour on a
 fixture where every field happened to be present, so nothing could bite.
+
+## D408 — A second click is granted: the Saved searches button, and nothing inside it (2026-08-11)
+
+Operator grant, 2026-08-11. The toolkit may click the unique enabled
+`button[data-x--link--saved-searches]` on `/sales/`. It is the second click in the toolkit
+and, like D400's pager control, it is resolved-or-refused, clicked through `HumanCursor`,
+never `element.click()`, and revealed by wheel notches, never `scrollIntoView`.
+
+**Why it was needed.** Task 37 measured the control and found it is a `<button>` with no
+`href` — there is no url to navigate to, so the D357 rule "only a url the UI itself produced"
+has nothing to offer here. Guessing a deep link was rejected: it would forge a route this
+build may not serve. Writing the parser first was rejected under D152 — no parser before a
+fixture from a real load.
+
+**Why it was grantable.** It opens the operator's *own* saved searches. It creates no edge,
+sends nothing, and leaves no trace on any third party's account — the same test D400 passed,
+applied to a different control.
+
+**What it does not grant.** Nothing nested inside the panel it opens: not a saved-search row,
+not a "run search" affordance, not a filter chip, not "load more". The grant is one named
+selector on one named page. A third click is a new operator grant, measured first and named
+in the CLAUDE.md list, or it does not happen.
+
+**Scope conditions carried over from D400.** The spend contract and sub-caps apply to whatever
+the click loads exactly as to a navigated page. What arrived is read from the captured
+response body, never from the button that was pressed.
