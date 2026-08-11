@@ -1,0 +1,35 @@
+{
+  "elements": [
+    {
+      "createdAt": 1786406400000,
+      "filters": [
+        {
+          "singleFilterMetadata": {
+            "searchFilterConfig": {
+              "presentationType": "TYPEAHEAD",
+              "title": "Industry"
+            },
+            "type": "INDUSTRY",
+            "values": [
+              {
+                "displayValue": "SYNTHETIC_THIRD_PARTY_INDUSTRY",
+                "id": "SYNTHETIC_INDUSTRY_ID",
+                "selectionType": "INCLUDED"
+              }
+            ]
+          }
+        }
+      ],
+      "id": 2222222222,
+      "keywords": "SYNTHETIC_THIRD_PARTY_KEYWORD",
+      "lastViewedAt": 1786492800000,
+      "name": "SYNTHETIC_OPERATOR_ACCOUNT_SEARCH",
+      "seat": "SYNTHETIC_SEAT"
+    }
+  ],
+  "paging": {
+    "count": 1,
+    "links": [],
+    "start": 0
+  }
+}

@@ -3,12 +3,12 @@ import { CapabilityError, EXIT } from "../../core/run/receipt.js";
 import { trustedControlExpression } from "../salesnav.probe/pager.js";
 import { captureSavedSearches, type SavedSearchCaptureDeps } from "./capture.js";
 import { SAVED_ACCOUNT_TAB_CONTROL, SAVED_SEARCHES_CONTROL } from "./control.js";
-import { isSavedSearchIsh } from "./patterns.js";
+import { carriesSavedSearchPayload } from "./patterns.js";
 
 function archived(file: string) {
   return {
     seq: 1, id: "capture-1", file, path: `/tmp/${file}`, shapeHash: "shape",
-    url: "https://www.linkedin.com/sales-api/salesApiSavedSearches", status: 200,
+    url: "https://www.linkedin.com/sales-api/salesApiSavedSearchesV2", status: 200,
     capturedAt: "2026-08-11T00:00:00.000Z", bytes: 80,
   };
 }
@@ -17,18 +17,26 @@ function harness(o: { clickError?: Error } = {}) {
   const events: string[] = [];
   let releases = 0;
   let drains = 0;
-  const body = '{"entityUrn":"urn:li:fs_salesSavedSearch:SYNTHETIC"}';
-  const capture = {
-    seq: 1, pattern: "salesapi-saved-searches", patterns: ["salesapi-saved-searches", "sales-api-any"],
-    requestId: "request-1", url: "https://www.linkedin.com/sales-api/salesApiSavedSearches",
-    status: 200, body, bytes: body.length, archived: archived("0001-shape.json.gz"),
+  let waits = 0;
+  const body = '{"elements":[{"id":1,"name":"SYNTHETIC"}],"paging":{"start":0,"count":1}}';
+  const leadCapture = {
+    seq: 0, pattern: "salesapi-saved-searches", patterns: ["salesapi-saved-searches", "sales-api-any"],
+    requestId: "request-lead", url: "https://www.linkedin.com/sales-api/salesApiSavedSearchesV2",
+    status: 200, body, bytes: body.length, archived: archived("0001-lead.json.gz"),
     capturedAt: "2026-08-11T00:00:00.000Z",
   };
+  const accountCapture = {
+    seq: 1, pattern: "salesapi-saved-searches", patterns: ["salesapi-saved-searches", "sales-api-any"],
+    requestId: "request-account", url: "https://www.linkedin.com/sales-api/salesApiSavedSearchesV2",
+    status: 200, body, bytes: body.length, archived: archived("0002-account.json.gz"),
+    capturedAt: "2026-08-11T00:00:00.000Z",
+  };
+  const landed: typeof leadCapture[] = [];
   const tap = {
-    cursor: 0,
+    get cursor() { return landed.length; },
     watch: () => { events.push("watch"); return () => { releases++; }; },
     drain: async () => { events.push("drain"); drains++; },
-    captures: () => [capture],
+    captures: () => [...landed],
     misses: () => [],
   };
   const ctx = {
@@ -50,7 +58,12 @@ function harness(o: { clickError?: Error } = {}) {
   };
   const deps: SavedSearchCaptureDeps = {
     gate: async () => ({ kind: "clean", clean: true, signal: "none", detail: "test" }),
-    wait: async () => capture,
+    wait: async () => {
+      waits++;
+      if (waits === 2) landed.push(leadCapture);
+      if (waits === 3) landed.push(accountCapture);
+      return waits < 3 ? leadCapture : accountCapture;
+    },
     click: async (input) => {
       events.push("click");
       expect([SAVED_SEARCHES_CONTROL, SAVED_ACCOUNT_TAB_CONTROL]).toContainEqual(input.spec);
@@ -77,7 +90,7 @@ describe("salesnav.savedsearch.list capture — spend and cleanup", () => {
     expect(result.clicks.map((click) => click.kind)).toEqual([
       "saved searches", "saved account searches tab",
     ]);
-    expect(result.payloads).toHaveLength(1);
+    expect(result.payloads.map((payload) => payload.vertical)).toEqual(["lead", "account"]);
     expect(h.drains()).toBe(3);
     expect(h.releases()).toBeGreaterThan(0);
   });
@@ -94,8 +107,9 @@ describe("salesnav.savedsearch.list capture — spend and cleanup", () => {
   });
 
   it("recognizes a saved-search body by content, not by endpoint alone", () => {
-    expect(isSavedSearchIsh('{"entityUrn":"urn:li:fs_salesSavedSearch:SYNTHETIC"}')).toBe(true);
-    expect(isSavedSearchIsh('{"elements":[]}')).toBe(false);
+    const endpoint = "https://www.linkedin.com/sales-api/salesApiSavedSearchesV2?q=test";
+    expect(carriesSavedSearchPayload('{"elements":[]}', endpoint)).toBe(true);
+    expect(carriesSavedSearchPayload('{"elements":[]}', "https://www.linkedin.com/sales-api/salesApiLists")).toBe(false);
   });
 
   it("pins the D409 Account tab to the measured button role and full accessible name", () => {

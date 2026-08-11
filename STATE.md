@@ -2249,3 +2249,39 @@ with no description, lost its `search_results` position entirely. Refusal is now
 matching `company.people`; a missing content field emits `PARSE_FIELD_MISSING` and the row is
 stored without it. Three tests added, all mutation-checked. Suite 1679 passing, typecheck clean,
 live spend still 0/0.
+
+## Complete — Task 37, saved-search list (2026-08-11, live)
+
+`salesnav.savedsearch.list` now returns the operator's Lead and Account saved
+searches from archived `salesApiSavedSearchesV2` bodies. The positive supervised
+run `01KZQCS8XZDDYSDGMT5SB81YBS` captured exactly one row in each vertical after
+the operator created both: 1,054 Lead bytes and 1,390 Account bytes, no challenge,
+exit 0, lease released. D408's panel click and D361's D409 Account-tab click are
+both named on the receipt; no row or L3 control was clicked.
+
+**Spend: 3 page loads used against 2 planned; 0 of 0 search pages.** The third
+load was not absorbed: run 1 measured the empty list, run 2 showed the saved row
+was under the non-default Account tab and measured that tab, and run 3 lawfully
+clicked it and captured one row in both verticals. The capability's steady-state
+cost remains 1 page load / 0 search pages / 0 profile opens.
+
+The committed fixtures are synthetic and the real bytes stay raw-archived.
+`FIELD-MAP.md` pins every body path and the measured people/company
+`savedSearchId` routes. Receipts allow the operator-authored labels but expose no
+filter value, keyword text, seat data or result-row name (D364). Store identities
+are vertical-prefixed (D362). Listing makes zero database writes; D363 mints the
+immutable `searches` definition at first execution, at the cost of an existence
+check/reuse path in Tasks 39/40 and no database inventory for never-run searches.
+
+**Four review shapes walked.** (1) Every watch is released and the tap drained in
+`finally`; spend precedes navigation, click records are appended immediately, and
+listing leaves no partial store state. (2) classified lower-layer failures pass
+unchanged; a labeled but unparseable body is distinct parse drift, while a valid
+empty envelope is success. (3) the 50-row bound, vertical attribution, endpoint
+identity, URL meaning and privacy all have named tests; mutations to each failed
+before restoration. (4) the capability composes the shared trusted-control helper,
+raw archive reader and pure parser in one typed test path rather than forking any
+of them.
+
+**Verification:** 1,698 passed, 14 store integrations skipped with explicit
+missing-local-Supabase messages; `npx tsc --noEmit` and `git diff --check` clean.

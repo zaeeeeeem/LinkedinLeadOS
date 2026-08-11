@@ -7,9 +7,18 @@ export const SAVED_SEARCHES_PATTERNS: readonly TieredPattern[] = [
   documentPattern(SALESNAV_HOME_URL, SAVED_SEARCHES_DOCUMENT_PATTERN),
 ];
 
-/** A deliberately broad probe marker. The endpoint identity and exact field
- * paths are measured from the first archived body before the parser exists. */
-export function isSavedSearchIsh(body: string): boolean {
-  return /savedSearch|fs_salesSavedSearch/i.test(body);
+/** Endpoint identity plus the measured envelope. The positive bodies contain
+ * neither `savedSearch` nor a saved-search urn, so a marker-only predicate
+ * reports a 1-row response as empty. D407's lesson applies here too: choose a
+ * body by the endpoint that names it, then validate its envelope. */
+export function carriesSavedSearchPayload(body: string, rawUrl: string): boolean {
+  let url: URL;
+  try { url = new URL(rawUrl); } catch { return false; }
+  if (!/\/sales-api\/salesApiSavedSearchesV2$/i.test(url.pathname)) return false;
+  try {
+    const root = JSON.parse(body) as Record<string, unknown>;
+    return Array.isArray(root["elements"]);
+  } catch {
+    return false;
+  }
 }
-

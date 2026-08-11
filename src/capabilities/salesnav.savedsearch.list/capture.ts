@@ -16,13 +16,18 @@ import {
   SALESNAV_HOME_URL, SAVED_SEARCHES_CAPTURE_TIMEOUT_MS, SAVED_SEARCHES_CONTROL_TIMEOUT_MS,
   SAVED_SEARCHES_DOCUMENT_PATTERN, SAVED_SEARCHES_SNAPSHOT_TIMEOUT_MS,
 } from "./constants.js";
-import { isSavedSearchIsh, SAVED_SEARCHES_PATTERNS } from "./patterns.js";
+import { carriesSavedSearchPayload, SAVED_SEARCHES_PATTERNS } from "./patterns.js";
 
 export type SavedSearchCaptureArgs = {
   captureTimeoutMs?: number;
 };
 
-export type SavedSearchPayloadRef = { file: string; bytes: number; patterns: string[] };
+export type SavedSearchPayloadRef = {
+  file: string;
+  bytes: number;
+  patterns: string[];
+  vertical: "lead" | "account";
+};
 
 export type SavedSearchCaptureResult = {
   payloads: SavedSearchPayloadRef[];
@@ -82,6 +87,8 @@ export async function captureSavedSearches(
   const clicks: TrustedClickReport[] = [];
   const checkpoint = { target: { kind: "saved-searches" }, phase: "navigate" as string };
   let panelSince = tap.cursor;
+  let panelMissSince = tap.misses().length;
+  let accountSince: number | null = null;
 
   try {
     foreground = await tab.ensureForeground();
@@ -118,6 +125,7 @@ export async function captureSavedSearches(
     // D408/D409: exact measured selector, anchored accessible name, one match,
     // trusted HumanCursor click, wheel reveal and hit-test refusal.
     panelSince = tap.cursor;
+    panelMissSince = tap.misses().length;
     checkpoint.phase = "click-saved-searches";
     const panelClick = await deps.click({
       tab, cursor, spec: SAVED_SEARCHES_CONTROL, timeoutMs: SAVED_SEARCHES_CONTROL_TIMEOUT_MS,
@@ -153,7 +161,7 @@ export async function captureSavedSearches(
     // accessible name and no href. It acts only on the operator's own panel and
     // leaves no third-party trace, so all four D409 parts hold.
     checkpoint.phase = "click-account-tab";
-    const accountSince = tap.cursor;
+    accountSince = tap.cursor;
     const accountClick = await deps.click({
       tab, cursor, spec: SAVED_ACCOUNT_TAB_CONTROL, timeoutMs: SAVED_SEARCHES_CONTROL_TIMEOUT_MS,
     });
@@ -209,7 +217,7 @@ export async function captureSavedSearches(
   );
 
   const captures = tap.captures().filter((capture) => capture.seq >= panelSince);
-  const misses = tap.misses();
+  const misses = tap.misses().slice(panelMissSince);
   const detections = captures
     .map((capture) => classifyResponse({ status: capture.status, url: capture.url }))
     .filter((detection) => !detection.clean);
@@ -230,7 +238,7 @@ export async function captureSavedSearches(
   });
 
   const summary = summarizeCaptures(captures, misses, SAVED_SEARCHES_PATTERNS, {
-    isRelevant: isSavedSearchIsh,
+    isRelevant: carriesSavedSearchPayload,
   });
   if (summary.misses > 0) warnings.push({
     code: "CAPTURE_MISSES", n: summary.misses,
@@ -247,9 +255,10 @@ export async function captureSavedSearches(
   });
 
   const payloads = captures
-    .filter((capture) => isSavedSearchIsh(capture.body))
+    .filter((capture) => carriesSavedSearchPayload(capture.body, capture.url))
     .map((capture) => ({
       file: capture.archived.file, bytes: capture.bytes, patterns: [...capture.patterns],
+      vertical: accountSince !== null && capture.seq >= accountSince ? "account" as const : "lead" as const,
     }));
   return {
     payloads, snapshot, summary, clicks, warnings,
