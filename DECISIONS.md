@@ -5116,3 +5116,15 @@ Keeping a worktree-local lease lost because a lease is account/browser safety st
 build artifact. The budget path already resolves linked worktrees to the main repository for
 the same reason (D301); using that root makes budget and browser serialization agree without
 changing explicit test-only lease paths.
+
+## D384 — Task 39 live gate A used the measured Next control (2026-08-11)
+
+Operator-approved run `01KZQFCFMVYKAC082JXDRVCAN3` used one trusted pager click to reach
+page 2: control `Next`, one reveal pass. It passed D409's standing four-part test and created
+no third-party trace. The arrived page was accepted only after the named lead-search body's
+offset proved page 2; the button itself was not arrival evidence.
+
+This click produced the second of two archive-proved pages. Direct ledger inspection found
+exactly 2 page loads and 2 search pages, and direct store inspection found 49 immutable result
+positions with no duplicate `(search_id,page,position)` key. The click is recorded here in the
+same session as required; no nested or additional control was pressed.

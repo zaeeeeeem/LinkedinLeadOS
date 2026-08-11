@@ -51,6 +51,27 @@ a non-reproducing transient rather than the persistent zero-window state in D122
 **Gate spend remains 0 / 8 search pages, 0 / 8 page loads.** A retry requires a new operator
 approval because every live invocation is separately supervised.
 
+### Live gate A — passed on default flags (2026-08-11)
+
+The approved retry `01KZQFCFMVYKAC082JXDRVCAN3` exited 0 after 2 pages and 90,311 ms. It
+inspected and stored 49 result positions: page 1 has positions 1–24 and page 2 has positions
+1–25, all under the run's `search_id` / `run_ref`, with 0 duplicate provenance keys. One
+trusted click reached page 2: `Next`, one reveal pass (D384). The receipt carried no returned
+name, headline or profile url.
+
+Independent evidence, not the receipt: the checkpoint has 2 distinct completed pages and one
+named archive id for each; both gzip bodies exist. The append-only ledger has 2 page-load and
+2 search-page units for the run. Supabase has one `sn_leads` search, 49 search results, and an
+exit-0 run parent reporting 2/2. Persons and companies remain at the same empty-table digest
+recorded before the run; the shared lease is free. Thus the three spend/proof numbers are
+equal: **2 ledger search pages = 2 proved pages = 2 named bodies on disk**.
+
+One non-halting `RESPONSE_STATUS_UNRECOGNIZED` warning named a bare-root response; neither
+challenge gate classified it as an interstitial. Gate A otherwise met every acceptance check.
+
+**Gate spend: 2 / 8 search pages, 2 / 8 page loads.** Gate B (kill and resume) remains and
+requires separate operator approval before its initial live invocation.
+
 ## Task 36 reviewed, amended, unblocked and completed (2026-08-11)
 
 Task 35 was already merged to `main` (`acde15b`) on 2026-08-10; only Task 36 was ever
