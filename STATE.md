@@ -2141,3 +2141,23 @@ skew, and left alone.
 3. The two open calls in the report: whether freshness should serve a person row with no
    employment, and whether `job.get` should report a truncated description as partial.
 4. Tasks 32, 33, 34 remain the operator's.
+
+## Task 37 checkpoint 1 — research complete, live probe blocked before spend (2026-08-11)
+
+`salesnav.savedsearch.list` is in progress on branch
+`task-37-savedsearch-list`. Research is recorded in
+`docs/plans/m5-l2-salesnav/tasks/task-37-research.md`. **Spend: 0 of 2 page loads,
+0 of 0 search pages.** No live contact, parser, fixture, receipt, or storage write
+exists yet.
+
+The archived `/sales/` snapshot proves the Saved searches entry is a button with
+`data-x--link--saved-searches` and no href; the same run captured no saved-search
+payload. The current product instructions also require clicking that control.
+D400 permits only pager clicks, so the task stops before live contact rather than
+guessing a deep link or writing parse code before a real fixture (D152).
+
+**[DECISION NEEDED]** Either grant the single measured Saved searches button as
+a second bounded click class, or refuse it and re-cut Task 37. Recommendation:
+grant only the unique enabled `button[data-x--link--saved-searches]` on `/sales/`,
+resolved-or-refused and clicked through `HumanCursor`; no child controls and no
+other non-pager click inherit the grant.
