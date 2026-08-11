@@ -1,5 +1,36 @@
 # STATE
 
+## Planned — M6 (Sales Navigator autonomy) plan laid down (2026-08-11)
+
+The full M6 plan is written at `docs/plans/m6-salesnav-autonomy/` — README, CONTEXT,
+RECORDING and five task files (41–45), same shape as m5. **Status: DRAFT, pending operator
+approval; nothing runs live before it.** Delivers `salesnav.filters.build` (pure),
+`salesnav.filters.apply` (metered, verify-from-the-wire), the measured filter vocabulary,
+and one proven end-to-end loop: typed intent → build → apply → count → converge →
+`salesnav.leads.list` on the converged URL. The classic search family is cut from M6
+entirely by operator direction (2026-08-11); recorded as a plan-level decision at approval.
+
+**Zero-spend research done this session, from M5's own archives** (the plan's README cites
+bodies by run/archive id):
+
+- `salesApiSearchFilterLayout` (81,800 B, captured free on every search page load) carries
+  the **complete filter catalog** — 45 types across LEAD/ACCOUNT with per-filter flags
+  (`typeaheadSupported`, `rawTextSupported`, `exclusionSupported`, presentation types;
+  ANNUAL_REVENUE's values inline).
+- The `query=(filters:List(...))` **URL grammar is measured** from captured request URLs:
+  entity values `(id,text,selectionType)`, ranges `rangeValue:(min[,max])` +
+  `selectedSubFilter`, the `q=savedSearch` form, and `trackingParam` only on page ≥2.
+- `salesApiSavedSearchesV2` returns **fully resolved (type,id,displayValue) tuples** — a
+  free vocabulary harvest source.
+- **The honest gaps:** closed-enum option lists and all typeahead vocabularies (geo,
+  industry, title ids — the "thousands of options") exist in **no** captured body; and the
+  echo behavior of a URL *we* compose is unmeasured. These are Tasks 43 and 42
+  respectively: an operator-driven observe-only harvest session (no new interaction
+  grants), and a ≤4-page echo probe including a deliberate invalid-id measurement.
+
+Decision ranges reserved: D414–D419 plan-approval · D420–D469 tasks 41–45 · D470+ operator
+grants between tasks (a typing grant, if ever asked and given, lands there).
+
 ## M5 gate — MET (2026-08-11)
 
 All three L2 Sales Navigator capabilities have passed live, operator-supervised gates, and
