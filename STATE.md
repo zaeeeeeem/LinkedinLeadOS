@@ -1,5 +1,96 @@
 # STATE
 
+## Built — Task 41 filter grammar and offline builder (2026-08-11)
+
+Research checkpoint complete in isolated worktree `codex/task-41-filter-grammar`. The four
+named M5 run archives are present and were inspected without contacting LinkedIn: three
+distinct `q=searchQuery` query strings (one repeated across two runs), one page-2 query with
+`trackingParam`, the account saved-search execution form, the 81,800-byte
+`salesApiSearchFilterLayout` body, and the saved-search vocabulary bodies. The filter-layout
+body contains no LinkedIn urn, email, seat, saved-search id or profile/member identity marker,
+so the JSON promoter defect in BACKLOG does not apply and no operator-identifying value needs
+scrubbing from that fixture.
+
+The vocabulary store choice is recorded in D420: a committed registry for non-private rows
+plus a gitignored archive-root overlay for operator-scoped rows, rather than making the pure
+builder depend on Supabase. D421 records the measured-syntax boundary for raw text. Baseline
+ledger evidence is **146 lines / 19,289 bytes**, SHA-256
+`6c3e467826fe401a05c9ce5c73c37a358388a645be942da75bbe0f8936e20442`.
+
+**Spend: 0 / 0 page loads, 0 / 0 search pages.** No LinkedIn contact. Next: implement the
+grammar/catalog/vocabulary modules and the two offline capabilities, then run the complete
+archive-backed and mutation test matrix.
+
+### Blocked checkpoint — catalog cardinality contradicts the Task 41 contract (2026-08-11)
+
+The promoted body parses to **35 LEAD rows + 17 ACCOUNT rows**, with six type names shared
+between verticals, hence **46 distinct type names**. Removing the two aggregate-only parent
+rows (`GEOGRAPHY`, `HEADQUARTERS_LOCATION`) produces **44 emittable request types**, not 45.
+Task 41 and the M6 README both require 45. The fixture-backed pinning test fails only on this
+claim (`expected 45, received 46`); the other 21 new tests pass and typecheck is clean. The
+complete suite was run from the worktree after linking the shared fixtures: this same one
+assertion is the only red test; the Supabase integration files remain explicitly skipped because
+their environment variables are not configured in the worktree, so the acceptance requirement
+of zero skips is also not claimed.
+
+Implementation is left in the isolated worktree for review, not declared complete and not
+committed. The grammar round-trips all four archived query-bearing request metas, the
+archive harvester found 10 rows (9 public, 1 private PERSONA), and the builder reconstructs
+the archived page-1 CXO and account query strings exactly. These remain provisional until the
+operator chooses the catalog rule; no count was silently changed to make the test green.
+
+The shared ledger remains **146 lines / 19,289 bytes** with the same SHA-256
+`6c3e467826fe401a05c9ce5c73c37a358388a645be942da75bbe0f8936e20442` after the offline
+harvest capability. **Spend remains 0 / 0 page loads, 0 / 0 search pages. No LinkedIn contact.**
+Resume in `/Users/talhat/Claude/Projects/StartupStruggle/LinkedinLeadsOS-task41` on branch
+`codex/task-41-filter-grammar`; first resolve whether the pinned catalog is 46 body types or
+44 emittable child/single types, then update the task/README contract before continuing.
+
+### Blocker resolved — operator chose 46 body types (2026-08-11)
+
+The operator selected Option A. D423 now pins all **46 literal body types** and names the
+separate **44 emittable types** after the two aggregate presentation parents are excluded.
+The M6 README, CONTEXT, Task 41 contract, FILTER-MAP and fixture-backed assertion were corrected
+together. Work resumes from the provisional implementation; spend remains 0 / 0.
+
+### Offline implementation checkpoint — Task 41 acceptance suite green (2026-08-11)
+
+The query grammar, promoted catalog fixture and map, typed `FilterSpec`, pure
+`salesnav.filters.build`, archive-only `salesnav.filters.vocab`, public registry and private
+overlay are implemented. All six archived Sales Navigator search requests are inventoried:
+four `q=searchQuery` requests round-trip their `query` parameters byte-for-byte and both
+`q=savedSearch` forms are pinned without URL re-encoding. The builder reconstructs the archived
+CXO and accounts page-1 query strings exactly; its dependency graph cannot reach browser,
+network-tap, session, budget or paged-run modules.
+
+Vocabulary harvests from runs `01KZQCS8XZDDYSDGMT5SB81YBS`,
+`01KZQFCFMVYKAC082JXDRVCAN3`, `01KZQ5TXC23T3FFBJ72P8CE85J`,
+`01KZP693DEWVP0S90K7C7XQ997` and `01KZQNM34D61NTBDQNDVSZ45AV` produce **10 rows**:
+9 public and 1 operator-private, split as COMPANY_HEADCOUNT 4, INDUSTRY 2,
+JOB_OPPORTUNITIES 1, PERSONA 1 and REGION 2. D424 requires separate request provenance before
+the builder may omit display text; D425 bounds harvest inputs, makes each registry replacement
+atomic and makes audits resolve every named source. The private row remains only in the
+gitignored shared run root and no operator-private id appears in committed documentation.
+
+Verification is green: `npm run typecheck`; focused Task 41 suite **25/25**; full suite with
+local Supabase and file parallelism disabled **1,787 passed / 0 skipped across 120 files**.
+The ordinary parallel full-suite run exposed an existing cross-file integration race (one test
+temporarily changes a global entity count while another asserts it); serial file execution
+isolates those tests without changing production code. The three deliberate bad shapes bite:
+dropped provenance refuses validation/audit, a double-encoded query fails grammar parsing, and
+an unknown catalog type refuses building.
+
+Independent evidence remains consistent. The shared ledger is still **146 lines / 19,289
+bytes**, SHA-256 `6c3e467826fe401a05c9ce5c73c37a358388a645be942da75bbe0f8936e20442`.
+Both offline harvest run archive directories contain **0 raw files**. Direct Supabase counts
+after the suite are 7 runs, 0 persons, 0 companies, 7 searches and 197 search results; Task 41
+imports no store writer. **Spend: 0 / 0 page loads, 0 / 0 search pages. No LinkedIn contact.**
+
+Cold resume: worktree `/Users/talhat/Claude/Projects/StartupStruggle/LinkedinLeadsOS-task41`,
+branch `codex/task-41-filter-grammar`. Task 41 is offline-complete; no live approval or invocation
+is part of it. **Next: Task 42**, the separately budgeted apply probe, only after reading its
+contract and obtaining the operator approval it requires immediately before any live invocation.
+
 ## M5 gate — MET (2026-08-11)
 
 All three L2 Sales Navigator capabilities have passed live, operator-supervised gates, and
