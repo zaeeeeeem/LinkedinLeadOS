@@ -101,6 +101,16 @@ function isLinkedInHost(hostname: string): boolean {
   return h === "linkedin.com" || h.endsWith(".linkedin.com");
 }
 
+/** `decodeURIComponent` that answers null instead of throwing on a malformed
+ *  escape, so one bad `%` in a url can never end a run. */
+function decodeOrNull(value: string): string | null {
+  try {
+    return decodeURIComponent(value);
+  } catch {
+    return null;
+  }
+}
+
 /**
  * Finds a parameter that may sit either as its own query key or inside the
  * percent-encoded `query=` blob Sales Navigator packs its filters into.
@@ -108,19 +118,30 @@ function isLinkedInHost(hostname: string): boolean {
  * Both placements are real — the reference worker hit both — and a reader that
  * checked only the query string would report `sessionId: null` on a url that
  * carries one. Bounded and total: no captured value, no throw.
+ *
+ * **`%` is not a value terminator, and the decoded form is read first (D412).**
+ * A Sales Navigator session id is base64, so it reaches the url as
+ * `9HhV%2F%2FAmT0iLnkgZji9ZMw%3D%3D`. Stopping the value at `%` truncated that
+ * to `9HhV`, which made the id depend on how the url happened to be spelled —
+ * a false mismatch when two spellings of one session met, and a 4-character
+ * comparison that could just as easily have collided on two real ones.
+ *
+ * Reading the decoded url first is what lets `%` be an ordinary character:
+ * an encoded delimiter inside the blob (`%26`) has become a real `&` by then,
+ * so it still ends the value. The raw pass is the fallback for a url whose
+ * escapes do not decode.
  */
 export function findSearchParam(rawUrl: string, name: string): string | null {
-  const direct = new RegExp(`${name}(?:=|%3D)([^&%\\s"']+)`, "i");
-  const hit = direct.exec(rawUrl);
-  if (hit?.[1] !== undefined) return hit[1];
-  let decoded: string;
-  try {
-    decoded = decodeURIComponent(rawUrl);
-  } catch {
-    return null;
+  // Ends at a real delimiter only. `(`, `)` and `,` bound the blob's own
+  // `(key:value,key:value)` form; base64 contains none of them.
+  const direct = new RegExp(`${name}(?:=|%3D)([^&\\s"'(),]+)`, "i");
+  for (const candidate of [decodeOrNull(rawUrl), rawUrl]) {
+    if (candidate === null) continue;
+    const hit = direct.exec(candidate);
+    // Decoded so that the encoded and plain spellings of one id are one string.
+    if (hit?.[1] !== undefined) return decodeOrNull(hit[1]) ?? hit[1];
   }
-  const second = direct.exec(decoded);
-  return second?.[1] ?? null;
+  return null;
 }
 
 /** The verticals `/sales/search/<vertical>` is known to serve. Anything else is

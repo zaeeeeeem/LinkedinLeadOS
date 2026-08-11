@@ -99,6 +99,27 @@ describe("findSearchParam", () => {
   it("does not throw on a malformed escape", () => {
     expect(findSearchParam(`${LEADS}?q=%E0%A4%A`, "sessionId")).toBeNull();
   });
+
+  // Measured 2026-08-11 on the live accounts gate: the Sales Navigator session
+  // id is base64 and reaches the url as `9HhV%2F%2FAmT0iLnkgZji9ZMw%3D%3D`.
+  // Treating `%` as a value terminator truncated it to `9HhV`.
+  it("keeps a percent-encoded base64 session id whole", () => {
+    expect(findSearchParam(`${LEADS}?sessionId=9HhV%2F%2FAmT0iLnkgZji9ZMw%3D%3D`, "sessionId"))
+      .toBe("9HhV//AmT0iLnkgZji9ZMw==");
+  });
+
+  // The pin that stops two result sets being joined is a string compare, so the
+  // encoded and unencoded spellings of one id must produce one string.
+  it("reads one id identically whether the url encoded it or not", () => {
+    const encoded = findSearchParam(`${LEADS}?sessionId=9HhV%2F%2FAmT0iLnkgZji9ZMw%3D%3D`, "sessionId");
+    const plain = findSearchParam(`${LEADS}?sessionId=9HhV//AmT0iLnkgZji9ZMw==`, "sessionId");
+    expect(encoded).toBe(plain);
+    expect(encoded).not.toBeNull();
+  });
+
+  it("still stops at an encoded delimiter inside the query blob", () => {
+    expect(findSearchParam(`${LEADS}?query=x%26sessionId%3Dinner%26page%3D2`, "sessionId")).toBe("inner");
+  });
 });
 
 describe("searchPageUrl", () => {
