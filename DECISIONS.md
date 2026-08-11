@@ -5271,3 +5271,88 @@ yet they fire *after* the page has been charged, because the paged contract spen
 loads. Moving those two checks ahead of the spend would make an impossible resume free. That is
 a change to the Task 35 contract's ordering, not to this capability, so it is recorded in
 BACKLOG rather than made here.
+
+## D390 — Accounts mirrors the leads composition; the shared seam remains `runPaged` (2026-08-11)
+
+Task 40 duplicates the vertical composition explicitly and imports the exact Task 35
+`runPaged` function. It does not generalize the leads runner after one live vertical. A typed
+assignment plus a function-identity test pins that inheritance, so an accounts-only loop or a
+wrapper cannot quietly replace the proved spend/archive/checkpoint contract.
+
+The alternative was a generic Sales Navigator source parameterized by endpoint, parser,
+vertical, cursor kind, fingerprint key and provenance column. That would reduce textual
+duplication, but it would make the first accounts page-2 measurement also the first proof of a
+new abstraction. Keeping two honest vertical compositions makes D406's opposite identity
+rules visible: leads hash `objectUrn`; accounts hash the plain company `entityUrn`; neither
+ever hashes per-execution `trackingId`.
+
+## D391 — A prior execution's `sessionId` is not a reusable account-search target (2026-08-11)
+
+Approved run `01KZQM2SP4PZNFFNTJ9PWRZZF0` reused Task 36's operator-supplied company-search
+URL. The URL carried the session minted for that earlier probe; on the new navigation LinkedIn
+returned the account page under a different session. The capability refused
+`SALESNAV_SESSION_CHANGED` after one paid page and before any pager click, so it did not join
+page 1 from one result-set execution to page 2 from another.
+
+The URL's filter query remains operator-produced and was not wrong; the stale session made it
+non-reusable. Stripping `sessionId` from an arbitrary historical filter URL lost because D353
+says the query is the target and D360 says a session pins its result set. The measured reuse
+path is Task 37's Account saved-search URL: LinkedIn's own saved-search body supplies its id,
+D365 constructs `/sales/search/company?savedSearchId=…`, and a fresh navigation may then mint
+the execution session that subsequent pages must preserve.
+
+## D412 — A base64 session id does not end at its first percent sign (2026-08-11)
+
+`findSearchParam` excluded `%` from a parameter value. A Sales Navigator session id is
+base64, so it reaches the url as `9HhV%2F%2FAmT0iLnkgZji9ZMw%3D%3D` and was read as `9HhV`.
+
+That made the id depend on how the url happened to be spelled. The first accounts gate loaded
+page 1 from an encoded url and page 2 from a plain one, compared `9HhV` against
+`9HhV//AmT0iLnkgZji9ZMw==`, and refused `SALESNAV_SESSION_CHANGED` with both pages already
+paid for and proved.
+
+The pin has to be encoding-insensitive in both directions. A false mismatch stops a good run;
+a four-character prefix comparison could as easily have matched two genuinely different result
+sets, which is the failure that actually matters.
+
+The decoded url is read first, which is what lets `%` be an ordinary character — an encoded
+`%26` has become a real `&` by then and still ends the value — and the captured value is
+decoded so one id has one spelling. The raw pass remains the fallback for a url whose escapes
+do not decode, so a malformed `%` still cannot end a run.
+
+**This corrects D391.** That decision recorded the first refused gate as LinkedIn minting a
+different session for the archived Task 36 url, and concluded the url was non-reusable. That
+url carries `sessionId=enjbU06fTE%2B7NoIqnybnmg%3D%3D`, which truncated to `enjbU06fTE` at the
+`%2B` and could not have matched whatever the tab reported, whatever LinkedIn did. The
+measurement D391 reasoned from was corrupted by this bug, so its conclusion is withdrawn: the
+Task 36 url is not known to be stale. The saved-search route it recommended is still the
+better target, for D365's reasons rather than D391's.
+
+## D413 — The session pin belongs to the request, not the address bar (2026-08-11)
+
+With D412 fixed, the accounts gate refused `SALESNAV_SESSION_CHANGED` again, still with both
+pages loaded and proved.
+
+Exactly one session id exists in that run's entire capture set,
+`E3trPZCaTCW4/fkO8ctGOA==`. Page 1's cursor was pinned to it and page 2's search request was
+executed under it; the two agreed. What disagreed was the address bar, which after the pager
+click carried a freshly minted session that no request ever used and that appears in no
+captured url anywhere in the run.
+
+So the pin was being read off a rendered surface. Which result-set execution a page's rows
+came from is a data field, and CLAUDE.md's first rule puts data fields in the captured
+request, never in what the page is displaying. The address bar is a navigation read.
+
+Both sources now prefer the capture and fall back to the landed url, which is still correct
+for page 1: its first request carries no `trackingParam` at all, so the url is the only
+source there. `findSearchParam` accepts `:` as a separator, because the executed session
+reaches the wire only as `trackingParam=(sessionId:<id>)` — the same `(key:value)` blob shape
+the function already existed to read.
+
+Applied to leads as well as accounts. The defect is identical in both, and the fallback
+preserves the behaviour Task 39 proved live wherever the two sources agree.
+
+**Known and unmeasured:** if the address bar mints a session ahead of the click, a third
+page's request may execute under that newer session and be refused against the page-1 pin.
+The default gate is two pages, so this has never been exercised. Measure it before raising
+`--pages` above 2 on either vertical.

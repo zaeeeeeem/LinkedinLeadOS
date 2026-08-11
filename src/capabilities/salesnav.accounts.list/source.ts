@@ -11,14 +11,14 @@ import { readLikeAHuman } from "../profile.capture/read.js";
 import { clickPagerControl, type ClickReport } from "../salesnav.probe/pager.js";
 import { SALESNAV_PATTERNS } from "../salesnav.probe/patterns.js";
 import { findSearchParam, normalizeSalesNavUrl, type SalesNavTarget } from "../salesnav.probe/url.js";
-import { parseSalesNavLeads, type SalesNavLeadsParseResult } from "./parse.js";
+import { parseSalesNavAccounts, type SalesNavAccountsParseResult } from "./parse.js";
 
-export const LEAD_SEARCH_PATTERN = "salesapi-lead-search";
+export const ACCOUNT_SEARCH_PATTERN = "salesapi-account-search";
 export const DEFAULT_CAPTURE_TIMEOUT_MS = 60_000;
 export const DEFAULT_LAYOUT_TIMEOUT_MS = 60_000;
 
-export type LeadsCursor = {
-  kind: "salesnav-leads/v1";
+export type AccountsCursor = {
+  kind: "salesnav-accounts/v1";
   session_id: string;
   page: number;
   start: number;
@@ -27,13 +27,13 @@ export type LeadsCursor = {
   click?: { control: string | null; reveal_passes: number };
 };
 
-export type LeadsPageData = {
-  parsed: SalesNavLeadsParseResult;
+export type AccountsPageData = {
+  parsed: SalesNavAccountsParseResult;
   warnings: Warning[];
   click: ClickReport | null;
 };
 
-export type LeadsSourceOptions = {
+export type AccountsSourceOptions = {
   browser: BrowserBundle;
   run: Pick<RunContext, "runId" | "log" | "checkpoint" | "lastCheckpoint">;
   target: SalesNavTarget;
@@ -43,13 +43,13 @@ export type LeadsSourceOptions = {
   sessionUrns: () => readonly string[];
 };
 
-export type LeadsSourceRuntime = {
+export type AccountsSourceRuntime = {
   gate(options: Parameters<typeof assertNoChallenge>[0]): ReturnType<typeof assertNoChallenge>;
   read(options: Parameters<typeof readLikeAHuman>[0]): ReturnType<typeof readLikeAHuman>;
   click(options: Parameters<typeof clickPagerControl>[0]): ReturnType<typeof clickPagerControl>;
 };
 
-const runtimeDefaults: LeadsSourceRuntime = {
+const runtimeDefaults: AccountsSourceRuntime = {
   gate: assertNoChallenge,
   read: readLikeAHuman,
   click: clickPagerControl,
@@ -77,46 +77,46 @@ function drift(code: string, message: string, evidence?: string): CapabilityErro
   });
 }
 
-function cursorOf(value: unknown): LeadsCursor | null {
+function cursorOf(value: unknown): AccountsCursor | null {
   if (value === null || typeof value !== "object") return null;
-  const row = value as Partial<LeadsCursor>;
-  if (row.kind !== "salesnav-leads/v1" || typeof row.session_id !== "string" || row.session_id === "") return null;
+  const row = value as Partial<AccountsCursor>;
+  if (row.kind !== "salesnav-accounts/v1" || typeof row.session_id !== "string" || row.session_id === "") return null;
   if (!Number.isInteger(row.page) || !Number.isInteger(row.start) || !Number.isInteger(row.count)) return null;
-  return row as LeadsCursor;
+  return row as AccountsCursor;
 }
 
-function fingerprint(rows: SalesNavLeadsParseResult["rows"]): string {
-  return createHash("sha256").update(rows.map((row) => row.person_urn).join("\n")).digest("hex");
+function fingerprint(rows: SalesNavAccountsParseResult["rows"]): string {
+  return createHash("sha256").update(rows.map((row) => row.company_urn).join("\n")).digest("hex");
 }
 
-export const leadsFingerprint = fingerprint;
+export const accountsFingerprint = fingerprint;
 
-function challengeState(run: LeadsSourceOptions["run"], page: number, stage: string): Record<string, unknown> {
+function challengeState(run: AccountsSourceOptions["run"], page: number, stage: string): Record<string, unknown> {
   const existing = run.lastCheckpoint<unknown>();
   const base = existing !== null && typeof existing === "object" && !Array.isArray(existing)
     ? existing as Record<string, unknown>
     : {};
-  return { ...base, salesnav_leads: { page, stage } };
+  return { ...base, salesnav_accounts: { page, stage } };
 }
 
-function ordinaryWarnings(parsed: SalesNavLeadsParseResult): Warning[] {
+function ordinaryWarnings(parsed: SalesNavAccountsParseResult): Warning[] {
   return parsed.warnings.map(({ code, field, n }) => ({ code, field, n }));
 }
 
-type SelectedPage = { captures: Capture[]; parsed: SalesNavLeadsParseResult };
+type SelectedPage = { captures: Capture[]; parsed: SalesNavAccountsParseResult };
 
 /**
- * Resolves the named lead-search response for one requested page. Multiple
+ * Resolves the named account-search response for one requested page. Multiple
  * retries are accepted only when their parsed identities agree; offset alone
  * is not enough to call two bodies the same page.
  */
-export function selectLeadPage(captures: readonly Capture[], page: number, sessionUrns: readonly string[]): SelectedPage {
-  const candidates = captures.filter((capture) => capture.patterns.includes(LEAD_SEARCH_PATTERN));
-  const decoded = candidates.map((capture) => ({ capture, parsed: parseSalesNavLeads(capture.body, { sessionUrns }) }));
+export function selectAccountPage(captures: readonly Capture[], page: number, sessionUrns: readonly string[]): SelectedPage {
+  const candidates = captures.filter((capture) => capture.patterns.includes(ACCOUNT_SEARCH_PATTERN));
+  const decoded = candidates.map((capture) => ({ capture, parsed: parseSalesNavAccounts(capture.body, { refusedUrns: sessionUrns }) }));
   if (decoded.length > 0 && decoded.every((entry) => entry.parsed.paging === null)) {
     throw drift(
       "SALESNAV_PAGING_PARSE_DRIFT",
-      "named lead-search bodies no longer carry the paging fields needed to prove which page arrived",
+      "named account-search bodies no longer carry the paging fields needed to prove which page arrived",
       `requested_page=${page} named_bodies=${candidates.length}`,
     );
   }
@@ -125,15 +125,15 @@ export function selectLeadPage(captures: readonly Capture[], page: number, sessi
     if (page === 1 && candidates.length > 0) {
       throw drift(
         "SALESNAV_PAGE_OFFSET_UNEXPECTED",
-        "the initial named lead-search body did not identify itself as page 1",
+        "the initial named account-search body did not identify itself as page 1",
         `requested_page=${page} named_bodies=${candidates.length}`,
       );
     }
     throw refusal(
       page > 1 ? "PAGE_DID_NOT_ADVANCE" : "SALESNAV_PAGE_BODY_MISSING",
       page > 1
-        ? `the pager action did not produce a lead-search body whose offset says page ${page}`
-        : "the initial navigation produced no lead-search body whose offset says page 1",
+        ? `the pager action did not produce an account-search body whose offset says page ${page}`
+        : "the initial navigation produced no account-search body whose offset says page 1",
       `requested_page=${page} named_bodies=${candidates.length}`,
     );
   }
@@ -141,7 +141,7 @@ export function selectLeadPage(captures: readonly Capture[], page: number, sessi
   if (identities.size !== 1) {
     throw refusal(
       "SALESNAV_PAGE_AMBIGUOUS",
-      "more than one lead-search body claimed the requested page and their row identities disagreed",
+      "more than one account-search body claimed the requested page and their row identities disagreed",
       `requested_page=${page} bodies=${parsed.length}`,
     );
   }
@@ -155,7 +155,7 @@ function worst(detections: ChallengeDetection[]): ChallengeDetection {
 
 async function responseWarnings(
   captures: readonly Capture[],
-  o: Pick<LeadsSourceOptions, "browser" | "run">,
+  o: Pick<AccountsSourceOptions, "browser" | "run">,
   page: number,
 ): Promise<Warning[]> {
   const detections = captures.map((capture) => classifyResponse({ status: capture.status, url: capture.url }))
@@ -181,7 +181,7 @@ function sessionIdOf(url: string): string | null {
 }
 
 /** The live tap-driven source consumed by `runPaged`; it owns no spend or checkpoint. */
-export function createLeadsSource(o: LeadsSourceOptions, runtime: LeadsSourceRuntime = runtimeDefaults): PagedSource {
+export function createAccountsSource(o: AccountsSourceOptions, runtime: AccountsSourceRuntime = runtimeDefaults): PagedSource {
   const { tab, tap, cursor } = o.browser;
   for (const pattern of SALESNAV_PATTERNS) tap.watch(pattern);
 
@@ -210,7 +210,7 @@ export function createLeadsSource(o: LeadsSourceOptions, runtime: LeadsSourceRun
         let current;
         try { current = normalizeSalesNavUrl(currentUrl); } catch { current = null; }
         const currentSession = sessionIdOf(currentUrl);
-        if (current === null || current.vertical !== "people" || currentSession !== previous!.session_id) {
+        if (current === null || current.vertical !== "company" || currentSession !== previous!.session_id) {
           throw refusal(
             "SALESNAV_SESSION_CHANGED",
             "the tab no longer carries the result-set session from the prior proved page; resuming it would join two searches",
@@ -236,7 +236,7 @@ export function createLeadsSource(o: LeadsSourceOptions, runtime: LeadsSourceRun
         run: o.run,
         state: challengeState(o.run, request.page, "post-navigation-gate"),
       });
-      await tap.waitFor(LEAD_SEARCH_PATTERN, {
+      await tap.waitFor(ACCOUNT_SEARCH_PATTERN, {
         since,
         timeoutMs: o.captureTimeoutMs ?? DEFAULT_CAPTURE_TIMEOUT_MS,
       });
@@ -259,12 +259,12 @@ export function createLeadsSource(o: LeadsSourceOptions, runtime: LeadsSourceRun
       await tap.drain();
 
       const mine = tap.captures().filter((capture) => capture.seq >= since);
-      const selected = selectLeadPage(mine, request.page, o.sessionUrns());
+      const selected = selectAccountPage(mine, request.page, o.sessionUrns());
       const paging = selected.parsed.paging!;
       if (previous !== null && paging.start <= previous.start) {
         throw refusal(
           "PAGE_DID_NOT_ADVANCE",
-          `the lead-search body offset did not advance from page ${previous.page} to page ${request.page}`,
+          `the account-search body offset did not advance from page ${previous.page} to page ${request.page}`,
           `previous_start=${previous.start} arrived_start=${paging.start}`,
         );
       }
@@ -303,8 +303,8 @@ export function createLeadsSource(o: LeadsSourceOptions, runtime: LeadsSourceRun
         detail: { page: request.page, inspected: selected.parsed.inspected, usable: selected.parsed.rows.length, refused: selected.parsed.refused },
       });
 
-      const next: LeadsCursor = {
-        kind: "salesnav-leads/v1",
+      const next: AccountsCursor = {
+        kind: "salesnav-accounts/v1",
         session_id: sessionId,
         page: request.page,
         start: paging.start,
@@ -318,7 +318,7 @@ export function createLeadsSource(o: LeadsSourceOptions, runtime: LeadsSourceRun
         hasMore: paging.start + paging.count < paging.total,
         cursor: next,
         fingerprint: fingerprint(selected.parsed.rows),
-        data: { parsed: selected.parsed, warnings, click } satisfies LeadsPageData,
+        data: { parsed: selected.parsed, warnings, click } satisfies AccountsPageData,
       };
     },
   };

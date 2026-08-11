@@ -1,5 +1,84 @@
 # STATE
 
+## Done — Task 40 `salesnav.accounts.list` end to end (2026-08-11)
+
+The live gate passed on run `01KZQNM34D61NTBDQNDVSZ45AV`: two pages, one Next click, 50 rows
+inspected, 50 usable, 0 refused, 100,409 ms. Both pages pinned to one session
+`9CUHfx1zQOu8nxQgHroNWQ==`, no orphans and no wasted spend.
+
+Verified independently of the receipt. The ledger holds exactly 4 lines for the run (2 page
+loads, 2 search pages). The two proved archives are 53,730- and 50,555-byte
+`salesApiAccountSearch` bodies with `start` 0 and 25 against `total` 660. Supabase gained
+exactly 50 `search_results` rows (147 to 197), 25 positions on each of pages 1 and 2, 50
+distinct `company_urn`, `person_urn` null throughout, under one `sn_accounts` search whose
+`filter_url` is the saved-search target; `persons` and `companies` remain 0. Suite 1,762
+passed / 0 skipped, typecheck clean.
+
+Two bugs were found by the gate and fixed before it passed, both in shared salesnav code and
+both affecting leads as well:
+
+- **D412** — `findSearchParam` treated `%` as a value terminator, truncating the base64
+  session id `9HhV%2F%2FAmT0iLnkgZji9ZMw%3D%3D` to `9HhV`. This also withdraws D391's
+  conclusion that the Task 36 url was stale; that measurement was corrupted by this bug.
+- **D413** — the session pin was read from the address bar, which after a pager click carries
+  a freshly minted session no request ever used. It now comes from the captured request.
+
+**Spend: 7 / 10 accounts page loads and 7 / 10 search pages used today**, across four
+attempts: 1 refused under D391 (withdrawn — it was D412), 2 refused exposing D412, 2 refused
+exposing D413, and 2 green. Three of those four are the cost of finding two real bugs that
+Task 39's leads gate had passed straight over.
+
+Not measured, and recorded in D413: whether a third page's request executes under the session
+the address bar minted at click time. Measure before raising `--pages` above 2.
+
+### Superseded — attempts 1 and 2 (2026-08-11)
+
+## In progress — Task 40 `salesnav.accounts.list` end to end (2026-08-11)
+
+Baseline and research checkpoints passed in an isolated worktree. The full suite reports
+**1,727 passed / 14 explicit environment skips (1,741 total)**; the Sales Navigator field-map
+suite ran all 17 assertions with 0 skips. The chosen composition is recorded in
+`docs/plans/m5-l2-salesnav/tasks/task-40-approach.md`: mirror Task 39 per vertical, preserve
+the opposite account identity rule explicitly, and pin the shared Task 35 `runPaged` export
+with a compile-time/import assertion rather than paying for another resume gate.
+
+**Spend: 0 / 4 search pages, 0 / 4 page loads.** No LinkedIn contact in this checkpoint.
+Next: implement and mutation-check the offline account composition, then request the
+operator-supplied company-search URL and approval immediately before the default live run.
+
+### Offline composition checkpoint (2026-08-11)
+
+`salesnav.accounts.list` now mirrors Task 39 through the same typed `runPaged` export while
+keeping account semantics explicit: company-search endpoint and route, plain company-urn
+fingerprints, `sn_accounts`, and company-only provenance. With local Supabase enabled, the
+full suite increased from 1,741 to **1,756 passed / 0 skipped**; typecheck and diff checks are
+clean. Three deliberate mutations went red: fingerprinting on per-execution `trackingId`,
+substituting a different function for the Task 35 runner, and writing the company identity to
+`person_urn`.
+
+All four review shapes are walked in `task-40-approach.md`. The independent store baseline is
+0 persons, 0 companies, 3 searches, 147 search results and 3 runs; the shared ledger has 0
+`salesnav.accounts.list` lines. **Spend remains 0 / 4 search pages, 0 / 4 page loads.** No
+LinkedIn contact. The Task 36 archive still carries an operator-supplied company-search URL;
+next is explicit approval to reuse it for the one default two-page live invocation.
+
+### Live gate attempt 1 — refused after page 1, before any click (2026-08-11)
+
+The approved default run `01KZQM2SP4PZNFFNTJ9PWRZZF0` stopped after 41,854 ms with
+`SALESNAV_SESSION_CHANGED`. The archived Task 36 URL carried its old `sessionId`; LinkedIn
+minted a different session on the new navigation, and the source correctly refused to join
+the two result sets. No pager click, page-2 load or result-row write followed.
+
+Independent evidence: the ledger has exactly 1 page-load and 1 search-page line; one named
+53,953-byte `salesApiAccountSearch` body exists among the raw captures; the checkpoint has a
+paid page-1 attempt and 0 completed pages. Supabase has the error run parent and its immutable
+`sn_accounts` search definition but 0 results for this run. Persons and companies remain 0;
+the shared lease is free. **Gate spend: 1 / 4 search pages, 1 / 4 page loads.**
+
+The Task 37 archive contains one operator-owned Account saved search whose measured execution
+URL carries `savedSearchId` and no stale `sessionId` (D365). A new live invocation requires
+fresh operator approval; the failed attempt is not retried under the first grant.
+
 ## In progress — Task 39 `salesnav.leads.list` end to end (2026-08-11)
 
 Research and offline implementation checkpoints are complete; both supervised live gates remain. The
