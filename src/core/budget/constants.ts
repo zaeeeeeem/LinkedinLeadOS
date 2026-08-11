@@ -179,6 +179,12 @@ export const CAPABILITY_SUB_CAPS: Readonly<Record<string, CapabilitySubCaps>> = 
   // that page turns out to be metered, the measurement raises this number
   // deliberately rather than the capability discovering it at exit 7.
   "salesnav.savedsearch.list": { pageLoadsPerDay: 6, searchPagesPerDay: 0, distinctProfilesPerDay: 0 },
+  // Task 43's observer opens at most four worker-tab search pages per day and
+  // then sends no input events. Operator-driven filter work can still cause
+  // real search responses, so those are accounted under this capability too.
+  // The search ceiling stays at half the global day: enough for the two
+  // planned taxonomy sessions, but too small for an unattended harvest loop.
+  "salesnav.filters.harvest": { pageLoadsPerDay: 4, searchPagesPerDay: 25, distinctProfilesPerDay: 0 },
 };
 
 /** The daily sub-caps in force for one capability. Never returns uncapped. */
