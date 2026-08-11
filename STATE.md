@@ -38,6 +38,19 @@ The shared ledger currently reports 8 global search pages and 25 global page loa
 rolling day, while `salesnav.leads.list` itself remains 0 / 20 for both kinds. The corrected
 shared tab lease is free. Local pre-live entity/search tables are empty after the reset above.
 
+### Live gate A — preflight attempt stopped before contact (2026-08-11)
+
+Operator-approved run `01KZQEWSGRJ7D8ED2WGMWHBFB3` exited 6 in 33 ms at the login probe:
+Chrome rejected `Storage.getCookies` with `Browser context management is not supported`.
+No worker tab, navigation or click followed. Independent ledger inspection proves **0 page
+loads / 0 search pages** for the run; the shared lease is free; persons, companies, searches
+and search results remain at their identical pre-run 0-row digests. A subsequent browser-only
+diagnostic found 5 live targets and the same browser command succeeded, so this is currently
+a non-reproducing transient rather than the persistent zero-window state in D122.
+
+**Gate spend remains 0 / 8 search pages, 0 / 8 page loads.** A retry requires a new operator
+approval because every live invocation is separately supervised.
+
 ## Task 36 reviewed, amended, unblocked and completed (2026-08-11)
 
 Task 35 was already merged to `main` (`acde15b`) on 2026-08-10; only Task 36 was ever
