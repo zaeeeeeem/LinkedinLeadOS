@@ -2161,3 +2161,46 @@ a second bounded click class, or refuse it and re-cut Task 37. Recommendation:
 grant only the unique enabled `button[data-x--link--saved-searches]` on `/sales/`,
 resolved-or-refused and clicked through `HumanCursor`; no child controls and no
 other non-pager click inherit the grant.
+
+## Task 38 — parsers and search store path, complete (2026-08-11, offline)
+
+Fixture gate passed before parser work: the promoted leads page 1, leads page 2 and accounts
+page 1 bodies are present, and `tests/salesnav-fieldmap.test.ts` reports **17 passed, 0
+skipped**. Research is recorded in `task-38-approach.md`; the chosen store rule is append-only
+across searches and skip-by-`(search_id,page,position)` within one search (D370/D371).
+
+Spend: **0 / 0 page loads, 0 / 0 search pages**. No LinkedIn contact.
+
+## Complete — Task 38 parsers and search store path (2026-08-11, offline)
+
+`salesnav.leads.list` and `salesnav.accounts.list` now parse the three promoted labeled
+bodies with per-vertical identity, bounded rich rows, page/position provenance and
+resolved-or-refused identity. Leads key on `objectUrn`; accounts key on the plain
+`entityUrn`. Their parser-only CLI entries are zero-cost local refusals until Tasks 39/40
+compose the live runners (D372), so discovery remains green without making either command
+capable of traffic.
+
+`src/core/store/searches.ts` is the first writer for `searches` and `search_results`.
+Definitions are insert-only; provenance is plain-insert append-only across searches and
+skip-by-`(search_id,page,position)` within one search, backed by the new unique-index
+migration (D370/D371). Existing positions with a different entity refuse rather than
+silently keeping the wrong row. Store tests drive real `supabase-js` over loopback
+PostgREST and prove the request shape touches neither `persons` nor `companies`.
+
+**Verification:** 1,676 passed; 14 integration tests skipped with explicit `[skip]` messages
+because local Supabase credentials are absent. `npx tsc --noEmit` and `git diff --check`
+clean. Mutation audit: replacing insert with upsert failed the append-only test; adding a
+`persons` insert failed 3 tests including entity isolation; disabling resume skipping failed
+the duplicate-position test; swapping both vertical keys failed both meaning checks.
+
+Spend: **0 / 0 page loads, 0 / 0 search pages**. No LinkedIn contact. Next: Task 39 wires
+the leads parser/store contract into `runPaged`; Task 40 does the accounts vertical.
+
+## Task 38 review fix — identity refuses a row, content warns (2026-08-11)
+
+Reviewed on merge. One defect fixed in place (D373): both search parsers required every
+measured field on every row, so a lead with no location or no current position, and a company
+with no description, lost its `search_results` position entirely. Refusal is now identity-only,
+matching `company.people`; a missing content field emits `PARSE_FIELD_MISSING` and the row is
+stored without it. Three tests added, all mutation-checked. Suite 1679 passing, typecheck clean,
+live spend still 0/0.

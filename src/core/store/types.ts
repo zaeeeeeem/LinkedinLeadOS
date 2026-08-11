@@ -146,3 +146,23 @@ export type JobUpsertResult = {
    *  was therefore dropped — a collapsed job page yields a prefix (D323). */
   descriptionKept?: "stored";
 };
+
+export type SearchKind = "sn_leads" | "sn_accounts";
+export type SearchInput = {
+  search_id: string;
+  kind: SearchKind;
+  filter_url?: string | null;
+  filter_json?: Record<string, unknown> | null;
+};
+export type SearchInsertResult = { search_id: string; rows: 1 };
+
+type SearchResultBase = {
+  search_id: string;
+  page: number;
+  position: number;
+  run_ref?: string | null;
+};
+export type SearchResultInput =
+  | (SearchResultBase & { person_urn: string; company_urn?: never })
+  | (SearchResultBase & { person_urn?: never; company_urn: string });
+export type SearchResultsInsertResult = { rows: number; skipped: number };

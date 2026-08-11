@@ -4961,3 +4961,63 @@ offset presented as the search's own is a coincidence wearing evidence's clothes
 
 Found by running the accounts probe, not by re-reading the code — the same way D355's
 `companyUrn` error was found. A verdict that is right on one surface is not a verdict.
+
+## D370 — A reloaded search page is skipped by provenance identity, never replaced (2026-08-11)
+
+`search_results` remains append-only across observations: the same entity in two searches is
+two rows. Within one search, `(search_id, page, position)` names one observation, so a resume
+pre-reads the positions already present and inserts only the missing ones. It never updates or
+deletes a row that already landed.
+
+A new unique index enforces that identity below the writer. The M1–M3 migration deliberately
+had no such key because the paged resume contract did not exist yet; editing that applied file
+would be a silent no-op (D99), so Task 38 adds a new migration. Pre-reading alone was rejected:
+it would make the ordinary retry cheap but leave concurrent or interrupted writers able to
+silently duplicate provenance.
+
+This is consistent with D342/D346: bytes already proved on disk are adopted without another
+load, and rows already proved in the store are adopted without another insert. A different
+`search_id` is a different observation even when its entity urn is identical.
+
+## D371 — Search definitions are insert-only and their ids are immutable (2026-08-11)
+
+The store exposes `insertSearch`, not an upsert. `search_id` names the kind, filter URL and
+filter JSON captured when the search was created; silently merging a later definition into the
+same id would move every existing result row under a different search.
+
+A duplicate id is therefore a visible, data-free store failure. When Task 37 decides *when* a
+saved search is minted, it can call this writer at that boundary; Task 38 does not silently
+choose list-time versus first-execution semantics for it.
+
+## D372 — Parser-only capability entry points refuse locally until Tasks 39/40 wire them (2026-08-11)
+
+The CLI registry treats every directory under `src/capabilities` as executable and requires
+an `index.ts`; a parser directory without one makes every CLI command fail during discovery.
+Task 38 therefore registers both names as explicit parser-only placeholders: local risk,
+zero cost, no browser, no auth, and an unconditional `CAPABILITY_NOT_IMPLEMENTED` refusal.
+
+Pretending the live runners exist was rejected. Tasks 39 and 40 replace these entry points
+when they compose capture, `runPaged`, parsing and storage; until then no invocation can
+accidentally spend a page merely because the parser directory became discoverable.
+
+## D373 — Only identity refuses a search row; missing content warns and keeps the position (2026-08-11, review)
+
+Task 38 shipped both parsers requiring every measured field on every row: a lead with no
+`geoRegion`, no `currentPositions` or no `openLink`, or a company with no `description` or
+`industry`, refused the whole row. That loses the row's place in `search_results`, which is
+the one thing that table exists to record — and it loses it for a person who is *harder* to
+enrich, not less real. A retired lead and a company with no blurb are ordinary, not drift.
+
+The rule is now the one `company.people` already established (`ParsedCompanyPerson`: identity
+required, `name?` and `headline?` optional). A row is refused for an unresolvable subject urn
+or the operator's own identity, and nothing else. Every other field is content: absent means
+`PARSE_FIELD_MISSING` naming the field, and the row is stored with the field omitted.
+
+Strictness was rejected as a drift detector because of *how* it failed: a renamed field would
+have emptied whole pages rather than raising a named warning. Refusals still leave a gap in
+the page's positions rather than shifting the rows below them, so a gap remains readable as a
+refusal. Positions inside a lead follow the same rule — one unreadable position is dropped and
+named, never fatal to the lead.
+
+Found in review, not by the suite: the branch's tests asserted the strict behaviour on a
+fixture where every field happened to be present, so nothing could bite.
