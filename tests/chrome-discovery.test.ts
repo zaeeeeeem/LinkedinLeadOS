@@ -1,7 +1,7 @@
 import { describe, it, expect, afterEach } from "vitest";
 import { createServer, type Server } from "node:http";
 import { AddressInfo } from "node:net";
-import { mkdtemp, rm } from "node:fs/promises";
+import { chmod, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
@@ -38,6 +38,17 @@ async function deadPort(): Promise<number> {
 const versionBody = (ws: string) =>
   JSON.stringify({ Browser: "Chrome/151.0.0.0", webSocketDebuggerUrl: ws });
 
+/**
+ * What a windowless Chrome really serves: `/json/list` is *not* empty, it just
+ * has no `page` in it. Copied from the shapes the live automation Chrome
+ * returned on 2026-08-11.
+ */
+const windowlessListBody = JSON.stringify([
+  { id: "IFRAME0", type: "iframe", url: "chrome-untrusted://new-tab-page/one-google-bar" },
+  { id: "UI0", type: "browser_ui", url: "chrome://omnibox-popup.top-chrome/" },
+  { id: "SW0", type: "service_worker", url: "chrome-extension://abc/sw.js" },
+]);
+
 /** One page target, shaped as Chrome's real `/json/list` element. */
 const listBody = (n: number) =>
   JSON.stringify(
@@ -68,9 +79,32 @@ const chromeServing = (ws: string, targets: number) => (path: string) => {
  */
 const NO_BINARY = "/nonexistent/Google Chrome";
 
+/** A throwaway user-data-dir, so a launch-path test never touches the real
+ *  automation profile at ~/.linkedin-os/chrome-profile. */
+const profileDirs: string[] = [];
+async function tempProfile(): Promise<string> {
+  const dir = await mkdtemp(join(tmpdir(), "linkedin-os-launch-"));
+  profileDirs.push(dir);
+  return dir;
+}
+
+/**
+ * A stand-in for the Chrome binary: a script that ignores the launch args and
+ * stays alive. It must not exit, or the launcher's `exit` branch reports a
+ * dead process instead of exercising the wait loop under test.
+ */
+async function fakeBrowserBinary(): Promise<string> {
+  const dir = await tempProfile();
+  const path = join(dir, "fake-chrome.sh");
+  await writeFile(path, "#!/bin/sh\nsleep 30\n");
+  await chmod(path, 0o755);
+  return path;
+}
+
 afterEach(async () => {
   if (server) await new Promise<void>((ok) => server!.close(() => ok()));
   server = undefined;
+  while (profileDirs.length > 0) await rm(profileDirs.pop()!, { recursive: true, force: true });
 });
 
 describe("chrome constants", () => {
@@ -181,6 +215,18 @@ describe("hasLiveTarget", () => {
     expect(await hasLiveTarget(port)).toBe(false);
   });
 
+  // D410, and the reason the guard existed yet did not fire: a windowless
+  // Chrome serves iframes, browser_ui and service workers. "Non-empty" was
+  // never the question; "is there a browser context to manage" was.
+  it("is false when /json/list has targets but none of them is a page", async () => {
+    const port = await fake((path) =>
+      path === "/json/version"
+        ? { status: 200, body: versionBody("ws://127.0.0.1:9223/devtools/browser/x") }
+        : { status: 200, body: windowlessListBody },
+    );
+    expect(await hasLiveTarget(port)).toBe(false);
+  });
+
   it("is false, never a throw, on a dead port or a non-array body", async () => {
     expect(await hasLiveTarget(await deadPort())).toBe(false);
     if (server) await new Promise<void>((ok) => server!.close(() => ok()));
@@ -217,6 +263,19 @@ describe("ensureChrome", () => {
     expect(e.code).toBe("CHROME_BINARY_MISSING");
   });
 
+  it("refuses to reuse a windowless Chrome whose only targets are iframes and UI (D410)", async () => {
+    // The measured production failure: this endpoint was reused and then died
+    // at Storage.getCookies with "Browser context management is not supported".
+    // Reaching CHROME_BINARY_MISSING proves it now falls through to launch.
+    const port = await fake((path) =>
+      path === "/json/version"
+        ? { status: 200, body: versionBody("ws://127.0.0.1:9223/devtools/browser/ghost") }
+        : { status: 200, body: windowlessListBody },
+    );
+    const e = (await ensureChrome({ port, binary: NO_BINARY }).catch((x: unknown) => x)) as CapabilityError;
+    expect(e.code).toBe("CHROME_BINARY_MISSING");
+  });
+
   it("also falls through when /json/list itself cannot be read — 'cannot tell' is not 'healthy'", async () => {
     const port = await fake((path) =>
       path === "/json/version"
@@ -225,6 +284,42 @@ describe("ensureChrome", () => {
     );
     const e = (await ensureChrome({ port, binary: NO_BINARY }).catch((x: unknown) => x)) as CapabilityError;
     expect(e.code).toBe("CHROME_BINARY_MISSING");
+  });
+
+  // D410. The launch path is the only one that can watch a Chrome mid-start,
+  // and it used to return the instant `/json/version` answered — a few hundred
+  // ms before the first target exists. In that window every browser-level
+  // command fails the B5 way, which is how preflight died at
+  // `Storage.getCookies` with a retryable code no in-process retry could fix.
+  it("waits, after launching, for a target to exist and not merely for the port", async () => {
+    const ws = "ws://127.0.0.1:9223/devtools/browser/started";
+    let listCalls = 0;
+    // Answers /json/version immediately; the first two /json/list polls are the
+    // startup window, then a target appears.
+    const port = await fake((path) => {
+      if (path === "/json/version") return { status: 200, body: versionBody(ws) };
+      if (path === "/json/list") {
+        listCalls += 1;
+        return { status: 200, body: listBody(listCalls > 2 ? 1 : 0) };
+      }
+      return { status: 404, body: "" };
+    });
+    // `sleep` stands in for Chrome: it exists, spawns, and does not exit while
+    // the wait loop runs, so nothing here depends on a real browser.
+    const ep = await ensureChrome({ port, binary: await fakeBrowserBinary(), profileDir: await tempProfile(), launchTimeoutMs: 5_000 });
+    expect(ep).toEqual({ port, wsUrl: ws, launched: true });
+    // Returning on the first poll is the bug: it means the port alone decided.
+    expect(listCalls).toBeGreaterThan(2);
+  });
+
+  it("times out with the real reason when a launched Chrome never gets a target", async () => {
+    const port = await fake(chromeServing("ws://127.0.0.1:9223/devtools/browser/never", 0));
+    const e = (await ensureChrome({
+      port, binary: await fakeBrowserBinary(), profileDir: await tempProfile(), launchTimeoutMs: 800,
+    }).catch((x: unknown) => x)) as CapabilityError;
+    expect(e.code).toBe("CHROME_LAUNCH_TIMEOUT");
+    // Not "endpoint never answered" — it did answer, and that was the trap.
+    expect(e.message).toContain("before Chrome had a single target");
   });
 
   it("refuses to ever target port 9222", async () => {

@@ -97,7 +97,7 @@ export async function ensureChrome(opts: EnsureChromeOptions = {}): Promise<Chro
   // browser-level command on it fails. One extra loopback GET on the reuse
   // path settles that; an empty target list falls through to the launch path
   // below, which already reports a profile held by another process properly.
-  // Discovery on the launch path is deliberately unchanged.
+  // The launch path applies the same test — see the wait loop (D410).
   try {
     const wsUrl = await discoverBrowserWsUrl(port);
     if (await hasLiveTarget(port)) return { port, wsUrl, launched: false };
@@ -148,8 +148,18 @@ export async function ensureChrome(opts: EnsureChromeOptions = {}): Promise<Chro
     }
     // Discovery wins over the exit flag: if the endpoint answers, the launch
     // worked, whatever the process table says.
+    //
+    // But answering is not being ready (D410). A freshly spawned Chrome serves
+    // `/json/version` a few hundred ms before its first target exists, and in
+    // that window every browser-level command fails the B5 way — which is how
+    // preflight died at `Storage.getCookies` with a `CDP_PROTOCOL_ERROR` that
+    // looked transient and was not. The reuse path above already applies this
+    // test; the launch path needs it more, because it is the only path that can
+    // observe a Chrome mid-start. Same deadline, same failure reporting.
     try {
-      return { port, wsUrl: await discoverBrowserWsUrl(port), launched: true };
+      const wsUrl = await discoverBrowserWsUrl(port);
+      if (await hasLiveTarget(port)) return { port, wsUrl, launched: true };
+      last = `port ${port} answered before Chrome had a single target`;
     } catch (e) {
       last = e instanceof Error ? e.message : String(e);
     }

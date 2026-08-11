@@ -119,7 +119,16 @@ export async function execute(o: ExecuteOptions): Promise<Outcome> {
   // Before anything runs: the args schema. A capability must never begin work on
   // arguments it would have rejected — that is the difference between a typo and
   // a page load spent on one.
-  const parsed = def.args.safeParse({ ...o.rawArgs });
+  //
+  // On a resume, the run's own recorded arguments sit underneath the command
+  // line (D411). An omitted flag then means "as before" rather than "as the
+  // schema defaults", which is the difference between continuing a run and
+  // silently truncating one that has already paid for its pages. Anything
+  // typed on this invocation still wins.
+  const persisted = flags.runId === null
+    ? null
+    : RunContext.persistedArgs({ runId: flags.runId, ...(o.runsDir === undefined ? {} : { runsDir: o.runsDir }) });
+  const parsed = def.args.safeParse({ ...(persisted ?? {}), ...o.rawArgs });
   if (!parsed.success) {
     return failEarly(
       def.name,
@@ -188,6 +197,7 @@ export async function execute(o: ExecuteOptions): Promise<Outcome> {
   const bundleRef: { current: BrowserBundle | null } = { current: null };
   const warnings: Warning[] = [];
   try {
+    const workerTargetId = run.workerTargetId();
     prepared = await preflight({
       runId: run.runId,
       capability: def.name,
@@ -198,6 +208,7 @@ export async function execute(o: ExecuteOptions): Promise<Outcome> {
       budget,
       events: run,
       leasePath,
+      ...(workerTargetId === null ? {} : { workerTargetId }),
       deps,
       // Registered from inside preflight, the moment there is anything to
       // release. Registering it here, after preflight returned, left a window
@@ -213,6 +224,7 @@ export async function execute(o: ExecuteOptions): Promise<Outcome> {
       }),
     });
     warnings.push(...prepared.warnings);
+    if (prepared.tab) run.rememberWorkerTarget(prepared.tab.targetId);
 
     const browser = buildBundle(def, prepared, deps, run);
     // Published before the tap is started, so a throw from `start()` still
@@ -225,6 +237,7 @@ export async function execute(o: ExecuteOptions): Promise<Outcome> {
 
     warnings.push(...(result.warnings ?? []));
     warnings.push(...(await tearDownQuietly(prepared, browser, run.runId, leasePath, deps)));
+    run.forgetWorkerTarget();
     prepared = null;
     bundleRef.current = null;
     o.onCleanup?.(async () => {});
@@ -245,7 +258,10 @@ export async function execute(o: ExecuteOptions): Promise<Outcome> {
     try {
       run.log("error", { level: "error", detail: { code: err.code, action: err.action, retryable: err.retryable } });
     } catch { /* the receipt is the report of record; a failed log must not replace it */ }
-    if (prepared) await tearDownQuietly(prepared, bundleRef.current, run.runId, leasePath, deps);
+    if (prepared) {
+      await tearDownQuietly(prepared, bundleRef.current, run.runId, leasePath, deps);
+      run.forgetWorkerTarget();
+    }
     o.onCleanup?.(async () => {});
     return finishWith(run, buildErr({
       run_id: run.runId, capability: def.name, err,

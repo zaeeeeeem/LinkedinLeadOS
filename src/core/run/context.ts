@@ -21,6 +21,9 @@ export type RunMeta = {
   args: RunArgs;
   created_at: string;
   resumed_at: string[];
+  /** The exact worker target a hard-killed process left behind. Cleared by
+   * normal teardown; a resume may attach only to this run-owned target. */
+  worker_target_id?: string;
 };
 
 /**
@@ -91,6 +94,31 @@ export class RunContext {
     this.paths = o.paths;
     this.logger = o.logger;
     this.openedAt = Date.now();
+  }
+
+  /**
+   * The arguments a run was originally created with, or `null` when there is no
+   * such run or its meta cannot be read.
+   *
+   * A resume must start from these, not from the schema defaults (D411). The
+   * defaults are what the operator meant on a *fresh* run; on a resume they are
+   * a different instruction wearing the same shape, and the run has already
+   * spent real pages under the original one.
+   */
+  static persistedArgs(opts: { runId: string; runsDir?: string }): RunArgs | null {
+    const dir = join(resolve(opts.runsDir ?? defaultRunsDir()), opts.runId);
+    const metaPath = join(dir, "run.json");
+    if (!existsSync(metaPath)) return null;
+    try {
+      const meta = parseJsonFile<RunMeta>(metaPath, opts.runId, "run.json", "RUN_META_CORRUPT");
+      return meta.args !== null && typeof meta.args === "object" && !Array.isArray(meta.args)
+        ? meta.args
+        : null;
+    } catch {
+      // A corrupt meta is `RunContext.resume`'s error to report, with its run id
+      // and its exit code. Reading args is a best-effort convenience.
+      return null;
+    }
   }
 
   static open(opts: OpenOptions): RunContext {
@@ -190,6 +218,46 @@ export class RunContext {
       this.paths.checkpoint, this.runId, "checkpoint.json", "RUN_CHECKPOINT_CORRUPT",
     );
     return payload.state as T;
+  }
+
+  workerTargetId(): string | null {
+    const meta = parseJsonFile<RunMeta>(
+      this.paths.meta, this.runId, "run.json", "RUN_META_CORRUPT",
+    );
+    return typeof meta.worker_target_id === "string" && meta.worker_target_id !== ""
+      ? meta.worker_target_id
+      : null;
+  }
+
+  /** Persisted immediately after preflight, before the capability can spend. */
+  rememberWorkerTarget(targetId: string): void {
+    if (targetId === "") {
+      throw new CapabilityError({
+        code: "RUN_WORKER_TARGET_INVALID", exit: EXIT.GENERIC, action: "HALT_AND_NOTIFY",
+        retryable: false, message: "the browser returned an empty worker target id",
+      });
+    }
+    const meta = parseJsonFile<RunMeta>(
+      this.paths.meta, this.runId, "run.json", "RUN_META_CORRUPT",
+    );
+    if (meta.worker_target_id !== undefined && meta.worker_target_id !== targetId) {
+      throw new CapabilityError({
+        code: "RUN_WORKER_TARGET_CHANGED", exit: EXIT.GENERIC, action: "HALT_AND_NOTIFY",
+        retryable: false, message: "the run refused to replace its recorded worker target",
+      });
+    }
+    meta.worker_target_id = targetId;
+    writeAtomic(this.paths.meta, JSON.stringify(meta, null, 2) + "\n");
+  }
+
+  /** A normal teardown closed the target, so it must not be offered to resume. */
+  forgetWorkerTarget(): void {
+    const meta = parseJsonFile<RunMeta>(
+      this.paths.meta, this.runId, "run.json", "RUN_META_CORRUPT",
+    );
+    if (meta.worker_target_id === undefined) return;
+    delete meta.worker_target_id;
+    writeAtomic(this.paths.meta, JSON.stringify(meta, null, 2) + "\n");
   }
 
   /**

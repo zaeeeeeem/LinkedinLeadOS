@@ -166,3 +166,17 @@ export type SearchResultInput =
   | (SearchResultBase & { person_urn: string; company_urn?: never })
   | (SearchResultBase & { person_urn?: never; company_urn: string });
 export type SearchResultsInsertResult = { rows: number; skipped: number };
+
+export type RunRecordInput = {
+  run_id: string;
+  capability: string;
+  args: Record<string, unknown>;
+};
+
+export type RunRecordFinish = {
+  status: "ok" | "error";
+  page_loads: number;
+  search_credits: number;
+  elapsed_ms: number;
+  exit_code: number;
+};

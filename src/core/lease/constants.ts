@@ -1,4 +1,5 @@
 import { join } from "node:path";
+import { defaultRunsDir } from "../run/paths.js";
 
 /**
  * Where the lease lives by default. Repo-local `runs/`, alongside the budget
@@ -7,7 +8,7 @@ import { join } from "node:path";
  * storage exists. A local file is the only thing that still works then.
  */
 export function defaultLeasePath(): string {
-  return join(process.cwd(), "runs", "tab.lock");
+  return join(defaultRunsDir(), "tab.lock");
 }
 
 /**

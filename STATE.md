@@ -1,5 +1,108 @@
 # STATE
 
+## In progress — Task 39 `salesnav.leads.list` end to end (2026-08-11)
+
+Research and offline implementation checkpoints are complete; both supervised live gates remain. The
+fixture-backed baseline is **1679 passing / 14 skipped**, exactly the handoff count, and
+`fixtures/salesnav.probe/` contains both pinned leads pages. The chosen composition is recorded
+in `docs/plans/m5-l2-salesnav/tasks/task-39-approach.md`: the tap returns exact archive ids to
+`runPaged`, body offsets and `sessionId` prove arrival, and final storage re-reads every page
+the archive-backed checkpoint proves so prior/adopted pages converge after a kill.
+
+No shared pager edit: Task 37 currently has uncommitted changes in
+`src/capabilities/salesnav.probe/pager.ts`; Task 39 consumes its stable export only.
+
+**[BUG] fixed before live use (D383):** the default budget ledger already resolves all linked
+worktrees to the main repository, but the tab lease used each process's current directory.
+Parallel Task 37/39 processes could therefore hold different lock files while driving the
+same dedicated Chrome. The lease now uses the shared run root too; a test pins the two paths
+to the same parent.
+
+The capability now runs through the lease, budget, tap, archive-backed paged loop and store.
+It proves arrivals from the named lead-search body's offset, returns exact tap archive ids,
+reprojects every archive-proved page on resume, and writes `searches` / `search_results`
+without an entity writer. Typecheck is clean and the final full suite reports
+**1710 passing / 0 skipped** with local Supabase enabled. Six deliberate mutations went red:
+using a worktree-local lease, removing exact archive-id naming, replacing the merged
+challenge checkpoint, collapsing page-bounded store writes, bypassing `--no-store`, and
+downgrading paging parse drift.
+
+**Local-data incident:** I invoked `npm run db:verify` without first inspecting that script;
+it runs `supabase db reset`. Migrations and the verification checks completed, but there is
+no seed file and the local tables now contain 0 runs, 0 persons, 0 companies, 0 searches and
+0 search results. Any unseeded local rows that existed before the reset are not recoverable
+from the database. No live LinkedIn run caused this reset.
+
+**Spend: 0 / 8 search pages, 0 / 8 page loads.** No LinkedIn contact in this checkpoint.
+The shared ledger currently reports 8 global search pages and 25 global page loads in the
+rolling day, while `salesnav.leads.list` itself remains 0 / 20 for both kinds. The corrected
+shared tab lease is free. Local pre-live entity/search tables are empty after the reset above.
+
+### Live gate A — preflight attempt stopped before contact (2026-08-11)
+
+Operator-approved run `01KZQEWSGRJ7D8ED2WGMWHBFB3` exited 6 in 33 ms at the login probe:
+Chrome rejected `Storage.getCookies` with `Browser context management is not supported`.
+No worker tab, navigation or click followed. Independent ledger inspection proves **0 page
+loads / 0 search pages** for the run; the shared lease is free; persons, companies, searches
+and search results remain at their identical pre-run 0-row digests. A subsequent browser-only
+diagnostic found 5 live targets and the same browser command succeeded, so this is currently
+a non-reproducing transient rather than the persistent zero-window state in D122.
+
+**Gate spend remains 0 / 8 search pages, 0 / 8 page loads.** A retry requires a new operator
+approval because every live invocation is separately supervised.
+
+### Live gate A — passed on default flags (2026-08-11)
+
+The approved retry `01KZQFCFMVYKAC082JXDRVCAN3` exited 0 after 2 pages and 90,311 ms. It
+inspected and stored 49 result positions: page 1 has positions 1–24 and page 2 has positions
+1–25, all under the run's `search_id` / `run_ref`, with 0 duplicate provenance keys. One
+trusted click reached page 2: `Next`, one reveal pass (D384). The receipt carried no returned
+name, headline or profile url.
+
+Independent evidence, not the receipt: the checkpoint has 2 distinct completed pages and one
+named archive id for each; both gzip bodies exist. The append-only ledger has 2 page-load and
+2 search-page units for the run. Supabase has one `sn_leads` search, 49 search results, and an
+exit-0 run parent reporting 2/2. Persons and companies remain at the same empty-table digest
+recorded before the run; the shared lease is free. Thus the three spend/proof numbers are
+equal: **2 ledger search pages = 2 proved pages = 2 named bodies on disk**.
+
+One non-halting `RESPONSE_STATUS_UNRECOGNIZED` warning named a bare-root response; neither
+challenge gate classified it as an interstitial. Gate A otherwise met every acceptance check.
+
+**Gate spend: 2 / 8 search pages, 2 / 8 page loads.** Gate B (kill and resume) remains and
+requires separate operator approval before its initial live invocation.
+
+### Gate B pre-kill review found and fixed the missing browser half of resume (2026-08-11)
+
+Review shape 1 at the actual kill point found a blocker before spending: the paged checkpoint
+preserved page 1's bytes/session, but every new CLI process created a blank worker tab. A
+resume could therefore neither press Next from the proved page nor reload page 1 without
+violating the no-reload/no-respend gate. D385 now persists the run-owned worker target before
+work, reattaches that exact surviving target after a hard kill, clears it after normal
+teardown, and refuses if Chrome no longer has it. It never searches or adopts the operator's
+other tabs. Typecheck and the full **1715-test** suite pass; both handoff and missing-target
+mutations go red.
+
+No gate-B process has started and **gate spend remains 2 / 8 search pages, 2 / 8 page loads**.
+The operator's approval for the initial gate-B invocation is recorded; full-suite verification
+and commit precede that live run.
+
+### Gate B — second preflight-only stop, waiting on Task 37 (2026-08-11)
+
+The approved attempt `01KZQG24YMTJ8G55RY8E2TYTR0` exited 6 at `Storage.getCookies` after
+49 ms, before a checkpoint, navigation, click or kill point. Direct ledger inspection proves
+0/0 for that run. Persons/companies retain their baseline digests; the database still has only
+gate A's one search and 49 result rows.
+
+Process inspection then found Task 37 actively driving the same automation Chrome (three
+process layers for one saved-search invocation). Its already-running branch predates D383 and
+therefore holds a worktree-local lease our corrected shared lock cannot see. That explains why
+the shared lease appeared free while Chrome was not actually exclusive. After a 45-second
+backoff Task 37 was still active, so Task 39 stopped rather than force or race it.
+
+**Gate spend remains 2 / 8 search pages, 2 / 8 page loads.** Gate B has not reached LinkedIn;
+another live invocation requires fresh operator approval after Task 37 is idle.
+
 ## Task 36 reviewed, amended, unblocked and completed (2026-08-11)
 
 Task 35 was already merged to `main` (`acde15b`) on 2026-08-10; only Task 36 was ever
@@ -2285,3 +2388,28 @@ of them.
 
 **Verification:** 1,698 passed, 14 store integrations skipped with explicit
 missing-local-Supabase messages; `npx tsc --noEmit` and `git diff --check` clean.
+## Task 39 gate B passed on review, with two fixes first (2026-08-11)
+
+Reviewed and completed on merge. Gate B was blocked by a misdiagnosis, not by Task 37: the two
+failing runs' own receipts named `Storage.getCookies ... Browser context management is not
+supported` — the B5 condition — at 33ms and 49ms, far too fast to have launched anything and
+with a protocol error rather than `TAB_LEASE_HELD`.
+
+**Two defects fixed (D410, D411).** `hasLiveTarget` asked whether `/json/list` was non-empty; a
+windowless Chrome still lists iframes and browser_ui, so the guard passed and preflight reused a
+browser that could not serve one command. It now requires a `page` target. And a resume rebuilt
+its arguments from the schema defaults rather than from the run's own `run.json`, which
+silently truncated a killed 3-page run and cost the pagination session it needed to finish.
+
+**Gate B, measured.** Fresh 2-page run, hard-killed after page 1 checkpointed, resumed with no
+flags at all. Recovered url and `pages`, `respent_pages: []`, exactly 1 new page charged. Ledger
+2 search pages for 2 distinct pages. Supabase: 49 rows, 24 + 25, zero duplicate
+`(search_id, page, position)`, 49 distinct person urns. `persons`, `companies` and `jobs` all
+still 0 rows — entity tables provably untouched.
+
+**Spend: 8 page loads / 8 search pages, exactly the gate's budget of 8**, across run A (2), the
+first gate attempt (3 charged, killed on page 3), its resume (0), one refused resume (1), and
+the corrected gate (2).
+
+Carried to BACKLOG: the two url-derived refusals fire after the spend because the paged contract
+spends before it loads. A `precheck` hook belongs in Task 35's contract, not here.

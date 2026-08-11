@@ -7,6 +7,8 @@ import type { SearchInput, SearchInsertResult, SearchResultInput, SearchResultsI
 export type SearchStoreOpts = { client?: StoreClient };
 export const MAX_SEARCH_RESULTS_PER_WRITE = 25;
 
+type StoredSearch = { search_id: string; kind: string; filter_url: string | null; filter_json: unknown };
+
 function invalid(field: string): CapabilityError {
   return new CapabilityError({
     code: "SEARCH_RESULT_INVALID",
@@ -30,6 +32,32 @@ export async function insertSearch(input: SearchInput, opts: SearchStoreOpts = {
   const result = await client.from(TABLES.searches).insert(compactSearch(input)).select("search_id").single();
   if (result.error) throw new StoreWriteError(storeError({ op: "insert search", table: TABLES.searches, kind: "write", status: result.status, cause: result.error }), 0);
   return { search_id: input.search_id, rows: 1 };
+}
+
+/**
+ * Resume-safe search initialization. A missing definition is inserted; an
+ * identical one is adopted; a changed one is refused. This does not weaken
+ * `insertSearch`'s insert-only contract — it is the corroboration path for a
+ * run that may have died on either side of the first insert.
+ */
+export async function ensureSearch(input: SearchInput, opts: SearchStoreOpts = {}): Promise<SearchInsertResult & { inserted: boolean }> {
+  const client = opts.client ?? getStore();
+  const found = await client.from(TABLES.searches)
+    .select("search_id,kind,filter_url,filter_json")
+    .eq("search_id", input.search_id)
+    .maybeSingle();
+  if (found.error) throw storeError({ op: "select search", table: TABLES.searches, kind: "read", status: found.status, cause: found.error });
+  const existing = found.data as StoredSearch | null;
+  if (existing === null) {
+    await insertSearch(input, { client });
+    return { search_id: input.search_id, rows: 1, inserted: true };
+  }
+  const expectedUrl = input.filter_url ?? null;
+  const expectedJson = input.filter_json ?? null;
+  if (existing.kind !== input.kind || existing.filter_url !== expectedUrl || JSON.stringify(existing.filter_json) !== JSON.stringify(expectedJson)) {
+    throw invalid("stored search definition");
+  }
+  return { search_id: input.search_id, rows: 1, inserted: false };
 }
 
 type PositionRow = { search_id: string; page: number; position: number; person_urn: string | null; company_urn: string | null };

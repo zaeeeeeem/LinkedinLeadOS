@@ -62,7 +62,7 @@ export type TabLike = {
 export type SessionLike = {
   readonly endpoint: ChromeEndpoint;
   readonly client: TapTransport;
-  openWorkerTab(url?: string): Promise<TabLike>;
+  openWorkerTab(url?: string, resumeTargetId?: string): Promise<TabLike>;
   close(): Promise<void>;
 };
 

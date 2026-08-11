@@ -146,6 +146,25 @@ describe("resume", () => {
     expect(meta.resumed_at.length).toBe(1);
   });
 
+  it("persists a run-owned worker target across a hard-kill boundary and clears it after teardown", () => {
+    const first = RunContext.open({ capability: "health.check", runsDir });
+    expect(first.workerTargetId()).toBeNull();
+    first.rememberWorkerTarget("target-owned-by-run");
+    const resumed = RunContext.open({ capability: "health.check", runId: first.runId, runsDir });
+    expect(resumed.workerTargetId()).toBe("target-owned-by-run");
+    resumed.forgetWorkerTarget();
+    expect(resumed.workerTargetId()).toBeNull();
+  });
+
+  it("refuses to replace one run's recorded worker target", () => {
+    const ctx = RunContext.open({ capability: "health.check", runsDir });
+    ctx.rememberWorkerTarget("target-a");
+    expect(() => ctx.rememberWorkerTarget("target-b")).toThrowError(expect.objectContaining({
+      code: "RUN_WORKER_TARGET_CHANGED",
+      exit: EXIT.GENERIC,
+    }));
+  });
+
   it("logs a checkpoint.resume event noting whether a prior checkpoint existed", () => {
     const first = RunContext.open({ capability: "health.check", runsDir });
     first.checkpoint({ page: 1 });

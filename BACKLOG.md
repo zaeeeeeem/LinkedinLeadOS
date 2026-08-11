@@ -217,3 +217,22 @@ transport-level defect hidden behind a retry is one nobody measures again.
 
 Mitigated meanwhile by D401 (the probe's budget raised 6 → 10), which is what lets a run
 that dies this way be retried the same day.
+
+## Spend the page after the tab has been checked, not before (D411, 2026-08-11)
+
+`SALESNAV_SESSION_CHANGED` and `SALESNAV_PAGER_POSITION_CHANGED` are decided entirely from the
+tab's current url. No LinkedIn request is involved. They still cost a metered search page,
+because `runPaged` spends before it calls `loadPage` and the checks live inside it.
+
+Measured: one impossible resume cost 1 page load and 1 search page to be told it was
+impossible. On a 20-search-page daily sub-cap, a handful of those is real budget.
+
+**Approach settled at capture time.** Do not move the spend. Give `PagedSource` an optional
+`precheck(request)` that `runPaged` calls *before* the spend and that may only throw — it may
+not load, navigate, click, or return data. The leads source moves its two url-derived refusals
+into it. Anything needing a network response stays where it is, after the spend, because the
+"a crash may waste a spend, the ledger may never under-count" property depends on that order
+and must not be weakened to save a page.
+
+Not done in Task 39 because it changes the Task 35 paged contract, which more than one
+capability consumes.

@@ -109,6 +109,8 @@ export type PreflightInput = {
   budget: RunBudget;
   events?: EventSink;
   leasePath?: string;
+  /** A target recorded by this exact run before a hard kill. */
+  workerTargetId?: string;
   deps: PreflightDeps;
   /**
    * Handed a teardown thunk as soon as this preflight holds anything at all.
@@ -205,7 +207,7 @@ export async function preflight(input: PreflightInput): Promise<Prepared> {
 
       // 6. The worker tab, created in the background on a blank page (D10) —
       // after the lease, so two runs never both own one.
-      prepared.tab = await prepared.session!.openWorkerTab();
+      prepared.tab = await prepared.session!.openWorkerTab(undefined, input.workerTargetId);
     }
     return prepared;
   } catch (e) {

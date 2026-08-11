@@ -86,16 +86,24 @@ export async function discoverBrowserWsUrl(
 }
 
 /**
- * Does this Chrome still have at least one target (B5)? A running automation
- * Chrome whose windows have all been closed answers `/json/version` normally
- * and returns an empty `/json/list`; on that process every browser-level
- * command fails ("Browser context management is not supported"), so preflight
- * dies at `Storage.getCookies` with a retryable `CDP_PROTOCOL_ERROR` that no
- * retry can ever fix — the condition holds until someone restarts Chrome.
+ * Does this Chrome still have at least one **page** target (B5)? A running
+ * automation Chrome whose windows have all been closed answers `/json/version`
+ * normally; on that process every browser-level command fails ("Browser context
+ * management is not supported"), so preflight dies at `Storage.getCookies` with
+ * a retryable `CDP_PROTOCOL_ERROR` that no retry can ever fix — the condition
+ * holds until someone restarts Chrome.
  *
- * Never throws: anything short of a parsed, non-empty array is `false`. An
- * unreachable or malformed `/json/list` did not answer "at least one target",
- * and treating "cannot tell" as healthy is what produced B5's misleading
+ * **`page`, not "any target" (D410).** The first version of this guard asked
+ * only whether `/json/list` was non-empty, and a windowless Chrome is not an
+ * empty list: it still serves `iframe`, `browser_ui` and `service_worker`
+ * entries. So the guard passed, the endpoint was reused, and preflight died the
+ * exact B5 way this function exists to prevent — measured twice on 2026-08-11,
+ * 33ms and 49ms in, both reporting "Browser context management is not
+ * supported". Only a `page` target proves a browser context exists to manage.
+ *
+ * Never throws: anything short of a parsed array containing a page target is
+ * `false`. An unreachable or malformed `/json/list` did not answer "at least one
+ * page", and treating "cannot tell" as healthy is what produced B5's misleading
  * receipt in the first place. `false` costs at most a launch attempt, which
  * already reports the real environment problem; `true` costs an attach to a
  * browser that cannot serve a single command.
@@ -111,7 +119,9 @@ export async function hasLiveTarget(
     });
     if (!res.ok) return false;
     const parsed: unknown = JSON.parse(await res.text());
-    return Array.isArray(parsed) && parsed.length > 0;
+    return Array.isArray(parsed) && parsed.some(
+      (t) => (t as { type?: unknown } | null)?.type === "page",
+    );
   } catch {
     return false;
   }

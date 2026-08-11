@@ -5134,3 +5134,140 @@ All row fields come from that archived body. The re-execution URL is derived fro
 its id plus the response's measured vertical: `/sales/search/people` for Lead and
 `/sales/search/company` for Account, with only `savedSearchId`. The archived DOM
 was used to corroborate that navigation form, never to supply a row field.
+## D380 — A search observation is identified by its run, not by the saved search (2026-08-11)
+
+`salesnav.leads.list` uses the run id as `search_id`. Resume keeps both ids; a fresh rerun gets
+a fresh pair and therefore records a second observation, as the task requires.
+
+The saved-search id lost because `searches` definitions are insert-only (D371). Reusing one
+would make a second execution either fail before loading or move prior result rows under a new
+filter definition. It remains inside `filter_url`, where it describes the target without
+pretending to identify one execution.
+
+## D381 — Store rows are rebuilt from proved archives after the paged loop (2026-08-11)
+
+Search-result writes run after `runPaged`, by re-reading every archive id in every reconciled
+`CompletedPage`. That includes a page loaded by a prior process and an in-flight page adopted
+from exact tap archive ids. Writes are split one page per call because the store's existing
+bound is 25 rows.
+
+Writing inside `loadPage` lost because neither ordering is honest under a kill: store-before-
+checkpoint can leave rows for a page the paged core must re-spend, while checkpoint-before-
+store can leave a proved page whose rows resume never visits. Archive-first projection makes
+the archive the common proof and lets the insert-only writer converge independently.
+
+## D382 — Task 39 mirrors the run parent required by search provenance (2026-08-11)
+
+`search_results.run_ref` is a real foreign key by D94, but the repository had no writer for
+`runs`. Task 39 adds the minimal lifecycle needed by the first foreign-keyed provenance
+caller: ensure the parent before work, leave `running` behind on a hard kill, reopen the same
+capability on resume, and finalize measured cost/status on classified success or failure.
+
+Writing `run_ref = null` lost because it would make the README's provenance claim false and
+discard the one relation the schema explicitly says the toolkit can always create. Removing
+the foreign key or editing the applied migration would be a larger and unsafe deviation.
+
+## D383 — The tab lease shares the repository state root across worktrees (2026-08-11)
+
+The default tab lease now lives beside the shared budget ledger under `defaultRunsDir()`.
+Before this change it used `process.cwd()/runs/tab.lock`, so Task 37 and Task 39 running from
+different linked worktrees could each acquire a different file and simultaneously claim the
+same dedicated Chrome tab. That violated the single-holder property precisely where parallel
+M5 work made it consequential.
+
+Keeping a worktree-local lease lost because a lease is account/browser safety state, not a
+build artifact. The budget path already resolves linked worktrees to the main repository for
+the same reason (D301); using that root makes budget and browser serialization agree without
+changing explicit test-only lease paths.
+
+## D384 — Task 39 live gate A used the measured Next control (2026-08-11)
+
+Operator-approved run `01KZQFCFMVYKAC082JXDRVCAN3` used one trusted pager click to reach
+page 2: control `Next`, one reveal pass. It passed D409's standing four-part test and created
+no third-party trace. The arrived page was accepted only after the named lead-search body's
+offset proved page 2; the button itself was not arrival evidence.
+
+This click produced the second of two archive-proved pages. Direct ledger inspection found
+exactly 2 page loads and 2 search pages, and direct store inspection found 49 immutable result
+positions with no duplicate `(search_id,page,position)` key. The click is recorded here in the
+same session as required; no nested or additional control was pressed.
+
+## D385 — A hard-kill resume reattaches only to that run's recorded worker tab (2026-08-11)
+
+The runner now records its worker target id in `run.json` immediately after preflight and
+clears it after normal teardown. A hard kill cannot run that cleanup, so `--run-id` offers the
+surviving target to the next browser session. Chrome must still list that exact id as a page;
+if it is absent, resume halts with `RUN_WORKER_TARGET_UNAVAILABLE` rather than creating a blank
+tab and quietly reloading a proved page.
+
+This is necessary for clicked pagination. A completed page checkpoint carries the Sales
+Navigator result-set session, but the old runner always created a new `about:blank` worker on
+resume. Page 2 then had neither the prior session nor a resolved Next destination, making Task
+39's kill gate impossible despite the archive/spend checkpoint being correct. Cold-loading
+page 1 lost because it would reload a proved page without a ledger charge; charging it again
+lost because the acceptance criterion explicitly forbids re-spending proved pages.
+
+The target id is run ownership evidence, not a heuristic over the operator's open tabs. No
+unrecorded page is ever adopted. Two deliberate mutations prove both directions: dropping the
+handoff makes the runner composition test red, and accepting a missing target makes the
+browser-session refusal test red.
+
+## D410 — "Has a target" means a page target; a windowless Chrome is not an empty list (2026-08-11, review)
+
+Two Task 39 runs died 33ms and 49ms in with `CDP_PROTOCOL_ERROR` and Chrome's own words:
+`Storage.getCookies was rejected by Chrome: Browser context management is not supported.`
+That is the B5/D122 condition exactly — a Chrome with no window, on which every browser-level
+command fails until someone restarts it. `hasLiveTarget` exists to keep preflight off such a
+browser, and it did not.
+
+**Why it did not.** It asked whether `/json/list` was non-empty. A windowless Chrome does not
+serve an empty list: it still lists `iframe`, `browser_ui` and `service_worker` targets. The
+live automation Chrome answered with five entries of which one was a page — so on the run
+where the page was gone and the other four remained, the guard passed and preflight reused a
+browser that could not serve a single command. The predicate now requires a target of type
+`page`, which is the only kind that proves a browser context exists to manage.
+
+**It was diagnosed from the archive, not from a theory.** The failing runs were attributed to
+a second worktree holding Chrome. They were not: a lease collision reports `TAB_LEASE_HELD`,
+these reported a protocol error, they died far too fast to have launched anything, and a run
+between the two failures succeeded. The receipts named the real cause; nobody had read them.
+
+**A second, unproven gap closed with it.** The launch path returned as soon as
+`/json/version` answered, which the launcher's own comments call necessary but not sufficient.
+It now applies the same page-target test inside the existing wait loop and deadline. This one
+is belt-and-braces: it was reasoned from the code, and a cold-start reproduction attempt did
+**not** fire it in either direction, so it is recorded as a gap closed rather than a bug
+measured.
+
+**What stays true:** the error is still classified retryable, because a *new invocation* after
+Chrome recovers does succeed. What changes is that the toolkit no longer reuses the broken
+browser in the first place — it falls through to the launch path, which already reports a held
+profile properly. No automatic retry was added anywhere; BACKLOG's instruction on this fault
+was to instrument before theorising, and that is what finally resolved it.
+
+## D411 — A resume starts from the run's own arguments, not from the schema defaults (2026-08-11, review)
+
+A killed 3-page run was resumed as `--run-id=<id>` with no other flags. `pages` fell back to
+its schema default of 2, so the resume adopted the two proved pages, declared itself finished
+at `stop: "page-limit"`, and tore down the tab. The next attempt — this time with `--pages=3` —
+refused with `SALESNAV_SESSION_CHANGED`, correctly, because the result-set session the third
+page needed was gone with that tab. One omitted flag turned a recoverable kill into an
+unrecoverable one and cost a search page proving it.
+
+The defaults are what the operator meant on a *fresh* run. On a resume they are a different
+instruction wearing the same shape, and the run has already spent real pages under the original
+one. `RunContext.persistedArgs` now reads `run.json` and the CLI merges it *underneath* this
+invocation's arguments, so an omitted flag means "as before" and anything typed still wins.
+
+Measured, not reasoned: the corrected gate ran two pages, was killed after page 1 checkpointed,
+and resumed with **no flags at all**. It recovered the url and `pages: 2`, adopted page 1 with
+`respent_pages: []`, spent exactly one more page, and finished with 49 rows across 24 + 25 and
+zero duplicate `(search_id, page, position)`. The ledger shows 2 search pages for 2 distinct
+pages loaded.
+
+Related, and left alone deliberately: `SALESNAV_SESSION_CHANGED` and
+`SALESNAV_PAGER_POSITION_CHANGED` are decided from the tab's own url with no LinkedIn contact,
+yet they fire *after* the page has been charged, because the paged contract spends before it
+loads. Moving those two checks ahead of the spend would make an impossible resume free. That is
+a change to the Task 35 contract's ordering, not to this capability, so it is recorded in
+BACKLOG rather than made here.

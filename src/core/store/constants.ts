@@ -3,6 +3,7 @@
  * rename shows up as one edit and one failing test, not as a runtime 42P01.
  */
 export const TABLES = {
+  runs: "runs",
   persons: "persons",
   personExperience: "person_experience",
   companies: "companies",
