@@ -5285,3 +5285,18 @@ duplication, but it would make the first accounts page-2 measurement also the fi
 new abstraction. Keeping two honest vertical compositions makes D406's opposite identity
 rules visible: leads hash `objectUrn`; accounts hash the plain company `entityUrn`; neither
 ever hashes per-execution `trackingId`.
+
+## D391 — A prior execution's `sessionId` is not a reusable account-search target (2026-08-11)
+
+Approved run `01KZQM2SP4PZNFFNTJ9PWRZZF0` reused Task 36's operator-supplied company-search
+URL. The URL carried the session minted for that earlier probe; on the new navigation LinkedIn
+returned the account page under a different session. The capability refused
+`SALESNAV_SESSION_CHANGED` after one paid page and before any pager click, so it did not join
+page 1 from one result-set execution to page 2 from another.
+
+The URL's filter query remains operator-produced and was not wrong; the stale session made it
+non-reusable. Stripping `sessionId` from an arbitrary historical filter URL lost because D353
+says the query is the target and D360 says a session pins its result set. The measured reuse
+path is Task 37's Account saved-search URL: LinkedIn's own saved-search body supplies its id,
+D365 constructs `/sales/search/company?savedSearchId=…`, and a fresh navigation may then mint
+the execution session that subsequent pages must preserve.

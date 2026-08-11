@@ -29,6 +29,23 @@ All four review shapes are walked in `task-40-approach.md`. The independent stor
 LinkedIn contact. The Task 36 archive still carries an operator-supplied company-search URL;
 next is explicit approval to reuse it for the one default two-page live invocation.
 
+### Live gate attempt 1 — refused after page 1, before any click (2026-08-11)
+
+The approved default run `01KZQM2SP4PZNFFNTJ9PWRZZF0` stopped after 41,854 ms with
+`SALESNAV_SESSION_CHANGED`. The archived Task 36 URL carried its old `sessionId`; LinkedIn
+minted a different session on the new navigation, and the source correctly refused to join
+the two result sets. No pager click, page-2 load or result-row write followed.
+
+Independent evidence: the ledger has exactly 1 page-load and 1 search-page line; one named
+53,953-byte `salesApiAccountSearch` body exists among the raw captures; the checkpoint has a
+paid page-1 attempt and 0 completed pages. Supabase has the error run parent and its immutable
+`sn_accounts` search definition but 0 results for this run. Persons and companies remain 0;
+the shared lease is free. **Gate spend: 1 / 4 search pages, 1 / 4 page loads.**
+
+The Task 37 archive contains one operator-owned Account saved search whose measured execution
+URL carries `savedSearchId` and no stale `sessionId` (D365). A new live invocation requires
+fresh operator approval; the failed attempt is not retried under the first grant.
+
 ## In progress — Task 39 `salesnav.leads.list` end to end (2026-08-11)
 
 Research and offline implementation checkpoints are complete; both supervised live gates remain. The
