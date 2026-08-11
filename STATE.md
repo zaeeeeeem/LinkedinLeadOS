@@ -97,6 +97,19 @@ clicked page, so a wrong body here is a wrong page-turn verdict. Found by runnin
 a second surface, not by re-reading the code — a verdict that is right on one surface is not a
 verdict.
 
+### Next — decided 2026-08-11, deliberately deferred
+
+1. **A second leads target, tomorrow on a fresh daily budget.** The operator's filtered CXO
+   url (headcount + US + CEO/Founder/Co-Founder/Owner + software + posted-on-LinkedIn,
+   excluding already-messaged/viewed). Everything on the leads side rests on one persona
+   search and one target cannot surface parse drift — the M4 lesson that gates Task 39's live
+   run. Not spent today: 8 of the probe's 10 search pages were used and the last 2 are retry
+   headroom for D402's transport fault, not a loop to run (M5 CONTEXT rule 1).
+2. **Accounts page 2 — skipped for now, by operator decision.** The probe has no `accounts2`
+   surface. Nothing suggests it pages differently from leads, which is not the same as having
+   looked; recorded so a later session does not read the leads verdict as covering both.
+3. Task 36's worktree and branch are deleted; `main` carries everything.
+
 ## Complete — Task 36, the Sales Navigator surface probe (2026-08-10, live, operator-authorized)
 
 `src/capabilities/salesnav.probe/` plus `FIELD-MAP.md`. Branch
