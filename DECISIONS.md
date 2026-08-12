@@ -6149,3 +6149,104 @@ verified offline at zero cost before the session, like every other spec here.
 
 **Convergence bands stand as proposed at D461: 300–2,000 on `paging.total`**, confirmed by the
 operator at the same review rather than amended.
+
+## D472 — A two-part temporary raise for one Task 45 toggle-harvest session (operator grant, 2026-08-12)
+
+Operator grant 2026-08-12, given after being shown the arithmetic and after an earlier "+10"
+offer was measured as insufficient. Two constants move together, because raising either alone
+changes nothing:
+
+- global `searchPagesPerDay` **50 → 60**
+- `salesnav.filters.harvest` sub-cap `searchPagesPerDay` **25 → 56**
+
+**Why both.** The rolling window held 52 global search pages, so the session's 6 needed 58 and the
+global raise alone would have admitted it. But the same window held **50 harvest pages** from the
+2026-08-11 taxonomy sessions against that capability's own sub-cap of 25 — already 25 over — so
+the ledger would have refused the run with a global ceiling of any size. D443's precedent is the
+same two-part shape for the same reason. 56 is the smallest number that admits exactly the six
+approved pages; 60 is the operator's stated figure and leaves 2 unused.
+
+**`pageLoadsPerDay` is deliberately not raised.** The harvest sub-cap stays 4 with 2 already spent,
+so this session's 1 fits and exactly one further harvest session remains possible today. The number
+of sessions that can exist is unchanged, which is the property D443 also preserved.
+
+**Both constants are restored to 50 / 25 immediately after the session ends**, pass or fail, in
+D470/D471's shape. D472 is then exhausted: a retry after a failed attempt needs a new grant, and no
+approval carries over. Rejected again, as in D470 and D471: a command-line budget override. The
+ledger cannot be widened by a flag.
+
+**The alternative was on the table and declined.** Waiting until roughly 2026-08-12T12:15Z drains
+the window to 2 and fits all 15 pages of the harvest plus the gate at the unraised ceiling, with no
+grant at all. The operator chose to spend the grant and start now; that is recorded here as their
+call rather than argued again.
+
+**Scope: one invocation of `salesnav.filters.harvest`**, `--search-page-budget=6`, on the `people`
+surface, observe-only under Task 43's existing contract. It is not authority for any apply, and the
+Task 45 gate's own 9 pages are not covered by it.
+
+## D473 — A toggle's id costs one search; its display text costs the next one (2026-08-12)
+
+Measured on the D472 harvest session, run `01KZTA1C6VPNYDW3VYY4XRP93Q`. Five LEAD toggles were
+flipped by hand and five `salesApiLeadSearch` requests were captured. Four toggles entered the
+registry. `PAST_COLLEAGUE` did not, and the reason is a property of the surface worth writing down.
+
+When a toggle is flipped, the search it fires carries the filter **id-only**:
+`(type:PAST_COLLEAGUE,values:List((id:PCOLL,selectionType:INCLUDED)))`. The display text appears
+only on the **next** search, once the UI re-serializes the now-established filter — visible
+cumulatively across the five captures:
+
+| archive | new filter, as first captured | text present |
+|---|---|---|
+| `0033-bd697cfbcf2b0363` | `POSTED_ON_LINKEDIN=RPOL` | no |
+| `0049-ba29dfe9c56e52b6` | `RECENTLY_CHANGED_JOBS=RPC` | no — but RPOL now has text |
+| `0059-b750a6c9c56b0c8d` | `VIEWED_YOUR_PROFILE=VYP` | no — but RPC now has text |
+| `0070-0b9643df305fea96` | `FOLLOWS_YOUR_COMPANY=CF` | no — but VYP now has text |
+| `0083-b8a4a601237db4b7` | `PAST_COLLEAGUE=PCOLL` | no — but CF now has text |
+
+So **harvesting N toggles completely costs N+1 searches**, not N. The sixth search never fired —
+the session's sixth unit was pre-charged but unused, and the run was stopped once the operator
+reported all five flips done — so `PCOLL`'s text was never captured.
+
+**`PAST_COLLEAGUE` is therefore recorded as id-measured, text-unmeasured, and is not in the
+registry.** Its id is not written with invented or inferred text: D424 requires an omitted display
+text to have its own request provenance, and "Past colleague" is a guess at LinkedIn's wording no
+matter how obvious it looks. Its exact cost to finish is now known — one search on a session that
+already has the other four.
+
+**The four that landed** carry `request-url` provenance naming the archives above: `RPOL` "Posted
+on LinkedIn", `RPC` "Changed jobs", `VYP` "Viewed your profile recently", `CF` "Following your
+company". Registry: **1,315 public rows**, up from 1,311.
+
+**The gate intent is restored to the task file's full sentence.** D460 cut "posted on LinkedIn
+recently" for want of an id; `RPOL` is now measured, and the five-filter spec builds clean offline
+at zero cost with 0 warnings. That cut is spent, not standing.
+
+Note for the next harvest session: flip one extra throwaway filter at the end, or budget N+1
+searches for N toggles, so the last toggle's text is not left behind.
+
+## D474 — The D472 session's spend, verified in three places (2026-08-12)
+
+Recorded because the grant was temporary and its restore is the thing a later session must be able
+to check.
+
+- **Receipt:** 1 page load, 6 search credits charged, **5** UI-issued lead searches observed,
+  `stop: operator-stop`, and the capability's own claim of **0 clicks, 0 keystrokes, 0 wheel
+  events, 0 input events after navigation**.
+- **Ledger** (`runs/budget.ndjson`), read directly: exactly **2 lines** for the run —
+  `page_load n=1` and `search_page n=6`. The charge is 6 against 5 observed, the deliberate
+  over-count D440 requires.
+- **Archive:** **188 files** (94 bodies + 94 sidecars), among them exactly **5**
+  `salesApiLeadSearch` metas, all HTTP 200.
+
+Both constants were restored **immediately after the session ended**, before any other work:
+global `searchPagesPerDay` 60 → **50**, `salesnav.filters.harvest` sub-cap 56 → **25**. Verified by
+reading the file back. **D472 is exhausted.**
+
+One warning is recorded rather than smoothed over: `RESPONSE_STATUS_UNRECOGNIZED` (n=1) — one
+observed response carried a status the observer does not classify. It did not affect the five
+search captures, which are all 200, and it is noted here as an unexplained single occurrence rather
+than diagnosed from one instance.
+
+Post-session ledger state: **58 rolling-24h search pages against the restored ceiling of 50.** The
+Task 45 gate's 9 pages cannot run until the window drains, which it does to 8 at roughly
+2026-08-12T12:25Z. No further grant is needed after that, and none is requested.

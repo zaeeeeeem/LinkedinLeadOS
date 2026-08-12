@@ -1,83 +1,65 @@
 # STATE
 
-## In progress — Task 45, the M6 gate: paused for a toggle harvest, by operator decision (2026-08-12)
+## Built — Task 45 step 1 of 2: the toggle harvest is done (2026-08-12)
 
-**Checkpoint: the loop is fully specified, every spec builds offline, and the gate is
-deliberately not running yet. Zero LinkedIn requests this session.** Branch
-`task-45-selftest-loop`, worktree `../LinkedinLeadsOS-task45`, branched from `379b465`.
+**The vocabulary gap the operator chose to buy is bought. The gate loop itself has not run — it is
+blocked on the ledger, not on anything unknown.** Branch `task-45-selftest-loop`, worktree
+`../LinkedinLeadsOS-task45`.
 
-**Two things gate the live run, and neither is a code problem.**
+Run `01KZTA1C6VPNYDW3VYY4XRP93Q`, exit 0 in 179,132 ms, `stop: operator-stop`. Under D472 the
+operator granted a two-part temporary raise — global `searchPagesPerDay` 50 → 60 **and** the
+`salesnav.filters.harvest` sub-cap 25 → 56, because the window already held 50 harvest pages and a
+global raise alone would still have been refused. **Both were restored to 50 / 25 immediately after
+the session, before any other work, and verified by reading the file back. D472 is exhausted.**
 
-**1. A vocabulary gap the operator chose to buy rather than route around (D468).** The task file's
-example intent includes "posted on LinkedIn recently". `POSTED_ON_LINKEDIN` is a LEAD `TOGGLE`
-with `typeaheadSupported:false` and `dynamicFetch:false` and **zero** registry rows — as have all
-five LEAD toggles. Offered "run without it" or "harvest it first", the operator chose to harvest.
-So the next live action is **a Task 43 harvest session, not an apply**.
+**Four of five toggles landed, and the fifth taught us the rule (D473).** A flip's search carries
+the filter **id-only**; its display text arrives on the **next** search. So harvesting N toggles
+costs **N+1** searches. The sixth never fired, so `PAST_COLLEAGUE`'s id `PCOLL` is measured but its
+text is not — and it is therefore **not** in the registry, because inventing LinkedIn's wording is
+exactly what the vocabulary rule forbids (D424). Finishing it costs one search on a future session.
 
-The mechanism is measured: no typeahead body will ever carry a toggle (wrong instrument, D444),
-but a hand-flip makes the UI issue a `salesApiLeadSearch` whose **request URL** carries the
-filter, and `harvestVocabulary` already extracts ids from request URLs — **49 registry rows carry
-that provenance kind today**. Scope is all five LEAD toggles in one session, closing the family
-permanently. Cost **1 page load + 6 search pages** (`--search-page-budget=6`, charged in full
-before navigation per D440) against **Task 43's** budget, not Task 45's.
+In the registry now, all with `request-url` provenance: `POSTED_ON_LINKEDIN` **RPOL** "Posted on
+LinkedIn" · `RECENTLY_CHANGED_JOBS` **RPC** "Changed jobs" · `VIEWED_YOUR_PROFILE` **VYP** "Viewed
+your profile recently" · `FOLLOWS_YOUR_COMPANY` **CF** "Following your company". Public rows
+**1,311 → 1,315**.
 
-**2. The rolling window, read directly from `runs/budget.ndjson`: 59 search pages and 11 page
-loads in the last 24h against a global ceiling of 50.** 50 of the 59 are Task 43's earlier
-harvest, stamped 2026-08-11 ~12:00Z, so the window drains to **2** at about
-**2026-08-12T12:15Z (17:15 PKT)**. Both the harvest and the gate wait for that clock; no ceiling
-is raised and the constant stays 50 (D466). Recompute the window before acting — do not trust
-this estimate.
+**The gate intent is now the task file's full sentence**, "posted on LinkedIn recently" included —
+LEAD · REGION `103644278` · INDUSTRY `4` · COMPANY_HEADCOUNT `C` · SENIORITY_LEVEL `310` ·
+POSTED_ON_LINKEDIN `RPOL`. Five filters, builds offline clean, 0 warnings, 0 cost. D460's cut is
+spent rather than standing.
 
-**The gate intent, once the toggle is measured:** LEAD · REGION `103644278` United States ·
-INDUSTRY `4` Software Development · COMPANY_HEADCOUNT `C` 11-50 · SENIORITY_LEVEL `310` CXO, plus
-`POSTED_ON_LINKEDIN` if and only if the harvest yields its id. A toggle whose flip produces no
-extractable id is recorded as still-unmeasured and simply left out — the pause buys a
-measurement, never a guess.
+**Three-place spend agreement, read independently (D474).** Receipt: 1 page load, 6 charged, **5**
+observed searches, and the capability's own zero-interaction claim — 0 clicks, 0 keystrokes, 0
+wheel events. Ledger: exactly **2 lines** for the run, `page_load n=1` and `search_page n=6` — 6
+charged against 5 observed is D440's deliberate over-count. Archive: **188 files** (94 bodies + 94
+sidecars) holding exactly **5** `salesApiLeadSearch` metas, all HTTP 200. One
+`RESPONSE_STATUS_UNRECOGNIZED` warning is recorded unexplained rather than diagnosed from a single
+instance.
 
-**Both specs already build clean at zero cost.** LEAD iteration 1: receipt
-`01KZT6G2RB78PGDH1EYD0GWE4P`, 4 filters, 0 warnings. ACCOUNT: 3 filters, 0 warnings, correct
-`/sales/search/company` route, all-public vocabulary. All twelve ids on both knob ladders resolve
-to provenance-bearing registry rows.
+The five toggle ids were read from the **captured request URLs**, not from the operator's
+address-bar pastes, which agreed with them exactly but are not evidence on this surface (D413).
 
-**Budget plan: 9 search pages + 9 page loads for the gate** — up to 6 LEAD applies, 1 ACCOUNT
-apply (D469, operator took the optional vertical), and `leads.list` at its default 2 pages. Plus
-the harvest's 1 + 6 on Task 43's budget. Sub-caps already allow all of it:
-`salesnav.filters.apply` 10/10, `salesnav.leads.list` 20/20, `salesnav.filters.harvest` 4/25.
+### Blocked, and by what — the gate's 9 pages
 
-**Fixed on the way in: the unexplained post-Task-44 suite flake is no longer unexplained.**
-`tests/store-searches.integration.test.ts` asserted "no entities minted" with a **global** row
-count of `persons`/`companies`, while `tests/store-persons.integration.test.ts` inserts persons in
-parallel. Together they failed 6 of 8 runs; alone, and serialized, 6 of 6 green. The assertion is
-now scoped to the test's own urns and covers both provenance kinds: **10 of 10 parallel runs
-green**, five consecutive full suites at **1,861/1,861**, typecheck clean. A mutation that mints
-the referenced urns still fails it, so the fix is stronger than the original, not quieter (D467).
-That also changes this gate's own evidence plan — entity deltas are verified per-urn, never as a
-table-wide count.
-
-**Decisions taken: D460** (intent buildable-only; superseded in part by D468) · **D461** (bands
-300–2,000, confirmed by the operator unamended) · **D462** (fixed knob ladders, one knob per
-iteration) · **D463** (6 applies, no borrowing) · **D464** (a non-`audience_clean` verdict halts
-the loop) · **D465** (handoff is a second free `filters.build`, no new code) · **D466** (wait for
-the window) · **D467** (the search-store flake, root-caused and fixed) · **D468** (harvest the
-toggle family first) · **D469** (ACCOUNT apply taken, gate budget 9/9). The D460–D469 range is now
-fully spent.
+**Ledger after the session: 58 rolling-24h search pages against the restored ceiling of 50.** The
+window drains to **8** at roughly **2026-08-12T12:25Z (17:25 PKT)**, leaving 42 of headroom — the
+gate's 9 fit with **no further grant, and none is requested.** Recompute before acting.
 
 ### To resume cold
 
-1. Recompute the rolling window from `runs/budget.ndjson` before anything else.
-2. **Harvest first.** Fresh operator approval, then `salesnav.filters.harvest` on the `people`
-   surface with `--search-page-budget=6` and an `--operator-plan` in the operator's own words. The
-   operator flips the five LEAD toggles by hand; the capability sends nothing.
-3. Re-harvest offline with `salesnav.filters.vocab`, confirm the new rows carry `request-url`
-   provenance, and audit one to its source.
-4. **Then the loop.** Fresh approval immediately before **each** apply — an earlier approval never
-   carries over and a failed attempt is not retried under it. Local CLI with the spec in a shell
-   variable, never `npm run cap` (D432).
-5. After each apply record the iteration row — spec delta, built query, archive id, per-filter
-   verdict, `paging.total`, running spend — **before** choosing the next knob.
-6. On convergence: re-run `filters.build` on the converged spec for the url, check it against the
-   `searches.filter_url` apply wrote, then `salesnav.leads.list --url` at default flags. Verify
-   three numbers from three places, and check entity minting per-urn (D467), not by table count.
+1. Recompute the rolling window from `runs/budget.ndjson`.
+2. Fresh operator approval immediately before **each** apply; none carries over, and a failed
+   attempt is not retried under the approval that failed. Local CLI, spec in a shell variable,
+   never `npm run cap` (D432).
+3. Iterate the five-filter intent against D461's 300–2,000 band using D462's fixed knob ladders,
+   one knob per iteration, ≤6 applies with no borrowing (D463). Halt on any verdict that is not
+   `audience_clean` (D464).
+4. Record each iteration row — spec delta, built query, archive id, per-filter verdict,
+   `paging.total`, running spend — **before** choosing the next knob.
+5. Then the ACCOUNT apply (D469, spec already built and verified offline), and the handoff: re-run
+   `filters.build` on the converged spec for the url, check it against the `searches.filter_url`
+   apply wrote, then `salesnav.leads.list --url` at default flags.
+6. Verify entity minting **per-urn**, never by table-wide count (D467).
 
 
 ## Built — Task 44 `salesnav.filters.apply`, offline (2026-08-12)

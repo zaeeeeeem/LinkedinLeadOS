@@ -42,6 +42,8 @@ export const DEFAULT_BUDGET_LIMITS: BudgetLimits = {
   // Was temporarily 75 for the single Task 42 CXO probe under D470 and was
   // restored immediately after its one approved invocation. A later raise
   // needs a new dated operator grant; no approval carries over.
+  // Was temporarily 60 for the one Task 45 toggle-harvest session under D472
+  // and was restored immediately after it (run 01KZTA1C6VPNYDW3VYY4XRP93Q).
   searchPagesPerDay: 50,
   distinctProfilesPerDay: 120,
 };
@@ -201,6 +203,9 @@ export const CAPABILITY_SUB_CAPS: Readonly<Record<string, CapabilitySubCaps>> = 
   // Was briefly 50 on 2026-08-11 so both declared 25-page allowances fit in one
   // day (D443). Restored: both taxonomy sessions are done and the archives they
   // produced are the whole point of the raise, so the ceiling has no further job.
+  // searchPagesPerDay was temporarily 56 under D472 for the one approved Task 45
+  // toggle session and was restored to 25 immediately after it (run
+  // 01KZTA1C6VPNYDW3VYY4XRP93Q). D472 is exhausted; a retry needs a new grant.
   "salesnav.filters.harvest": { pageLoadsPerDay: 4, searchPagesPerDay: 25, distinctProfilesPerDay: 0 },
 };
 
