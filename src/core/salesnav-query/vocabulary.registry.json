@@ -16458,6 +16458,32 @@
       "textOmissionProvenance": []
     },
     {
+      "rowId": "f9d80cde6fbb30e6482caff6",
+      "vertical": "LEAD",
+      "facet": "FOLLOWS_YOUR_COMPANY",
+      "id": "CF",
+      "text": "Following your company",
+      "operatorScoped": false,
+      "provenance": [
+        {
+          "kind": "request-url",
+          "runId": "01KZTA1C6VPNYDW3VYY4XRP93Q",
+          "archiveId": "0083-b8a4a601237db4b7",
+          "file": "01KZTA1C6VPNYDW3VYY4XRP93Q/raw/0083-b8a4a601237db4b7.meta.json",
+          "locator": "query.filters[3].values[0]"
+        }
+      ],
+      "textOmissionProvenance": [
+        {
+          "kind": "request-url",
+          "runId": "01KZTA1C6VPNYDW3VYY4XRP93Q",
+          "archiveId": "0070-0b9643df305fea96",
+          "file": "01KZTA1C6VPNYDW3VYY4XRP93Q/raw/0070-0b9643df305fea96.meta.json",
+          "locator": "query.filters[3].values[0]"
+        }
+      ]
+    },
+    {
       "rowId": "23365fb0c2090b337758dcc3",
       "vertical": "LEAD",
       "facet": "FUNCTION",
@@ -30159,6 +30185,53 @@
       "textOmissionProvenance": []
     },
     {
+      "rowId": "18c6055a3b8f4d95009f3a2a",
+      "vertical": "LEAD",
+      "facet": "POSTED_ON_LINKEDIN",
+      "id": "RPOL",
+      "text": "Posted on LinkedIn",
+      "operatorScoped": false,
+      "provenance": [
+        {
+          "kind": "request-url",
+          "runId": "01KZTA1C6VPNYDW3VYY4XRP93Q",
+          "archiveId": "0049-ba29dfe9c56e52b6",
+          "file": "01KZTA1C6VPNYDW3VYY4XRP93Q/raw/0049-ba29dfe9c56e52b6.meta.json",
+          "locator": "query.filters[0].values[0]"
+        },
+        {
+          "kind": "request-url",
+          "runId": "01KZTA1C6VPNYDW3VYY4XRP93Q",
+          "archiveId": "0059-b750a6c9c56b0c8d",
+          "file": "01KZTA1C6VPNYDW3VYY4XRP93Q/raw/0059-b750a6c9c56b0c8d.meta.json",
+          "locator": "query.filters[0].values[0]"
+        },
+        {
+          "kind": "request-url",
+          "runId": "01KZTA1C6VPNYDW3VYY4XRP93Q",
+          "archiveId": "0070-0b9643df305fea96",
+          "file": "01KZTA1C6VPNYDW3VYY4XRP93Q/raw/0070-0b9643df305fea96.meta.json",
+          "locator": "query.filters[0].values[0]"
+        },
+        {
+          "kind": "request-url",
+          "runId": "01KZTA1C6VPNYDW3VYY4XRP93Q",
+          "archiveId": "0083-b8a4a601237db4b7",
+          "file": "01KZTA1C6VPNYDW3VYY4XRP93Q/raw/0083-b8a4a601237db4b7.meta.json",
+          "locator": "query.filters[0].values[0]"
+        }
+      ],
+      "textOmissionProvenance": [
+        {
+          "kind": "request-url",
+          "runId": "01KZTA1C6VPNYDW3VYY4XRP93Q",
+          "archiveId": "0033-bd697cfbcf2b0363",
+          "file": "01KZTA1C6VPNYDW3VYY4XRP93Q/raw/0033-bd697cfbcf2b0363.meta.json",
+          "locator": "query.filters[0].values[0]"
+        }
+      ]
+    },
+    {
       "rowId": "c24f0f24b6f32b2e0813246d",
       "vertical": "LEAD",
       "facet": "PROFILE_LANGUAGE",
@@ -30639,6 +30712,46 @@
       "textOmissionProvenance": []
     },
     {
+      "rowId": "a58a30551fcc44fd2e52d6ff",
+      "vertical": "LEAD",
+      "facet": "RECENTLY_CHANGED_JOBS",
+      "id": "RPC",
+      "text": "Changed jobs",
+      "operatorScoped": false,
+      "provenance": [
+        {
+          "kind": "request-url",
+          "runId": "01KZTA1C6VPNYDW3VYY4XRP93Q",
+          "archiveId": "0059-b750a6c9c56b0c8d",
+          "file": "01KZTA1C6VPNYDW3VYY4XRP93Q/raw/0059-b750a6c9c56b0c8d.meta.json",
+          "locator": "query.filters[1].values[0]"
+        },
+        {
+          "kind": "request-url",
+          "runId": "01KZTA1C6VPNYDW3VYY4XRP93Q",
+          "archiveId": "0070-0b9643df305fea96",
+          "file": "01KZTA1C6VPNYDW3VYY4XRP93Q/raw/0070-0b9643df305fea96.meta.json",
+          "locator": "query.filters[1].values[0]"
+        },
+        {
+          "kind": "request-url",
+          "runId": "01KZTA1C6VPNYDW3VYY4XRP93Q",
+          "archiveId": "0083-b8a4a601237db4b7",
+          "file": "01KZTA1C6VPNYDW3VYY4XRP93Q/raw/0083-b8a4a601237db4b7.meta.json",
+          "locator": "query.filters[1].values[0]"
+        }
+      ],
+      "textOmissionProvenance": [
+        {
+          "kind": "request-url",
+          "runId": "01KZTA1C6VPNYDW3VYY4XRP93Q",
+          "archiveId": "0049-ba29dfe9c56e52b6",
+          "file": "01KZTA1C6VPNYDW3VYY4XRP93Q/raw/0049-ba29dfe9c56e52b6.meta.json",
+          "locator": "query.filters[1].values[0]"
+        }
+      ]
+    },
+    {
       "rowId": "550c5b4b66ecccab4a1a8d3b",
       "vertical": "LEAD",
       "facet": "REGION",
@@ -30847,7 +30960,17 @@
           "locator": "$.elements[4]"
         }
       ],
-      "textOmissionProvenance": []
+      "textOmissionProvenance": [],
+      "requestText": "California",
+      "requestTextProvenance": [
+        {
+          "kind": "request-url",
+          "runId": "01KZTC8CB25MWJB028T2A3RGVJ",
+          "archiveId": "0021-cb46a4f38fe4eaad",
+          "file": "01KZTC8CB25MWJB028T2A3RGVJ/raw/0021-cb46a4f38fe4eaad.meta.json",
+          "locator": "query.filters[0].values[0].text"
+        }
+      ]
     },
     {
       "rowId": "98f07910e91a63a0b36c5f7c",
@@ -32127,6 +32250,39 @@
         }
       ],
       "textOmissionProvenance": []
+    },
+    {
+      "rowId": "5e87e0e0ffd9d2c9e9a13af2",
+      "vertical": "LEAD",
+      "facet": "VIEWED_YOUR_PROFILE",
+      "id": "VYP",
+      "text": "Viewed your profile recently",
+      "operatorScoped": false,
+      "provenance": [
+        {
+          "kind": "request-url",
+          "runId": "01KZTA1C6VPNYDW3VYY4XRP93Q",
+          "archiveId": "0070-0b9643df305fea96",
+          "file": "01KZTA1C6VPNYDW3VYY4XRP93Q/raw/0070-0b9643df305fea96.meta.json",
+          "locator": "query.filters[2].values[0]"
+        },
+        {
+          "kind": "request-url",
+          "runId": "01KZTA1C6VPNYDW3VYY4XRP93Q",
+          "archiveId": "0083-b8a4a601237db4b7",
+          "file": "01KZTA1C6VPNYDW3VYY4XRP93Q/raw/0083-b8a4a601237db4b7.meta.json",
+          "locator": "query.filters[2].values[0]"
+        }
+      ],
+      "textOmissionProvenance": [
+        {
+          "kind": "request-url",
+          "runId": "01KZTA1C6VPNYDW3VYY4XRP93Q",
+          "archiveId": "0059-b750a6c9c56b0c8d",
+          "file": "01KZTA1C6VPNYDW3VYY4XRP93Q/raw/0059-b750a6c9c56b0c8d.meta.json",
+          "locator": "query.filters[2].values[0]"
+        }
+      ]
     },
     {
       "rowId": "5c3ba5c129fd80f1e0519831",

@@ -1,5 +1,118 @@
 # STATE
 
+## Complete — Task 45, the M6 gate: intent to stored leads, live (2026-08-12)
+
+**The M6 gate passed.** Starting from a typed audience intent and the harvested vocabulary, with no
+operator-supplied URL anywhere, the agent converged on an audience of the right size and
+`salesnav.leads.list` read it into provenance-tagged rows. Branch `task-45-selftest-loop`.
+
+**Spend: 7 search pages / 7 page loads against the 9 planned** — four applies, two leads pages, one
+ACCOUNT apply. Ledger agrees in three places: 14 lines across the six runs, `n=1` each, matching
+both receipts and the archive.
+
+| # | knob turned | `paging.total` | verdict |
+|---|---|---|---|
+| 1 | step-0 intent, 5 filters | 5,886 | audience_clean, 5/5 honored |
+| 2 | +`CURRENT_TITLE` CEO/Founder/Co-Founder | 4,078 | audience_clean, 6/6 honored |
+| 3 | `REGION` US → California, US | 1,285 | REGION rewritten — halted (D464) |
+| 4 | same spec, measured request spelling | 1,285 | audience_clean, 6/6 honored — converged |
+
+Converged audience: California · Software Development · 11-50 headcount · CXO · CEO/Founder/
+Co-Founder · posted on LinkedIn recently = **1,285**, inside D461's 300–2,000 band.
+
+**The halt at iteration 3 was the system working, and it cost one round trip to fix (D476).**
+LinkedIn's typeahead label and its search-request spelling for the same value can differ —
+`102095887` is "California, United States" in the typeahead and "California" in the request. The
+harvest was correct; both surfaces were. Rows now carry an optional `requestText` with request-url-
+only provenance, the builder resolves by either measured spelling and emits exactly what it was
+given, and a third spelling is still a refusal. Only LEAD/REGION `102095887` is measured; other
+state rows are untouched.
+
+**Handoff, no new code (D465).** Rebuilt url byte-identical to the stored `filter_url`, compared by
+direct Supabase query. `leads.list` at default flags: 50 rows, 25 per page, 50 distinct
+`(page, position)`, 50 distinct person urns, one `Next` click (D400). `persons` / `companies` /
+`jobs` all 0 — search rows mint no entities.
+
+**ACCOUNT vertical proven (D469):** 3/3 honored, 20,552 accounts, and `clean:true` with identical
+query hashes — the first exact match recorded. `recentSearchParam` injection appears to be
+LEAD-specific; one observation, to be re-measured, not relied on.
+
+**Budget.** The gate ran under D475, an operator grant overriding D466 with the window at 58/50:
+global `searchPagesPerDay` 50 → 76 and the apply sub-cap 10/10 → 20/20. **Both restored, verified by
+reading the file back, before any other work.** D475 is exhausted. The window ended at 65 rolling
+search pages — above the standing 50, a cost the operator accepted knowingly and which the next
+session must recompute before spending.
+
+**Verification:** 1,863/1,863 across 128 files, `tsc --noEmit` clean. During the raise, the two
+tests that pin the global 50 failed by design and went green on restore — the guard worked.
+
+### Next
+
+- `PAST_COLLEAGUE` (`PCOLL`) is still id-measured, text-unmeasured; finishing it costs one search.
+- Other state-level REGION rows likely share the truncation and are unmeasured. Measure before use.
+
+## Built — Task 45 step 1 of 2: the toggle harvest is done (2026-08-12)
+
+**The vocabulary gap the operator chose to buy is bought. The gate loop itself has not run — it is
+blocked on the ledger, not on anything unknown.** Branch `task-45-selftest-loop`, worktree
+`../LinkedinLeadsOS-task45`.
+
+Run `01KZTA1C6VPNYDW3VYY4XRP93Q`, exit 0 in 179,132 ms, `stop: operator-stop`. Under D472 the
+operator granted a two-part temporary raise — global `searchPagesPerDay` 50 → 60 **and** the
+`salesnav.filters.harvest` sub-cap 25 → 56, because the window already held 50 harvest pages and a
+global raise alone would still have been refused. **Both were restored to 50 / 25 immediately after
+the session, before any other work, and verified by reading the file back. D472 is exhausted.**
+
+**Four of five toggles landed, and the fifth taught us the rule (D473).** A flip's search carries
+the filter **id-only**; its display text arrives on the **next** search. So harvesting N toggles
+costs **N+1** searches. The sixth never fired, so `PAST_COLLEAGUE`'s id `PCOLL` is measured but its
+text is not — and it is therefore **not** in the registry, because inventing LinkedIn's wording is
+exactly what the vocabulary rule forbids (D424). Finishing it costs one search on a future session.
+
+In the registry now, all with `request-url` provenance: `POSTED_ON_LINKEDIN` **RPOL** "Posted on
+LinkedIn" · `RECENTLY_CHANGED_JOBS` **RPC** "Changed jobs" · `VIEWED_YOUR_PROFILE` **VYP** "Viewed
+your profile recently" · `FOLLOWS_YOUR_COMPANY` **CF** "Following your company". Public rows
+**1,311 → 1,315**.
+
+**The gate intent is now the task file's full sentence**, "posted on LinkedIn recently" included —
+LEAD · REGION `103644278` · INDUSTRY `4` · COMPANY_HEADCOUNT `C` · SENIORITY_LEVEL `310` ·
+POSTED_ON_LINKEDIN `RPOL`. Five filters, builds offline clean, 0 warnings, 0 cost. D460's cut is
+spent rather than standing.
+
+**Three-place spend agreement, read independently (D474).** Receipt: 1 page load, 6 charged, **5**
+observed searches, and the capability's own zero-interaction claim — 0 clicks, 0 keystrokes, 0
+wheel events. Ledger: exactly **2 lines** for the run, `page_load n=1` and `search_page n=6` — 6
+charged against 5 observed is D440's deliberate over-count. Archive: **188 files** (94 bodies + 94
+sidecars) holding exactly **5** `salesApiLeadSearch` metas, all HTTP 200. One
+`RESPONSE_STATUS_UNRECOGNIZED` warning is recorded unexplained rather than diagnosed from a single
+instance.
+
+The five toggle ids were read from the **captured request URLs**, not from the operator's
+address-bar pastes, which agreed with them exactly but are not evidence on this surface (D413).
+
+### Blocked, and by what — the gate's 9 pages
+
+**Ledger after the session: 58 rolling-24h search pages against the restored ceiling of 50.** The
+window drains to **8** at roughly **2026-08-12T12:25Z (17:25 PKT)**, leaving 42 of headroom — the
+gate's 9 fit with **no further grant, and none is requested.** Recompute before acting.
+
+### To resume cold
+
+1. Recompute the rolling window from `runs/budget.ndjson`.
+2. Fresh operator approval immediately before **each** apply; none carries over, and a failed
+   attempt is not retried under the approval that failed. Local CLI, spec in a shell variable,
+   never `npm run cap` (D432).
+3. Iterate the five-filter intent against D461's 300–2,000 band using D462's fixed knob ladders,
+   one knob per iteration, ≤6 applies with no borrowing (D463). Halt on any verdict that is not
+   `audience_clean` (D464).
+4. Record each iteration row — spec delta, built query, archive id, per-filter verdict,
+   `paging.total`, running spend — **before** choosing the next knob.
+5. Then the ACCOUNT apply (D469, spec already built and verified offline), and the handoff: re-run
+   `filters.build` on the converged spec for the url, check it against the `searches.filter_url`
+   apply wrote, then `salesnav.leads.list --url` at default flags.
+6. Verify entity minting **per-urn**, never by table-wide count (D467).
+
+
 ## Built — Task 44 `salesnav.filters.apply`, offline (2026-08-12)
 
 **Checkpoint: the whole capability is built, tested and committed offline. The live gate has
