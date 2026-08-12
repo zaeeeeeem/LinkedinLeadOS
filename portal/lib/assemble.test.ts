@@ -93,6 +93,7 @@ function detail(overrides: Partial<LeadDetailRaw> = {}): LeadDetailRaw {
     },
     companyPosts: [],
     jobs: [],
+    hasCompanyPeople: false,
     foundBy: { label: "US SaaS VPs 11-50", capturedAt: "2026-08-12" },
     rawPaths: ["runs/01ABC/raw/profile.json.gz"],
     ...overrides,
@@ -116,6 +117,12 @@ describe("assembleDossierData", () => {
   it("omits company-missing labels entirely when the lead has no company urn", () => {
     const d = assembleDossierData(detail({ companyUrn: null, company: null }));
     expect(d.missing.some((m) => m.startsWith("company"))).toBe(false);
+  });
+
+  it("company_people presence alone counts toward C3 activity, even with no posts/jobs", () => {
+    const d = assembleDossierData(detail({ hasCompanyPeople: true }));
+    expect(d.company?.depth).toBe(3);
+    expect(d.missing).not.toContain("company activity (C3)");
   });
 
   it("passes raw paths through verbatim", () => {

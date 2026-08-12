@@ -75,6 +75,7 @@ export interface LeadDetailRaw {
   } | null;
   companyPosts: CompanyPostRow[];
   jobs: JobRow[];
+  hasCompanyPeople: boolean;
   foundBy: { label: string; capturedAt: string } | null;
   rawPaths: string[];
 }
@@ -266,10 +267,11 @@ export async function fetchLeadDetail(urn: string): Promise<LeadDetailRaw | null
   let company: LeadDetailRaw["company"] = null;
   let companyPosts: CompanyPostRow[] = [];
   let jobs: JobRow[] = [];
+  let hasCompanyPeople = false;
 
   if (person.current_company_urn) {
     const companyUrn = person.current_company_urn as string;
-    const [companyRes, companyPostsRes, jobsRes] = await Promise.all([
+    const [companyRes, companyPostsRes, jobsRes, companyPeopleRes] = await Promise.all([
       db
         .from("companies")
         .select("name, size_range, industry, hq, website, about, last_seen")
@@ -287,10 +289,13 @@ export async function fetchLeadDetail(urn: string): Promise<LeadDetailRaw | null
         .eq("company_urn", companyUrn)
         .order("posted_at", { ascending: false })
         .limit(10),
+      // Existence-only: one column, one row, never pulled into the detail payload.
+      db.from("company_people").select("company_urn").eq("company_urn", companyUrn).limit(1),
     ]);
     if (companyRes.error) throw companyRes.error;
     if (companyPostsRes.error) throw companyPostsRes.error;
     if (jobsRes.error) throw jobsRes.error;
+    if (companyPeopleRes.error) throw companyPeopleRes.error;
 
     if (companyRes.data) {
       company = {
@@ -305,6 +310,7 @@ export async function fetchLeadDetail(urn: string): Promise<LeadDetailRaw | null
     }
     companyPosts = (companyPostsRes.data ?? []).map((p) => ({ postedAt: p.posted_at, text: p.text }));
     jobs = (jobsRes.data ?? []).map((j) => ({ title: j.title, postedAt: j.posted_at }));
+    hasCompanyPeople = (companyPeopleRes.data ?? []).length > 0;
   }
 
   // Best-effort: runs whose args mention this person's urn or vanity, in addition to the
@@ -356,6 +362,7 @@ export async function fetchLeadDetail(urn: string): Promise<LeadDetailRaw | null
     company,
     companyPosts,
     jobs,
+    hasCompanyPeople,
     foundBy,
     rawPaths,
   };

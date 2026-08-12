@@ -76,7 +76,7 @@ export function assembleDossierData(raw: LeadDetailRaw): DossierData {
   const hasDetail =
     raw.company !== null &&
     (raw.company.industry !== null || raw.company.sizeRange !== null || raw.company.about !== null);
-  const hasActivity = raw.companyPosts.length > 0 || raw.jobs.length > 0;
+  const hasActivity = raw.companyPosts.length > 0 || raw.jobs.length > 0 || raw.hasCompanyPeople;
   const cDepth: CompanyDepth = companyDepth({ hasCompanyUrn, hasCompanyRow, hasDetail, hasActivity });
 
   const missing: string[] = [];
