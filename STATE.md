@@ -1,5 +1,62 @@
 # STATE
 
+## In progress — Task 45, the M6 gate: planned offline, waiting on the ledger (2026-08-12)
+
+**Checkpoint: the loop is fully specified and every candidate spec builds offline. Zero LinkedIn
+requests have been made this session and none can be made until the rolling window drains.**
+Branch `task-45-selftest-loop`, worktree `../LinkedinLeadsOS-task45`, branched from `379b465`
+(Task 44 merged to main).
+
+**The blocker, read directly from `runs/budget.ndjson`: 59 search pages and 11 page loads in the
+rolling 24h against a global ceiling of 50.** 50 of the 59 are Task 43's operator-driven harvest,
+stamped 2026-08-11 ~12:00Z, so the window drains to **2** at about **2026-08-12T12:15Z (17:15
+PKT)** and stays there. The gate waits for that clock rather than asking for a raise (D466); the
+constant stays 50 and is not touched.
+
+**The intent, and the one clause that was cut.** LEAD · REGION `103644278` United States ·
+INDUSTRY `4` Software Development · COMPANY_HEADCOUNT `C` 11-50 · SENIORITY_LEVEL `310` CXO. The
+task file's example intent also said "posted on LinkedIn recently"; `POSTED_ON_LINKEDIN` is a LEAD
+`TOGGLE` with `dynamicFetch:false` and **zero** vocabulary rows, as have all five LEAD toggles, so
+it is cut rather than guessed (D460). Buying it costs one operator-driven harvest session.
+
+Iteration 1 builds clean offline: receipt `01KZT6G2RB78PGDH1EYD0GWE4P`, 4 filters, 0 warnings, 0
+page loads, 0 search pages. All twelve ids on both knob ladders were checked against the public
+registry first; every one resolves to a provenance-bearing row.
+
+**Decisions taken: D460** (intent buildable-only, POSTED_ON_LINKEDIN cut) · **D461** (bands
+300–2,000 on `paging.total`) · **D462** (fixed knob ladders, one knob per iteration) · **D463**
+(6 applies, no borrowing) · **D464** (a non-`audience_clean` verdict halts the loop) · **D465**
+(handoff is a second free `filters.build`, no new code) · **D466** (wait for the window, no raise) ·
+**D467** (the search-store flake, root-caused and fixed).
+
+**Fixed on the way in: the unexplained post-Task-44 suite flake is no longer unexplained.**
+`tests/store-searches.integration.test.ts` asserted "no entities minted" with a **global** row
+count of `persons`/`companies`, while `tests/store-persons.integration.test.ts` inserts persons in
+parallel. Together they failed 6 of 8 runs; alone, and serialized, 6 of 6 green. The assertion is
+now scoped to the test's own urns and covers both provenance kinds: **10 of 10 parallel runs
+green**, five consecutive full suites at **1,861/1,861**, typecheck clean. A mutation that mints
+the referenced urns still fails it, so the fix is stronger than the original, not quieter (D467).
+That also changes this gate's own evidence plan — entity deltas are verified per-urn, never as a
+table-wide count.
+
+**Budget plan: 8 search pages + 8 page loads total** — up to 6 applies plus `leads.list` at its
+default 2 pages. Sub-caps already allow it: `salesnav.filters.apply` 10/10 (D455),
+`salesnav.leads.list` 20/20.
+
+### To resume cold
+
+1. Re-read the rolling window from `runs/budget.ndjson` before anything else — do not trust the
+   drain estimate above, recompute it.
+2. Ask the operator for fresh approval **immediately before each apply**; an earlier approval
+   never carries over and a failed attempt is not retried under it.
+3. Run each apply through the local CLI with the spec in a shell variable, never `npm run cap`
+   (D432).
+4. After each apply: record the iteration row (spec delta, built query, archive id, per-filter
+   verdict, `paging.total`, running spend) before deciding the next knob.
+5. On convergence: re-run `salesnav.filters.build` on the converged spec (free) for the url, check
+   it against the `searches.filter_url` apply wrote, then `salesnav.leads.list --url` at default
+   flags, and verify three numbers from three places.
+
 ## Built — Task 44 `salesnav.filters.apply`, offline (2026-08-12)
 
 **Checkpoint: the whole capability is built, tested and committed offline. The live gate has
