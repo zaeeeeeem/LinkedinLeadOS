@@ -181,6 +181,15 @@ export const CAPABILITY_SUB_CAPS: Readonly<Record<string, CapabilitySubCaps>> = 
   // cross-session ceiling of six pages of each kind. It is separate from the
   // M5 surface probe so neither capability can consume the other's retry room.
   "salesnav.filters.probe": { pageLoadsPerDay: 6, searchPagesPerDay: 6, distinctProfilesPerDay: 0 },
+  // Task 44's apply is the loop's only spender: one page load + one search page
+  // per invocation, page 1 only, no pager. 10/10 is a convergence loop of about
+  // six iterations plus headroom, and 20% of the global 50/day — the same
+  // fraction salesnav.probe carries. It is deliberately above the probe's 6 and
+  // well below leads.list's 20: apply is run repeatedly by an agent, so its cap
+  // is what stops a loop that fails to converge, but it reads one page per run,
+  // so it can never be the capability that drains the day. Zero profile opens is
+  // an assertion, not an allowance (D455).
+  "salesnav.filters.apply": { pageLoadsPerDay: 10, searchPagesPerDay: 10, distinctProfilesPerDay: 0 },
   // Saved searches are a list the operator owns; reading it is a page load, not
   // a metered search. Zero search pages until Task 37 measures otherwise — if
   // that page turns out to be metered, the measurement raises this number

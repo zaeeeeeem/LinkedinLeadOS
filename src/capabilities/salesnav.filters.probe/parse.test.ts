@@ -86,3 +86,32 @@ describe("salesnav.filters.probe parsing", () => {
     expect(() => compareQueryEcho(built, duplicate)).toThrowError(/repeats filter type REGION/);
   });
 });
+
+/**
+ * D452 promoted the comparator into `src/core/salesnav-query/echo.ts`. Task 42's
+ * measured contract — the `FILTER_PROBE_*` codes its receipts, README and D430
+ * name — must survive that move untouched. These pin it.
+ */
+describe("probe parse codes survive the D452 promotion", () => {
+  it("keeps every FILTER_PROBE_ code the probe already published", () => {
+    const codeOf = (fn: () => unknown): string => {
+      try {
+        fn();
+      } catch (cause) {
+        return (cause as { code: string }).code;
+      }
+      throw new Error("expected a refusal");
+    };
+    expect(codeOf(() => parseSearchPaging("not json"))).toBe("FILTER_PROBE_SEARCH_BODY_INVALID");
+    expect(codeOf(() => parseSearchPaging('{"paging":{"total":"x"}}'))).toBe("FILTER_PROBE_PAGING_MISSING");
+    expect(codeOf(() => requestQuery("https://www.linkedin.com/sales-api/salesApiLeadSearch")))
+      .toBe("FILTER_PROBE_REQUEST_QUERY_MISSING");
+    expect(codeOf(() => compareQueryEcho("(filters:List())", "nonsense")))
+      .toBe("FILTER_PROBE_QUERY_COMPARE_INVALID");
+    expect(codeOf(() => parseSearchFilterMetadata("not json"))).toBe("FILTER_PROBE_SEARCH_BODY_INVALID");
+  });
+
+  it("still throws FilterProbeParseError, not the core class", () => {
+    expect(() => parseSearchPaging("not json")).toThrowError(FilterProbeParseError);
+  });
+});

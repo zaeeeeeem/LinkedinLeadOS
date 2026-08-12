@@ -5780,3 +5780,110 @@ new budget admission and fresh operator approval are required immediately before
 Rejected: spending “one more page” under the old approval. The operator authorized exactly the
 CXO page, and Task 42's pacing rule makes the missing zero-result evidence a recorded checkpoint,
 not authority to load another page.
+
+## D450 — Apply takes a spec, never a url (2026-08-12)
+
+`salesnav.filters.apply` accepts only a typed `FilterSpec` and invokes Task 41's
+provenance-backed builder internally, exactly as the Task 42 probe does (D430). There is no
+`--url` argument and no way to reach the navigation with a query assembled elsewhere.
+
+A url input lost because it would let a caller bypass the vocabulary validation the builder
+exists to perform — M6 CONTEXT rule 1 — and because the loop's unit of thought is a spec it
+mutates between iterations, not a string it edits. `salesnav.leads.list` keeps its url
+argument: it consumes a converged url, it does not compose one.
+
+## D451 — The executed session id is read from the response body, not the request (2026-08-12)
+
+Apply reports the search execution's session from `$.metadata.tracking.sessionId` of the named
+search response. Measured in run `01KZSZF6MXC6HHP9Z4RQBHXP19`, archive `0016-5e81b94c63cd41b8`,
+value `oA4C51gbRjqLAXYZH+Sr3A==`. A body that does not carry the field yields `null` and a
+`SESSION_ID_ABSENT` warning; no id is ever synthesized.
+
+The request url lost because it does not carry one: `trackingParam=(sessionId:…)` appears from
+page 2 on, and apply reads page 1 only (D360, D413). The address bar lost for D413's reason.
+This is a labeled field on a labeled Voyager body, so reporting it needs no DOM exception.
+
+Consequence for the loop: per D391 this id is **not** a reusable search target. It is reported
+so a later `leads.list` run can be compared against it, not so a url can be reconstructed from
+it. `leads.list` is handed the built url and mints its own session.
+
+## D452 — The echo comparator is promoted to core, not copied into apply (2026-08-12)
+
+`compareQueryEcho`, `parseSearchPaging`, `requestQuery` and the digest helpers move from
+`src/capabilities/salesnav.filters.probe/parse.ts` to `src/core/salesnav-query/echo.ts` behind
+a neutral `QueryEchoError`. The probe keeps its `FILTER_PROBE_*` codes by wrapping, so its
+measured contract, its receipts and D430 are unchanged; a probe test pins that the codes did
+not move.
+
+Copying lost because the verdict rule is the one comparison the milestone's safety rests on: a
+silent divergence between two copies would mean the probe and the production capability
+disagree about whether an audience was honored, and the disagreement would be invisible.
+Task 44's file says "reuses, never forks"; a promotion is what that means when the code to
+reuse currently lives inside another capability.
+
+## D453 — Only one echo fixture claims LinkedIn behavior; the rest are comparator tests (2026-08-12)
+
+Task 44's file asks for fixtures covering a rewritten filter, a dropped filter, a raw-text echo
+and a zero-result body. **None of those four shapes has ever been observed on the wire.** D431
+records why the invalid-id and raw-text loads are unanswerable under the provenance-only
+builder contract; D435 records that no measured filter combination is known to yield zero.
+
+The task file is therefore corrected here rather than worked around. Two categories are kept
+apart:
+
+- A **measured-echo fixture** claims LinkedIn did something. There is exactly one — the clean
+  CXO honor in `01KZSZF6MXC6HHP9Z4RQBHXP19/0016-5e81b94c63cd41b8` — and it is the only artifact
+  cited as evidence of LinkedIn behavior.
+- A **comparator unit test** claims only that our comparison function classifies a given pair
+  of strings correctly. Its inputs are our strings, not LinkedIn's conduct, so synthetic pairs
+  are legitimate. Each is named synthetic in the test file, none is promoted to `fixtures/`,
+  and none is cited as evidence of an echo.
+
+`PAGING_SOURCE_INDIRECT` is likewise not emitted. No indirect paging source has ever been
+observed on this surface, and a warning that cannot fire is a false promise on a receipt.
+Manufacturing an archive for any of the four missing shapes lost outright: it would be
+inventing LinkedIn behavior, which is the failure `apply` exists to catch.
+
+## D454 — Apply writes one `searches` row with zero `search_results` (operator decision, 2026-08-12)
+
+The operator chose the durable-row option at review. `search_id` is the run id, `kind` is
+`sn_leads` / `sn_accounts`, `filter_url` is the built url, and `filter_json` carries the
+verdict, paging, session id and the named search archive id. The write happens **after** the
+verdict is proved, through insert-only `insertSearch` — apply is single-shot, so there is no
+resume path for `ensureSearch` to adopt. `--no-store` skips it and the receipt says so.
+
+This widens what a `searches` row means, from "a search whose rows were read" to "a search that
+was executed". That widening is the decision, taken deliberately: it gives the Task 45 loop a
+durable iteration history and gives `leads.list` a ready target row. Archive-only lost because
+the loop's history would then exist only in receipts and archives.
+
+One asymmetry is accepted explicitly: `filter_url` carries real filter values into the
+operator's own Supabase, exactly as `salesnav.leads.list` already stores an operator-supplied
+url. Stdout keeps the stricter rule — type names, verdicts, counts and hashes only, never a
+filter value (D432).
+
+## D455 — `salesnav.filters.apply` daily sub-cap is 10 / 10 / 0 (2026-08-12)
+
+The task file's proposed numbers, accepted. Ten search pages is 20% of the global 50/day — the
+same fraction `salesnav.probe` carries — and about six loop iterations plus headroom.
+
+Deliberately above the Task 42 probe's 6 and well below `salesnav.leads.list`'s 20: apply is
+run repeatedly by an agent, so its cap is what stops a loop that fails to converge, but it
+reads one page per invocation, so it can never be the capability that drains the day. Zero
+profile opens is an assertion, not an allowance — a profile open recorded under this name would
+mean the capability is doing something it was not built to do.
+
+## D471 — A ten-page temporary raise for Task 44's live gate (operator grant, 2026-08-12)
+
+Direct pre-build ledger inspection found **64 rolling-24h search pages** against a global
+ceiling of 50, so any apply invocation would have been refused before it navigated. The
+operator granted a raise of ten loads, in D470's temporary shape.
+
+`searchPagesPerDay` therefore moves 50 → 60 for Task 44's gate and is restored to 50
+immediately afterwards, whether the run succeeds, challenges, faults or is refused after spend.
+The raise does not widen the task: **Task 44's own hard bound stays 4 page loads / 4 search
+pages**, its sub-cap stays 10/10 (D455), and the gate target is 1/1 with the rest as retry
+headroom, not a loop. Fresh operator approval is still required immediately before each
+invocation; this grant is admission at the ledger, not authorization to run.
+
+Rejected, as in D470: a command-line budget override. The ledger cannot be widened by a flag.

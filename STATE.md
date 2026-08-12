@@ -1,5 +1,61 @@
 # STATE
 
+## Built — Task 44 `salesnav.filters.apply`, offline (2026-08-12)
+
+**Checkpoint: the whole capability is built, tested and committed offline. The live gate has
+not run and no LinkedIn request has been made this session.** Branch
+`task-44-filters-apply`, worktree `../LinkedinLeadsOS-task44`, branched from `17bec3f`.
+
+`salesnav.filters.apply` takes a typed `FilterSpec` (never a url, D450), builds through Task
+41's provenance-backed builder before any budget call, spends 1 page load + 1 search page,
+navigates once, and reports the per-filter verdict from the **captured request query** and the
+count from the response's own `paging`. Both verticals: LEAD to `/sales/search/people` +
+`salesApiLeadSearch` + `sn_leads`, ACCOUNT to `/sales/search/company` + `salesApiAccountSearch`
++ `sn_accounts`. Page 1 only, zero clicks, keystrokes and wheel events.
+
+Decisions taken: D450 (spec not url) · D451 (session id from `$.metadata.tracking.sessionId`) ·
+D452 (comparator promoted to `src/core/salesnav-query/echo.ts`, probe codes preserved) · D453
+(one measured echo fixture; the rewritten/dropped/raw-text/zero shapes the task file asked for
+have never been observed, so they are comparator unit tests, not fixtures) · D454 (one
+`searches` row, zero `search_results`, operator's decision) · D455 (sub-cap 10/10/0) · D471
+(operator granted a ten-page temporary raise for the gate).
+
+**Verification, independently read.** Full suite **1,857/1,857 across 128 files, 0 skips**
+(main was 1,836; +21 from apply) with `fixtures/` and `runs/` linked from the main worktree —
+without those links 33 measured-fixture tests self-skip, which is a worktree setup fact, not a
+code change. `tsc --noEmit` clean. Focused `salesnav.filters.*` suite 49/49.
+
+Four required mutations, each observed failing its named test and then reverted:
+
+- verdict computed from the built query instead of the captured request — "reads the verdict
+  from the captured request, so a dropped filter is loud" fails;
+- `dropped` forced to 0 — that test plus "classifies an absent built type as dropped" fail;
+- both `spend` calls moved after `navigate` — the ordering test fails;
+- `--no-store` bypassed — "writes nothing under --no-store" fails.
+
+**Fixture change.** The promoted Task 42 search-response fixture now retains
+`$.metadata.tracking.sessionId`, scrubbed to `SCRUBBED_SESSION`, so the one measured path Task
+44 reads outside paging is pinned in a committed artifact. The promoter **refuses** a source
+body lacking that field rather than promoting quietly. Promotion re-run is idempotent at 34
+sources; the fixture body moved 1,320 → 1,344 bytes and the manifest hash with it.
+
+## Next — Task 44's live gate, blocked on budget and on fresh approval
+
+The gate is one default-flags apply of a spec the operator picks: exit 0, all filters honored,
+plausible nonzero count, verified against archives, ledger and Supabase.
+
+**Ledger state at this checkpoint, read directly from `runs/budget.ndjson`: 64 search pages and
+16 page loads in the rolling 24h, against a global ceiling of 50.** Any apply would be refused
+before it navigated. D471 raises `searchPagesPerDay` 50 → 60 for the gate and restores it
+immediately after; Task 44's own hard bound stays 4/4 with a 1/1 target, and the constant in
+`src/core/budget/constants.ts` is **still 50** — the raise is applied at gate time, not now.
+
+To resume cold: check the rolling window again before anything else, ask the operator for fresh
+approval immediately before the invocation, apply the D471 raise, run the single apply with the
+spec held in a shell variable through the local CLI (never `npm run cap`, D432), restore the
+constant, then verify three numbers from three places — receipt, `runs/budget.ndjson` lines for
+the run, and a direct Supabase query for the one `searches` row with zero `search_results`.
+
 ## Built — Task 42 CXO built-URL apply probe (2026-08-12)
 
 The operator approved exactly one immediate CXO invocation and a D470-shaped temporary global

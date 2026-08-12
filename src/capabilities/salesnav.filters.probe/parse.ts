@@ -1,5 +1,19 @@
-import { createHash } from "node:crypto";
-import { parseSalesNavQuery, rawUrlParam, type QueryObject, type QueryValue } from "../../core/salesnav-query/grammar.js";
+import {
+  QueryEchoError,
+  compareQueryEcho as compareEcho,
+  parseSearchPaging as parsePaging,
+  requestQuery as readRequestQuery,
+  type QueryEcho,
+  type SearchPaging,
+} from "../../core/salesnav-query/echo.js";
+
+export { bodyDigest, queryDigest } from "../../core/salesnav-query/echo.js";
+export type {
+  FilterEchoVerdict,
+  QueryEcho,
+  RecentSearchEchoVerdict,
+  SearchPaging,
+} from "../../core/salesnav-query/echo.js";
 
 export class FilterProbeParseError extends Error {
   constructor(readonly code: string, message: string) {
@@ -8,19 +22,36 @@ export class FilterProbeParseError extends Error {
   }
 }
 
-export type SearchPaging = { total: number; count: number; start: number };
+/**
+ * The comparator itself lives in `src/core/salesnav-query/echo.ts` so Task 44's
+ * `salesnav.filters.apply` shares one verdict rule with this probe rather than
+ * forking it (D452). This module is the adapter that keeps Task 42's measured
+ * contract intact: the probe's `FILTER_PROBE_*` codes, which its receipts,
+ * README and D430 all name, are unchanged.
+ */
+const CODES: Readonly<Record<string, string>> = {
+  SEARCH_BODY_INVALID: "FILTER_PROBE_SEARCH_BODY_INVALID",
+  PAGING_MISSING: "FILTER_PROBE_PAGING_MISSING",
+  REQUEST_QUERY_MISSING: "FILTER_PROBE_REQUEST_QUERY_MISSING",
+  QUERY_COMPARE_INVALID: "FILTER_PROBE_QUERY_COMPARE_INVALID",
+};
+
+function probeCodes<T>(fn: () => T): T {
+  try {
+    return fn();
+  } catch (cause) {
+    if (cause instanceof QueryEchoError) {
+      throw new FilterProbeParseError(CODES[cause.code] ?? `FILTER_PROBE_${cause.code}`, cause.message);
+    }
+    throw cause;
+  }
+}
+
 export type SearchFilterMetadata = {
   filter_blocks: number;
   value_rows: number;
   selected_value_rows: number;
   selected_filter_types: string[];
-};
-export type FilterEchoVerdict = "honored" | "rewritten" | "dropped";
-export type RecentSearchEchoVerdict = FilterEchoVerdict | "injected" | "absent";
-export type QueryEcho = {
-  filters: Array<{ type: string; verdict: FilterEchoVerdict }>;
-  injected_filter_types: string[];
-  recent_search: RecentSearchEchoVerdict;
 };
 
 function object(value: unknown): Record<string, unknown> | null {
@@ -29,30 +60,21 @@ function object(value: unknown): Record<string, unknown> | null {
     : null;
 }
 
-function nonNegativeInteger(value: unknown): number | null {
-  return typeof value === "number" && Number.isInteger(value) && value >= 0 ? value : null;
-}
-
 export function parseSearchPaging(body: string): SearchPaging {
-  let root: unknown;
-  try {
-    root = JSON.parse(body);
-  } catch {
-    throw new FilterProbeParseError("FILTER_PROBE_SEARCH_BODY_INVALID", "the named search body is not JSON");
-  }
-  const paging = object(object(root)?.["paging"]);
-  const total = nonNegativeInteger(paging?.["total"]);
-  const count = nonNegativeInteger(paging?.["count"]);
-  const start = nonNegativeInteger(paging?.["start"]);
-  if (total === null || count === null || start === null) {
-    throw new FilterProbeParseError(
-      "FILTER_PROBE_PAGING_MISSING",
-      "the named search body does not carry non-negative integer paging.total/count/start",
-    );
-  }
-  return { total, count, start };
+  return probeCodes(() => parsePaging(body));
 }
 
+export function requestQuery(url: string): string {
+  return probeCodes(() => readRequestQuery(url));
+}
+
+export function compareQueryEcho(built: string, captured: string): QueryEcho {
+  return probeCodes(() => compareEcho(built, captured));
+}
+
+/** Task 42's passive-corroboration projection (D434): counts only, never the
+ *  option values themselves. It stays here because it is the probe's measuring
+ *  instrument, not part of apply's verdict. */
 export function parseSearchFilterMetadata(body: string): SearchFilterMetadata {
   let root: unknown;
   try {
@@ -85,88 +107,4 @@ export function parseSearchFilterMetadata(body: string): SearchFilterMetadata {
     selected_value_rows: selectedRows,
     selected_filter_types: [...selectedTypes],
   };
-}
-
-export function requestQuery(url: string): string {
-  const raw = rawUrlParam(url, "query");
-  if (raw === null || raw === "") {
-    throw new FilterProbeParseError("FILTER_PROBE_REQUEST_QUERY_MISSING", "the captured search request has no query parameter");
-  }
-  return raw;
-}
-
-export function queryDigest(query: string): string {
-  return createHash("sha256").update(query).digest("hex");
-}
-
-export function bodyDigest(body: string): string {
-  return createHash("sha256").update(body).digest("hex");
-}
-
-function parsedQuery(raw: string, side: "built" | "captured"): QueryObject {
-  try {
-    return parseSalesNavQuery(raw);
-  } catch (cause) {
-    throw new FilterProbeParseError(
-      "FILTER_PROBE_QUERY_COMPARE_INVALID",
-      `${side} query cannot be compared: ${cause instanceof Error ? cause.message : String(cause)}`,
-    );
-  }
-}
-
-function child(parent: QueryObject, key: string): QueryValue | null {
-  return parent.entries.find((entry) => entry.key === key)?.value ?? null;
-}
-
-function filtersByType(root: QueryObject, side: "built" | "captured"): Map<string, QueryObject> {
-  const filters = child(root, "filters");
-  if (filters?.kind !== "list") {
-    throw new FilterProbeParseError("FILTER_PROBE_QUERY_COMPARE_INVALID", `${side} query has no filters list`);
-  }
-  const result = new Map<string, QueryObject>();
-  for (const candidate of filters.items) {
-    if (candidate.kind !== "object") {
-      throw new FilterProbeParseError("FILTER_PROBE_QUERY_COMPARE_INVALID", `${side} query has a non-object filter`);
-    }
-    const type = child(candidate, "type");
-    if (type?.kind !== "atom" || type.value === "") {
-      throw new FilterProbeParseError("FILTER_PROBE_QUERY_COMPARE_INVALID", `${side} query has a filter without a type`);
-    }
-    if (result.has(type.value)) {
-      throw new FilterProbeParseError("FILTER_PROBE_QUERY_COMPARE_INVALID", `${side} query repeats filter type ${type.value}`);
-    }
-    result.set(type.value, candidate);
-  }
-  return result;
-}
-
-function structuralEqual(left: QueryValue | null, right: QueryValue | null): boolean {
-  return JSON.stringify(left) === JSON.stringify(right);
-}
-
-/** Privacy-safe, field-for-field comparison of the builder output with the
- * captured request query. Values never leave this function; only filter type
- * names and verdicts do. Reordering a filter subtree is a rewrite because the
- * evidence contract is exact captured-wire fidelity, not semantic guessing. */
-export function compareQueryEcho(built: string, captured: string): QueryEcho {
-  const builtRoot = parsedQuery(built, "built");
-  const capturedRoot = parsedQuery(captured, "captured");
-  const builtFilters = filtersByType(builtRoot, "built");
-  const capturedFilters = filtersByType(capturedRoot, "captured");
-  const filters = [...builtFilters].map(([type, expected]) => {
-    const observed = capturedFilters.get(type);
-    const verdict: FilterEchoVerdict = observed === undefined
-      ? "dropped"
-      : structuralEqual(expected, observed) ? "honored" : "rewritten";
-    return { type, verdict };
-  });
-  const injected = [...capturedFilters.keys()].filter((type) => !builtFilters.has(type));
-  const builtRecent = child(builtRoot, "recentSearchParam");
-  const capturedRecent = child(capturedRoot, "recentSearchParam");
-  const recent_search: RecentSearchEchoVerdict = builtRecent === null && capturedRecent === null
-    ? "absent"
-    : builtRecent === null ? "injected"
-    : capturedRecent === null ? "dropped"
-    : structuralEqual(builtRecent, capturedRecent) ? "honored" : "rewritten";
-  return { filters, injected_filter_types: injected, recent_search };
 }
