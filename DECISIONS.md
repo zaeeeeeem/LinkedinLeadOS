@@ -6403,3 +6403,20 @@ conservative direction. Enforcement is live again and verified: a dry-run now re
 **The lesson is narrow and mechanical**: never `git add -A` in a worktree whose ignored paths are
 symlinks into another checkout. Stage explicitly, or check `git status` for a mode-120000 entry
 before committing.
+
+## D479
+
+**2026-08-12 — Agent skills are use-case-shaped and enabling, not prescriptive SOPs.** Five
+skills land under `.claude/skills/` — `linkedin-session` (foundation: preflight, budgets,
+exit codes, hard-rules digest), `build-lead-list`, `research-lead`, `monitor-account`,
+`recover-session` — per the approved design in
+`docs/specs/2026-08-12-agent-skills-design.md`. Operator direction at implementation: skills
+teach *how the repo helps whatever strategy the agent is running* — sequences, decision
+points, costs, stop conditions — and do not fix strategy. Hard safety rules stay hard;
+everything else is framed as judgment the agent owns. Skills carry only the flags their flows
+use; `src/capabilities/<name>/README.md` stays the authority, and on conflict the skill is
+the defect. Acceptance ran as designed: a cold-read agent given only the five files answered
+all five scenario probes correctly (first actions, challenge stop, inbox privacy line,
+non-clean apply verdict, budget planning); its three flagged gaps (facet-name enumeration,
+D432 scope on public vocab text, inbox.list unread-preservation wording, plus the missing
+Supabase query recipe) were fixed in the same session.
