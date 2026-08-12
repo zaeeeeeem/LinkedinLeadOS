@@ -6353,3 +6353,53 @@ under D400. `persons`, `companies` and `jobs` are all 0 rows — search rows min
 byte-identical built and captured query hashes, the **first exact match this toolkit has recorded**.
 D457's `recentSearchParam` injection did not happen here, so that injection is **LEAD-specific**.
 That is one observation on one load, not a rule; it is written down to be re-measured, not relied on.
+
+## D478 — `runs/` was destroyed by the Task 45 merge; what was lost, and what the ledger is now (2026-08-12)
+
+**A `git add -A` in the Task 45 worktree committed the worktree's `runs` symlink, and merging that
+into main replaced main's real `runs/` directory with a symlink pointing at itself.** Every raw
+archive, event log and run summary the project had ever written is gone. No Time Machine snapshot,
+no local APFS snapshot, no copy in the trash. This is the "raw first" rule's own corpus, so it is
+recorded here in full rather than quietly repaired.
+
+**Why the ignore rule did not stop it.** `.gitignore` held `/runs/`, which matches a *directory*. A
+symlink named `runs` is not a directory, so it slipped through. The pattern is now `/runs/` **and**
+`/runs`, and the symlink is untracked.
+
+**What was actually lost**
+
+- **The ledger, `runs/budget.ndjson`** — reconstructed, see below.
+- **Every `runs/<id>/` archive**: raw bodies, meta sidecars, events, summaries, screenshots.
+- **`runs/salesnav-filter-vocabulary.private.json`**, the operator-scoped private vocabulary overlay.
+
+**What survived, and it is most of it.** The archives the vocabulary actually cites were promoted
+into `src/core/salesnav-query/test-fixtures/archive/` and are in git. **1,311 of 1,315 registry rows
+still resolve to an archived source.** The full suite is green (1,863/1,863) with an empty `runs/`,
+so no test depended on the lost data.
+
+**Five provenance sources now dangle**, and they are named rather than left to be discovered:
+
+- `01KZTA1C6VPNYDW3VYY4XRP93Q` — the D472 toggle harvest, backing 4 rows: `POSTED_ON_LINKEDIN`
+  `RPOL`, `RECENTLY_CHANGED_JOBS` `RPC`, `VIEWED_YOUR_PROFILE` `VYP`, `FOLLOWS_YOUR_COMPANY` `CF`.
+- `01KZTC8CB25MWJB028T2A3RGVJ` — the halted gate apply, the sole source for D476's `requestText` on
+  LEAD/REGION `102095887`. That row's *display text* provenance still resolves; only its request
+  spelling is now uncited.
+
+Those five values were measured, and the measurement is quoted verbatim in D476 and D473. But
+quoted evidence is not archived evidence, and the standing rule is that a row cites a body on disk.
+**They are left in place, flagged here, and re-measurable for one search page each** — a decision
+the operator can revisit; deleting them would discard true measurements, and silently keeping them
+uncited would be worse than saying so.
+
+**The ledger is reconstructed, and it says so on every line.** Each line carries
+`"reconstructed": true` and a note. Totals are exact — **65 search pages and 12 page loads in the
+rolling window**, reproducing to the unit what this session read from the real ledger before the
+loss. Run ids, capabilities and `n` come from the receipts and are exact. **Twelve timestamps are
+approximate to the minute**, and the eight pre-gate lines are pinned to the latest instant each
+capability was observed, which can only make the window drain *later* than the truth — the
+conservative direction. Enforcement is live again and verified: a dry-run now refuses with
+"already at 65".
+
+**The lesson is narrow and mechanical**: never `git add -A` in a worktree whose ignored paths are
+symlinks into another checkout. Stage explicitly, or check `git status` for a mode-120000 entry
+before committing.

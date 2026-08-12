@@ -46,6 +46,23 @@ session must recompute before spending.
 **Verification:** 1,863/1,863 across 128 files, `tsc --noEmit` clean. During the raise, the two
 tests that pin the global 50 failed by design and went green on restore — the guard worked.
 
+### Incident, same session — `runs/` was destroyed and the ledger rebuilt (D478)
+
+A `git add -A` in the worktree committed its `runs` symlink; the merge then replaced main's real
+`runs/` with a self-referential link. **Every raw archive, event log and run summary is gone** — no
+snapshot, no backup. `.gitignore`'s `/runs/` matched only the directory, so the symlink slipped
+through; it is now `/runs/` and `/runs`, and the symlink is untracked.
+
+Most of the corpus survived in git: the cited archives live in
+`src/core/salesnav-query/test-fixtures/archive/`, **1,311 of 1,315 registry rows still resolve**,
+and the suite is green with an empty `runs/`. Five provenance sources dangle — the four D472 toggle
+rows and D476's `requestText` — measured and quoted, but no longer archived. Re-measurable at one
+search page each.
+
+The ledger is reconstructed and marked `reconstructed` on every line. Totals are exact (65 search
+pages, 12 page loads rolling) and enforcement is verified live. Twelve timestamps are approximate,
+pinned in the conservative direction.
+
 ### Next
 
 - `PAST_COLLEAGUE` (`PCOLL`) is still id-measured, text-unmeasured; finishing it costs one search.
