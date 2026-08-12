@@ -121,7 +121,7 @@ describe("salesnav.filters.apply composition", () => {
     expect(h.navigate.mock.calls[0]![0]).toContain("/sales/search/people?query=");
     expect(result.data).toMatchObject({
       vertical: "LEAD",
-      verdict: { clean: true, honored: 1, rewritten: 0, dropped: 0, injected: 0 },
+      verdict: { audience_clean: true, clean: true, honored: 1, rewritten: 0, dropped: 0, injected: 0 },
       paging: { total: 17, count: 25, start: 0 },
       session_id: "S1",
       evidence: { search_archive_id: "0001-search.json.gz" },
@@ -175,7 +175,7 @@ describe("salesnav.filters.apply composition", () => {
     });
     const result = await h.result;
     expect(result.data).toMatchObject({
-      verdict: { clean: false, honored: 0, dropped: 1, injected: 1 },
+      verdict: { audience_clean: false, clean: false, honored: 0, dropped: 1, injected: 1 },
     });
     expect(result.warnings).toContainEqual({ code: "FILTER_DROPPED", field: "REGION", n: 1 });
     expect(result.warnings).toContainEqual({ code: "FILTER_INJECTED", field: "INDUSTRY", n: 1 });

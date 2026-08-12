@@ -270,6 +270,7 @@ export function createFilterApplyCapability(deps: FilterApplyDeps = defaults) {
                 vertical: spec.vertical,
                 filters_count: built.filtersCount,
                 verdict: {
+                  audience_clean: verdict.audience_clean,
                   clean: verdict.clean,
                   exact: verdict.exact,
                   filters: verdict.filters,
@@ -303,6 +304,7 @@ export function createFilterApplyCapability(deps: FilterApplyDeps = defaults) {
                 captured_sha256: queryDigest(capturedQuery),
               },
               verdict: {
+                audience_clean: verdict.audience_clean,
                 clean: verdict.clean,
                 honored: verdict.honored,
                 rewritten: verdict.rewritten,
@@ -324,7 +326,7 @@ export function createFilterApplyCapability(deps: FilterApplyDeps = defaults) {
                 : { skipped: false, table: "searches", search_id: run.runId, search_results: 0 },
               interactions: { clicks: 0, keystrokes: 0, wheel_events: 0 },
             },
-            next: verdict.clean
+            next: verdict.audience_clean
               ? `the audience LinkedIn searched matches the spec; hand this run's built url to salesnav.leads.list, or tighten the spec against paging.total=${paging.total}`
               : "LinkedIn did not search the audience the spec described — read the per-filter verdict before trusting the count",
           };

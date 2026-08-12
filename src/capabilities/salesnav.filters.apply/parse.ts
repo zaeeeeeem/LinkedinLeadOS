@@ -20,9 +20,15 @@ export type { SearchPaging, FilterEchoVerdict, RecentSearchEchoVerdict } from ".
 export const parseApplySessionId = parseSearchSessionId;
 
 export type ApplyVerdict = QueryEcho & {
-  /** Every built filter honored, nothing rewritten, dropped or injected, and
-   *  the recent-search envelope unchanged. This is the only shape the loop may
-   *  read as "LinkedIn searched the audience I described". */
+  /** Every built filter honored and no filter type injected — nothing that
+   *  changes *who* was searched. This is the flag the convergence loop reads:
+   *  it is the only shape that means "LinkedIn searched the audience I
+   *  described" (D456). */
+  audience_clean: boolean;
+  /** `audience_clean` **and** the request envelope unchanged. Strictly stronger,
+   *  and measured to be false on an ordinary healthy load: LinkedIn injects
+   *  `recentSearchParam:(doLogHistory:true)` into a query built without one
+   *  (D457), which is a logging flag and not an audience change. */
   clean: boolean;
   /** The captured query is byte-identical to the built one. `exact` implies
    *  `clean`; `clean` does not imply `exact`, because a query can be re-spelled
@@ -48,13 +54,15 @@ export function applyVerdict(built: string, captured: string): ApplyVerdict {
   const dropped = counted("dropped");
   const injected = echo.injected_filter_types.length;
   const recentChanged = echo.recent_search !== "honored" && echo.recent_search !== "absent";
+  const audienceClean = rewritten === 0 && dropped === 0 && injected === 0;
   return {
     ...echo,
     honored: counted("honored"),
     rewritten,
     dropped,
     injected,
-    clean: rewritten === 0 && dropped === 0 && injected === 0 && !recentChanged,
+    audience_clean: audienceClean,
+    clean: audienceClean && !recentChanged,
     exact: built === captured,
   };
 }

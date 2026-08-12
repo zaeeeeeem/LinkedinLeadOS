@@ -39,7 +39,71 @@ Four required mutations, each observed failing its named test and then reverted:
 body lacking that field rather than promoting quietly. Promotion re-run is idempotent at 34
 sources; the fixture body moved 1,320 → 1,344 bytes and the manifest hash with it.
 
-## Next — Task 44's live gate, blocked on budget and on fresh approval
+## Built — Task 44 live gate PASSED (2026-08-12)
+
+Run `01KZT4AJWX4G59KMHZM2R2JGP4`, exit 0 in 14,910 ms, default flags. The operator approved
+exactly one invocation and granted D471's ten-page raise; `searchPagesPerDay` went 50 → 60 for
+the run and was **restored to 50 immediately after**. D471 is exhausted.
+
+Two earlier attempts spent **nothing**: one argument error (0/0) and one `BUDGET_EXCEEDED` at
+62 rolling-24h search pages against the raised 60 (0/0). Neither was retried under a widened
+ceiling — the window was allowed to drain to 59 on its own, which is waiting, not new authority.
+
+**Spec (all-public vocabulary, no operator-scoped id):** LEAD · REGION 103644278 United States ·
+INDUSTRY 4 Software Development · SENIORITY_LEVEL 310 CXO. Three filters, chosen over Task 42's
+single PERSONA so the echo evidence covers a multi-filter query.
+
+Built query:
+
+    (filters:List((type:REGION,values:List((id:103644278,text:United%20States,selectionType:INCLUDED))),(type:INDUSTRY,values:List((id:4,text:Software%20Development,selectionType:INCLUDED))),(type:SENIORITY_LEVEL,values:List((id:310,text:CXO,selectionType:INCLUDED)))))
+
+Captured request query from `0021-81a2c38499a53f21.meta.json`, HTTP 200:
+
+    (recentSearchParam:(doLogHistory:true),filters:List((type:REGION,…),(type:INDUSTRY,…),(type:SENIORITY_LEVEL,…)))
+
+**Verdict: all three filters honored, nothing rewritten, dropped or injected.**
+`audience_clean: true`, `clean: false`, `exact: false` — the difference is exactly one prefix
+LinkedIn added, `recentSearchParam:(doLogHistory:true)` (D457). Proved, not asserted: deleting
+that prefix from the captured query yields the built query **exactly**. `paging.total=76,621`,
+`count=25`, `start=0`. Session `KY1zVgqrQeGjdkhc5Pxc0A==` from `$.metadata.tracking.sessionId`.
+Catalog hash matched the pinned fixture (`0015-3ff85d03efb79a26`). Zero clicks, keystrokes,
+wheel events.
+
+That finding produced D456: the loop reads `audience_clean`, not `clean`, because a single flag
+would have made this healthy run report "LinkedIn did not search the audience the spec
+described".
+
+**Three-place spend agreement, read independently.** Receipt: 1 page load + 1 search page.
+`runs/budget.ndjson`: exactly **2 lines** for the run id, one of each kind. Archive: **72 files
+(36 bodies + 36 sidecars)**, exactly **1** named `salesApiLeadSearch` meta among them. Supabase,
+queried directly: **1** `searches` row for this run (`kind=sn_leads`, `filter_url` present,
+`filter_json` carrying the verdict, paging, session id and archive id) and **0** `search_results`
+for it; the table total stayed at **197**.
+
+**Offline reproduction.** Re-running `applyVerdict`, `parseApplyPaging` and `parseApplySessionId`
+on the archived request/response pair reproduces the receipt's verdict, paging and session id
+field-for-field, with zero LinkedIn requests.
+
+**Suite:** 1,861/1,861 across 128 files, **0 skips**, typecheck clean, on three consecutive
+runs. One caveat recorded rather than smoothed over: the first full run after the live gate
+reported **1 failure out of 1,861 and did not name the test before the reporter cleared**; three
+subsequent full runs are green and the failure has not recurred. It is unexplained. The most
+likely cause is a Supabase integration test racing the gate's own row write, but that is a
+hypothesis, not a finding — the scoped-prefix cleanup in `store-searches.integration.test.ts`
+argues against it.
+
+## Next — Task 45, the M6 gate
+
+Task 44 is complete: acceptance criteria met, gate passed, decisions D450–D457 and D471
+recorded. Branch `task-44-filters-apply` (worktree `../LinkedinLeadsOS-task44`), unmerged.
+
+Task 45 is the end-to-end loop: intent → spec → build → apply → count → iterate → hand the
+converged URL to `salesnav.leads.list`. It needs written convergence bands, an iteration budget,
+and its own fresh approval per live step. Note for its planner: the ledger is tight — the
+rolling-24h search-page count sat in the low 60s against a ceiling of 50 for most of
+2026-08-12, so a multi-iteration loop needs the window to drain first or its own operator grant.
+
+## Superseded — the pre-gate blocker note
 
 The gate is one default-flags apply of a spec the operator picks: exit 0, all filters honored,
 plausible nonzero count, verified against archives, ledger and Supabase.

@@ -35,8 +35,17 @@ as **injected**, and `recentSearchParam` is reported separately.
 
 A rewritten, dropped or injected filter raises a non-zero warning
 (`FILTER_REWRITTEN` / `FILTER_DROPPED` / `FILTER_INJECTED` / `RECENT_SEARCH_ECHO_CHANGED`) —
-never a silently smaller audience. `clean: true` on the receipt is the only shape the loop may
-read as "LinkedIn searched the audience I described".
+never a silently smaller audience.
+
+Two flags, and the loop reads the first (D456):
+
+- **`audience_clean`** — every built filter honored and no filter type injected. Nothing that
+  changes *who* was searched. This is the shape that means "LinkedIn searched the audience I
+  described".
+- **`clean`** — `audience_clean` **and** the request envelope unchanged. Strictly stronger, and
+  measured to be **false on an ordinary healthy load**: LinkedIn prepends
+  `recentSearchParam:(doLogHistory:true)` to a query built without one (D457, run
+  `01KZT4AJWX4G59KMHZM2R2JGP4`). That is a logging flag, not an audience change.
 
 `paging.total` is LinkedIn's own estimate and may be rounded; the loop targets bands, never
 exact numbers. **Zero results is a finding, not a failure**: exit 0, count 0.

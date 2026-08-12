@@ -121,3 +121,39 @@ describe("apply verdict — comparator behavior on synthetic pairs", () => {
     expect(() => applyVerdict(SYNTHETIC_BUILT, duplicated)).toThrowError(/repeats filter type REGION/);
   });
 });
+
+/**
+ * D457, measured live in run `01KZT4AJWX4G59KMHZM2R2JGP4`: LinkedIn prepends
+ * `recentSearchParam:(doLogHistory:true)` to a query built without one. It is a
+ * logging flag, not a filter, so it must not read as an audience change (D456).
+ */
+describe("the measured recent-search injection", () => {
+  const BUILT_THREE =
+    "(filters:List((type:REGION,values:List((id:103644278,text:United%20States,selectionType:INCLUDED))),(type:INDUSTRY,values:List((id:4,text:Software%20Development,selectionType:INCLUDED))),(type:SENIORITY_LEVEL,values:List((id:310,text:CXO,selectionType:INCLUDED)))))";
+  const CAPTURED_THREE = BUILT_THREE.replace("(filters:", "(recentSearchParam:(doLogHistory:true),filters:");
+
+  it("keeps the audience clean while reporting the envelope change", () => {
+    const verdict = applyVerdict(BUILT_THREE, CAPTURED_THREE);
+    expect(verdict).toMatchObject({
+      audience_clean: true,
+      clean: false,
+      exact: false,
+      honored: 3,
+      rewritten: 0,
+      dropped: 0,
+      injected: 0,
+      recent_search: "injected",
+    });
+    expect(verdictWarnings(verdict)).toEqual([
+      { code: "RECENT_SEARCH_ECHO_CHANGED", field: "injected", n: 1 },
+    ]);
+  });
+
+  it("still refuses to call an audience clean when a filter is dropped", () => {
+    const dropped = CAPTURED_THREE.replace(
+      ",(type:SENIORITY_LEVEL,values:List((id:310,text:CXO,selectionType:INCLUDED)))",
+      "",
+    );
+    expect(applyVerdict(BUILT_THREE, dropped)).toMatchObject({ audience_clean: false, clean: false, dropped: 1 });
+  });
+});

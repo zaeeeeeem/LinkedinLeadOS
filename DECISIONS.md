@@ -5887,3 +5887,41 @@ headroom, not a loop. Fresh operator approval is still required immediately befo
 invocation; this grant is admission at the ledger, not authorization to run.
 
 Rejected, as in D470: a command-line budget override. The ledger cannot be widened by a flag.
+
+## D456 — The loop reads `audience_clean`, not `clean` (2026-08-12)
+
+Apply's verdict carries two flags. `audience_clean` is true when every built filter is honored
+and no filter type was injected — nothing that changes *who* was searched. `clean` is
+`audience_clean` **and** an unchanged request envelope, so it is strictly stronger. The
+convergence loop, and apply's own `next` line, read `audience_clean`.
+
+One flag lost because D457 measured an envelope change on a completely healthy load. A single
+flag would have made the gate's own run report "LinkedIn did not search the audience the spec
+described" about a search whose three filters echoed byte-for-byte — a false alarm that would
+teach the Task 45 loop to ignore its own safety signal, which is the one outcome worth avoiding
+on this surface.
+
+The envelope change is still reported and still warns (`RECENT_SEARCH_ECHO_CHANGED`). It is
+demoted from "the audience is wrong" to "the request was re-spelled", which is what it is.
+
+## D457 — LinkedIn injects `recentSearchParam` into a built query (2026-08-12)
+
+Measured on the Task 44 gate, run `01KZT4AJWX4G59KMHZM2R2JGP4`, archive
+`0021-81a2c38499a53f21`. The built query carried no `recentSearchParam`. The captured
+`salesApiLeadSearch` request carried `recentSearchParam:(doLogHistory:true)` prepended, and
+was otherwise byte-identical — proved offline by re-running the parser on the archived pair:
+removing exactly that prefix from the captured query yields the built query exactly.
+
+Two facts follow, both useful and neither assumed:
+
+1. **A built url is honored.** Three public filters — REGION 103644278, INDUSTRY 4,
+   SENIORITY_LEVEL 310 — echoed with every field, id, text and selection type intact and in
+   order. This is the first multi-filter confirmation; Task 42's was a single PERSONA (D433).
+2. **The envelope is LinkedIn's to write.** `doLogHistory:true` means the load was recorded in
+   the operator's own recent-search history. That is a side effect of navigating a search page,
+   not something this toolkit asked for, and it is noted rather than suppressed — nothing may be
+   clicked or called to undo it.
+
+The builder is **not** changed to emit `recentSearchParam` pre-emptively. Emitting it would be
+matching an observed rewrite by guessing that LinkedIn wants it, and D433's contract is exact
+captured-wire fidelity, not anticipation. The verdict absorbs the difference instead (D456).
