@@ -1,5 +1,12 @@
 # STATE
 
+## Complete — agent skills: five use-case skills under `.claude/skills/` (2026-08-12)
+
+`linkedin-session` (foundation) · `build-lead-list` · `research-lead` · `monitor-account` ·
+`recover-session`. Enabling-not-prescriptive framing (D479); spec at
+`docs/specs/2026-08-12-agent-skills-design.md`; cold-read acceptance passed, reader-flagged
+gaps fixed same session. Capability READMEs remain the authority on flags.
+
 ## Complete — Task 45, the M6 gate: intent to stored leads, live (2026-08-12)
 
 **The M6 gate passed.** Starting from a typed audience intent and the harvested vocabulary, with no
