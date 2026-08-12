@@ -6250,3 +6250,106 @@ than diagnosed from one instance.
 Post-session ledger state: **58 rolling-24h search pages against the restored ceiling of 50.** The
 Task 45 gate's 9 pages cannot run until the window drains, which it does to 8 at roughly
 2026-08-12T12:25Z. No further grant is needed after that, and none is requested.
+
+## D475 — The M6 gate runs now, on a temporary two-part raise, overriding D466 (operator grant, 2026-08-12)
+
+D466 said the gate spends nothing until the rolling window drains on its own. The operator
+overrode that at 2026-08-12T06:48Z with the window holding **58 rolling-24h search pages against
+the restored ceiling of 50**, asking for the gate immediately and granting whatever raise it needs
+at roughly twice the requested size.
+
+Two parts, both temporary:
+
+- Global `searchPagesPerDay` **50 → 76**. The gate needs 9 (six applies, the ACCOUNT apply, two
+  `leads.list` pages), so 58 + 9 = 67 is the real requirement; 76 is the 2x-the-need headroom the
+  operator asked for, so an in-session retry needs no second grant.
+- `salesnav.filters.apply` sub-cap **10/10 → 20/20**. One apply is already spent today, so the
+  standing 10 would have left 9 for a 6-apply loop plus the ACCOUNT apply with zero retry room. A
+  global raise alone would still have been refused by the capability's own cap — the same
+  two-part shape D472 needed.
+
+**What this actually costs.** 67 search pages in one 24h window on the single account, against a
+self-imposed pacing ceiling of 50. That ceiling is the account-safety guard, not a code limit, and
+the alternative — waiting until roughly 2026-08-12T12:25Z for 50 of the 58 to drain — was free and
+needed no grant. The operator was told this before the first load and chose to proceed. It is
+recorded here as a cost knowingly accepted, not as a cost that was absent.
+
+Both numbers are restored to 50 and 10/10 immediately after the session, before any other work,
+and the restoration is verified by reading the file back. D475 is exhausted on that restore; no
+later session inherits it.
+
+The per-apply approval rule (D463) is satisfied by this session's standing instruction to run the
+whole gate now; each apply is still reported to the operator as it happens, and the operator can
+stop the loop at any boundary.
+
+## D476 — A value's typeahead label and its search-request spelling can differ, and the row carries both (2026-08-12)
+
+The M6 gate's third apply came back `REGION: rewritten` and halted the loop under D464. Read from
+the captured request URL, LinkedIn had changed two things about one value:
+
+```
+built:    (type:REGION,values:List((id:102095887,text:California, United States,selectionType:INCLUDED)))
+captured: (type:REGION,values:List((id:102095887,text:California)))
+```
+
+The id is identical. The display text was truncated and `selectionType` was dropped entirely.
+
+**The harvest was not wrong.** The typeahead body genuinely says `California, United States` — its
+`displayValue`, `headline` and `headlineV2.text` all agree, and the row's provenance points at
+that element. LinkedIn's *typeahead label* and its *search-request spelling* for the same id simply
+differ. `United States` (`103644278`) echoed verbatim, `selectionType` included, in both earlier
+iterations, which is why this had never surfaced: that row happens to spell the same on both
+surfaces, and it already carried request-url provenance proving it.
+
+**The dropped `selectionType` is a symptom, not a required shape.** LinkedIn re-resolves a value
+whose text does not match its catalog and re-emits its own canonical form, which omits the field.
+Sending the request spelling with `selectionType` intact was honored — so the builder was never
+asked to emit a shape it cannot produce.
+
+`text` alone cannot hold both spellings: one id resolves to exactly one display text, which is what
+`VOCAB_ID_CONFLICT` exists to enforce, and weakening that would let any id drift. So the row gains
+an optional **`requestText`** plus **`requestTextProvenance`**, which is **request-url only** — a
+typeahead body is evidence of a label, never of a request spelling. Only LEAD/REGION `102095887` has
+it, from run `01KZTC8CB25MWJB028T2A3RGVJ`, archive `0021-cb46a4f38fe4eaad`. Other state-level rows
+are unmeasured and stay that way; the same truncation is *likely* for them and likelihood is not
+measurement.
+
+The builder resolves a row by **either** measured spelling and emits **exactly what the spec asked
+for** — it never substitutes one for the other, so a caller always gets the text it named, and a
+third spelling is still `FILTER_VOCABULARY_MISMATCH`. Verified by the 1,285 reading reproducing
+exactly across the rewritten and the honored applies: the audience was the same both times, which
+is what makes the rewrite a spelling defect rather than a mis-targeting.
+
+## D477 — The M6 gate passed: intent to stored leads, with one halt on the way (2026-08-12)
+
+Four applies, one halt, one handoff. **7 search pages and 7 page loads against the 9 planned.**
+
+| # | knob turned | `paging.total` | verdict |
+|---|---|---|---|
+| 1 | step-0 intent, 5 filters | 5,886 | audience_clean, 5/5 honored |
+| 2 | +`CURRENT_TITLE` CEO/Founder/Co-Founder | 4,078 | audience_clean, 6/6 honored |
+| 3 | `REGION` US → California, US | 1,285 | **REGION rewritten — halted (D464)** |
+| 4 | same spec, measured request spelling (D476) | 1,285 | audience_clean, 6/6 honored — **converged** |
+
+**Why the final audience is the size it is**, which is the question the gate exists to answer: US
+software CXOs at 11-50-person companies who posted on LinkedIn recently number 5,886. Requiring the
+title to be CEO, Founder or Co-Founder removes 31% of them — most CXOs at a company that size are
+not the founder. Narrowing from the whole US to California keeps 32% of what remains. Every step is
+one knob and every delta is attributable, which is what D462's fixed ladder was for.
+
+**The halt was the system working.** A count of 1,285 sat inside the band at iteration 3 and the
+loop refused it, because it was produced by a query LinkedIn had rewritten. Iteration 4 proved the
+audience was in fact identical — but that was established by measurement afterwards, not assumed at
+the time. `apply` exists to catch exactly the case where the number looks right and the query is
+not the one you wrote.
+
+**The handoff took no new code (D465).** `filters.build` re-run on the converged spec re-emitted a
+url byte-identical to the `filter_url` apply had stored, compared by direct Supabase query rather
+than either receipt. `salesnav.leads.list` at default flags then read it: 50 rows, pages 1 and 2,
+25 each, 50 distinct `(page, position)` keys, 50 distinct person urns, one `Next` pagination click
+under D400. `persons`, `companies` and `jobs` are all 0 rows — search rows mint no entities.
+
+**The ACCOUNT vertical is proven too (D469)**: 3/3 honored, 20,552 accounts — and `clean:true` with
+byte-identical built and captured query hashes, the **first exact match this toolkit has recorded**.
+D457's `recentSearchParam` injection did not happen here, so that injection is **LEAD-specific**.
+That is one observation on one load, not a rule; it is written down to be re-measured, not relied on.

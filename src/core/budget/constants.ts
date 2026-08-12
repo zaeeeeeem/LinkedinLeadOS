@@ -44,6 +44,9 @@ export const DEFAULT_BUDGET_LIMITS: BudgetLimits = {
   // needs a new dated operator grant; no approval carries over.
   // Was temporarily 60 for the one Task 45 toggle-harvest session under D472
   // and was restored immediately after it (run 01KZTA1C6VPNYDW3VYY4XRP93Q).
+  // Was temporarily 76 for the one Task 45 M6 gate session under D475 and was
+  // restored immediately after it (runs 01KZTC5CZ… through 01KZTD8S8…). D475 is
+  // exhausted; a later raise needs a new dated operator grant.
   searchPagesPerDay: 50,
   distinctProfilesPerDay: 120,
 };
@@ -191,6 +194,9 @@ export const CAPABILITY_SUB_CAPS: Readonly<Record<string, CapabilitySubCaps>> = 
   // is what stops a loop that fails to converge, but it reads one page per run,
   // so it can never be the capability that drains the day. Zero profile opens is
   // an assertion, not an allowance (D455).
+  // Was temporarily 20/20 for the one M6 gate session under D475 and was
+  // restored immediately after it. The gate used 5 of the 20; 10 would have
+  // sufficed but for the apply already spent earlier that day.
   "salesnav.filters.apply": { pageLoadsPerDay: 10, searchPagesPerDay: 10, distinctProfilesPerDay: 0 },
   // Saved searches are a list the operator owns; reading it is a page load, not
   // a metered search. Zero search pages until Task 37 measures otherwise — if

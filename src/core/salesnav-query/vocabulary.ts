@@ -35,6 +35,18 @@ export type VocabularyRow = {
   /** Request-url sources that prove this exact id may omit its `text` field.
    * Empty for the ordinary `(id,text,selectionType)` spelling. */
   textOmissionProvenance: VocabularySource[];
+  /** LinkedIn's own spelling of this value *in a search request*, when it
+   * differs from the typeahead label in `text` (D476). Both are measured on
+   * real surfaces that disagree — LEAD/REGION `102095887` is
+   * "California, United States" in the typeahead and "California" in the
+   * request — and `text` alone cannot hold both, because one id resolves to
+   * exactly one display text (`VOCAB_ID_CONFLICT`). Absent when the two agree,
+   * which is the ordinary case. */
+  requestText?: string;
+  /** Request-url sources proving `requestText`. Non-empty whenever
+   * `requestText` is set, and request-url only: a typeahead body is evidence of
+   * a label, never of a request spelling. */
+  requestTextProvenance: VocabularySource[];
 };
 
 export type VocabularyRegistry = {
@@ -123,6 +135,15 @@ export function validateVocabularyRegistry(value: unknown): VocabularyRegistry {
     const rowId = nonempty(row?.["rowId"]);
     const provenance = row?.["provenance"];
     const omissionProvenance = row?.["textOmissionProvenance"];
+    const requestText = row?.["requestText"] === undefined ? null : nonempty(row["requestText"]);
+    const requestTextProvenance = row?.["requestTextProvenance"] ?? [];
+    if (row?.["requestText"] !== undefined && requestText === null) {
+      throw new VocabularyError("VOCAB_ROW_INVALID", `vocabulary row ${index} has an empty requestText`);
+    }
+    if (!Array.isArray(requestTextProvenance) || requestTextProvenance.length > MAX_PROVENANCE_PER_ROW ||
+        (requestText !== null) !== (requestTextProvenance.length > 0)) {
+      throw new VocabularyError("VOCAB_ROW_INVALID", `vocabulary row ${index} requestText and its provenance must be present together`);
+    }
     if ((vertical !== "LEAD" && vertical !== "ACCOUNT") || facet === null || id === null || text === null ||
         rowId === null || typeof row?.["operatorScoped"] !== "boolean" || !Array.isArray(provenance) || provenance.length === 0 ||
         provenance.length > MAX_PROVENANCE_PER_ROW || !Array.isArray(omissionProvenance) || omissionProvenance.length > MAX_PROVENANCE_PER_ROW) {
@@ -145,11 +166,22 @@ export function validateVocabularyRegistry(value: unknown): VocabularyRegistry {
     if (omissionSources.some((source) => source.kind !== "request-url")) {
       throw new VocabularyError("VOCAB_PROVENANCE_INVALID", `vocabulary row ${index} text omission is not request-url evidence`);
     }
+    const requestTextSources: VocabularySource[] = requestTextProvenance.map(
+      (candidate, sourceIndex) => sourceOf(candidate, sourceIndex, "request text provenance"),
+    );
+    if (requestTextSources.some((source) => source.kind !== "request-url")) {
+      throw new VocabularyError("VOCAB_PROVENANCE_INVALID", `vocabulary row ${index} request text is not request-url evidence`);
+    }
+    if (requestText !== null && requestText === text) {
+      throw new VocabularyError("VOCAB_ROW_INVALID", `vocabulary row ${index} sets requestText to its own display text`);
+    }
     const parsed: VocabularyRow = {
       rowId, vertical, facet, id, text,
       operatorScoped: row["operatorScoped"],
       provenance: sources,
       textOmissionProvenance: omissionSources,
+      ...(requestText === null ? {} : { requestText }),
+      requestTextProvenance: requestTextSources,
     };
     if (vocabularyRowId(parsed) !== rowId) {
       throw new VocabularyError("VOCAB_ROW_ID_INVALID", `vocabulary row ${index} has a rowId that does not match its content`);
@@ -191,6 +223,10 @@ export function mergeVocabularyRegistries(...registries: readonly VocabularyRegi
       if (previous && previous.text !== row.text) {
         throw new VocabularyError("VOCAB_ID_CONFLICT", `${row.vertical}/${row.facet}/${row.id} has conflicting display text`);
       }
+      if (previous && row.requestText !== undefined && previous.requestText !== undefined &&
+          previous.requestText !== row.requestText) {
+        throw new VocabularyError("VOCAB_ID_CONFLICT", `${row.vertical}/${row.facet}/${row.id} has conflicting request text`);
+      }
       if (previous) {
         const sources = new Map(previous.provenance.map((source) => [sourceIdentity(source), source]));
         for (const source of row.provenance) sources.set(sourceIdentity(source), source);
@@ -198,7 +234,12 @@ export function mergeVocabularyRegistries(...registries: readonly VocabularyRegi
         const omissions = new Map(previous.textOmissionProvenance.map((source) => [sourceIdentity(source), source]));
         for (const source of row.textOmissionProvenance) omissions.set(sourceIdentity(source), source);
         previous.textOmissionProvenance = [...omissions.values()].sort((a, b) => sourceIdentity(a).localeCompare(sourceIdentity(b)));
-        if (previous.provenance.length > MAX_PROVENANCE_PER_ROW || previous.textOmissionProvenance.length > MAX_PROVENANCE_PER_ROW) {
+        const requestTexts = new Map(previous.requestTextProvenance.map((source) => [sourceIdentity(source), source]));
+        for (const source of row.requestTextProvenance) requestTexts.set(sourceIdentity(source), source);
+        previous.requestTextProvenance = [...requestTexts.values()].sort((a, b) => sourceIdentity(a).localeCompare(sourceIdentity(b)));
+        if (row.requestText !== undefined) previous.requestText = row.requestText;
+        if (previous.provenance.length > MAX_PROVENANCE_PER_ROW || previous.textOmissionProvenance.length > MAX_PROVENANCE_PER_ROW ||
+            previous.requestTextProvenance.length > MAX_PROVENANCE_PER_ROW) {
           throw new VocabularyError("VOCAB_REGISTRY_BOUNDED", `${row.vertical}/${row.facet}/${row.id} exceeds ${MAX_PROVENANCE_PER_ROW} provenance sources`);
         }
       } else {
@@ -206,6 +247,7 @@ export function mergeVocabularyRegistries(...registries: readonly VocabularyRegi
           ...row,
           provenance: [...row.provenance],
           textOmissionProvenance: [...row.textOmissionProvenance],
+          requestTextProvenance: [...row.requestTextProvenance],
         });
       }
     }
@@ -277,6 +319,7 @@ function queryVocabulary(ast: QueryObject, vertical: SalesNavVertical, source: O
         operatorScoped: OPERATOR_SCOPED_FACETS.has(facet),
         provenance: [locatedSource],
         textOmissionProvenance: [],
+        requestTextProvenance: [],
       });
     });
   });
@@ -311,6 +354,7 @@ function savedSearchVocabulary(body: string, vertical: SalesNavVertical, source:
             locator: `$.elements[${elementIndex}].filters[${filterIndex}].singleFilterMetadata.values[${valueIndex}]`,
           }],
           textOmissionProvenance: [],
+          requestTextProvenance: [],
         });
       });
     });
@@ -361,6 +405,7 @@ function typeaheadVocabulary(
         operatorScoped: OPERATOR_SCOPED_FACETS.has(target.type) || OPERATOR_SCOPED_FACETS.has(typeaheadType),
         provenance: [{ ...source, locator }],
         textOmissionProvenance: [],
+        requestTextProvenance: [],
       });
     }
   });

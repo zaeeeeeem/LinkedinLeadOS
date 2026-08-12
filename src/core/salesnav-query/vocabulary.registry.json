@@ -30960,7 +30960,17 @@
           "locator": "$.elements[4]"
         }
       ],
-      "textOmissionProvenance": []
+      "textOmissionProvenance": [],
+      "requestText": "California",
+      "requestTextProvenance": [
+        {
+          "kind": "request-url",
+          "runId": "01KZTC8CB25MWJB028T2A3RGVJ",
+          "archiveId": "0021-cb46a4f38fe4eaad",
+          "file": "01KZTC8CB25MWJB028T2A3RGVJ/raw/0021-cb46a4f38fe4eaad.meta.json",
+          "locator": "query.filters[0].values[0].text"
+        }
+      ]
     },
     {
       "rowId": "98f07910e91a63a0b36c5f7c",

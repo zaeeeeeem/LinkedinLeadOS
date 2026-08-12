@@ -1,5 +1,56 @@
 # STATE
 
+## Complete — Task 45, the M6 gate: intent to stored leads, live (2026-08-12)
+
+**The M6 gate passed.** Starting from a typed audience intent and the harvested vocabulary, with no
+operator-supplied URL anywhere, the agent converged on an audience of the right size and
+`salesnav.leads.list` read it into provenance-tagged rows. Branch `task-45-selftest-loop`.
+
+**Spend: 7 search pages / 7 page loads against the 9 planned** — four applies, two leads pages, one
+ACCOUNT apply. Ledger agrees in three places: 14 lines across the six runs, `n=1` each, matching
+both receipts and the archive.
+
+| # | knob turned | `paging.total` | verdict |
+|---|---|---|---|
+| 1 | step-0 intent, 5 filters | 5,886 | audience_clean, 5/5 honored |
+| 2 | +`CURRENT_TITLE` CEO/Founder/Co-Founder | 4,078 | audience_clean, 6/6 honored |
+| 3 | `REGION` US → California, US | 1,285 | REGION rewritten — halted (D464) |
+| 4 | same spec, measured request spelling | 1,285 | audience_clean, 6/6 honored — converged |
+
+Converged audience: California · Software Development · 11-50 headcount · CXO · CEO/Founder/
+Co-Founder · posted on LinkedIn recently = **1,285**, inside D461's 300–2,000 band.
+
+**The halt at iteration 3 was the system working, and it cost one round trip to fix (D476).**
+LinkedIn's typeahead label and its search-request spelling for the same value can differ —
+`102095887` is "California, United States" in the typeahead and "California" in the request. The
+harvest was correct; both surfaces were. Rows now carry an optional `requestText` with request-url-
+only provenance, the builder resolves by either measured spelling and emits exactly what it was
+given, and a third spelling is still a refusal. Only LEAD/REGION `102095887` is measured; other
+state rows are untouched.
+
+**Handoff, no new code (D465).** Rebuilt url byte-identical to the stored `filter_url`, compared by
+direct Supabase query. `leads.list` at default flags: 50 rows, 25 per page, 50 distinct
+`(page, position)`, 50 distinct person urns, one `Next` click (D400). `persons` / `companies` /
+`jobs` all 0 — search rows mint no entities.
+
+**ACCOUNT vertical proven (D469):** 3/3 honored, 20,552 accounts, and `clean:true` with identical
+query hashes — the first exact match recorded. `recentSearchParam` injection appears to be
+LEAD-specific; one observation, to be re-measured, not relied on.
+
+**Budget.** The gate ran under D475, an operator grant overriding D466 with the window at 58/50:
+global `searchPagesPerDay` 50 → 76 and the apply sub-cap 10/10 → 20/20. **Both restored, verified by
+reading the file back, before any other work.** D475 is exhausted. The window ended at 65 rolling
+search pages — above the standing 50, a cost the operator accepted knowingly and which the next
+session must recompute before spending.
+
+**Verification:** 1,863/1,863 across 128 files, `tsc --noEmit` clean. During the raise, the two
+tests that pin the global 50 failed by design and went green on restore — the guard worked.
+
+### Next
+
+- `PAST_COLLEAGUE` (`PCOLL`) is still id-measured, text-unmeasured; finishing it costs one search.
+- Other state-level REGION rows likely share the truncation and are unmeasured. Measure before use.
+
 ## Built — Task 45 step 1 of 2: the toggle harvest is done (2026-08-12)
 
 **The vocabulary gap the operator chose to buy is bought. The gate loop itself has not run — it is

@@ -42,7 +42,12 @@ function vocabularyFor(registry: VocabularyRegistry, vertical: string, facet: st
   if (rows.length === 0) {
     refuse("FILTER_VOCABULARY_MISSING", `${vertical}/${facet} has no measured vocabulary row for term ${JSON.stringify(text)} (id ${JSON.stringify(id)})`);
   }
-  const row = rows.find((candidate) => candidate.text === text);
+  // Either measured spelling resolves the row: the typeahead label in `text`,
+  // or — where LinkedIn's search request disagrees with its own typeahead — the
+  // request spelling in `requestText` (D476). Both are measured; neither is
+  // substituted for the other, so the caller still gets exactly the text it
+  // asked for and any third spelling is still a refusal.
+  const row = rows.find((candidate) => candidate.text === text || candidate.requestText === text);
   if (row === undefined) {
     refuse("FILTER_VOCABULARY_MISMATCH", `${vertical}/${facet} id ${JSON.stringify(id)} was measured with different text; refusing to retitle it`);
   }

@@ -23,6 +23,12 @@ registry corruption use exit 5; invalid specs and missing vocabulary use exit 1.
 This capability stores no Supabase rows. Inspect a consumed vocabulary row with
 `salesnav.filters.vocab --operation=audit --row-id=<id>`.
 
+A value may be spelled one way in LinkedIn's typeahead and another in its search request — LEAD/
+REGION `102095887` is "California, United States" in the typeahead and "California" in the request.
+Rows carry the second as `requestText`, with request-url-only provenance, and **either measured
+spelling resolves the row**. The builder emits exactly the text it was given and never substitutes
+one spelling for the other; a third spelling is still `FILTER_VOCABULARY_MISMATCH` (D476).
+
 The inverse decoder is intentionally strict: unknown or duplicate fields at any nesting level,
 ambiguous value/range branches and schema-invalid output all refuse instead of being projected
 away (D427).
