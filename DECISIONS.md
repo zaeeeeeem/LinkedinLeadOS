@@ -6092,3 +6092,60 @@ of +0`. The mutation was reverted and the two rows it minted were deleted.
 deltas 0". A global delta is exactly the racy measurement fixed above. The gate therefore verifies
 the rule the same scoped way — that no urn appearing in the run's `search_results` rows was minted
 into `persons` or `companies` — which is what "search rows never mint entities" actually claims.
+
+## D468 — The gate pauses for a LEAD-toggle harvest, and buys the whole family at once (operator decision, 2026-08-12)
+
+D460 cut `POSTED_ON_LINKEDIN` from the gate intent because no LEAD toggle has a measured
+vocabulary row. Shown that choice, the operator chose the other branch on 2026-08-12: **pause the
+gate and harvest the toggle first.** That is the task file's own constraint applied literally — a
+vocabulary gap pauses the gate for more Task 43 harvest rather than improvising an id, even if the
+gate finishes another day.
+
+**The mechanism is measured, not hoped for.** `POSTED_ON_LINKEDIN` is `typeaheadSupported:false`
+and `dynamicFetch:false`, so no `salesApiFacetTypeahead` body will ever carry it — D444's endpoint
+is the wrong instrument here. Its id becomes measurable a different way: when the operator flips
+the toggle by hand, the UI issues a `salesApiLeadSearch` whose **request URL** carries the filter,
+and `harvestVocabulary` already extracts ids from captured request URLs
+(`queryVocabulary(parseSalesNavQuery(raw), …, kind:"request-url")`). That provenance kind is
+sanctioned and in use: **49 of the registry's current rows carry it**.
+
+**Scope: all five LEAD toggles in one session**, not just the one the intent needs —
+`POSTED_ON_LINKEDIN`, `RECENTLY_CHANGED_JOBS`, `VIEWED_YOUR_PROFILE`, `FOLLOWS_YOUR_COMPANY`,
+`PAST_COLLEAGUE`. Each costs the operator one hand-flip and the session one UI-issued search. One
+supervised session closes the whole family permanently instead of re-opening this pause per
+toggle, which is the cheaper pacing by a wide margin.
+
+**Cost: 1 page load + 6 search pages**, charged in full before navigation (D440), via
+`--search-page-budget=6` — five flips plus one unit of slack, deliberately over-counted. This is
+**Task 43's budget, not Task 45's**; the gate's own 9 pages are unaffected. Both fit after the
+window drains: harvest's sub-cap is 4 page loads / 25 search pages, and the rolling window holds
+2 and 50 of those until roughly 2026-08-12T12:15Z.
+
+The session is observe-only under the existing Task 43 contract — the capability sends zero
+clicks, keystrokes and wheel events, and the operator's own hand does every flip. No new grant is
+requested or needed.
+
+If a flip produces a request URL from which no id can be extracted, that toggle is recorded as
+still-unmeasured and the gate proceeds on the D460 intent minus that knob. The pause buys a
+measurement; it does not license a guess.
+
+## D469 — The ACCOUNT apply is taken, and the gate budget is 9 pages (operator decision, 2026-08-12)
+
+The task file offers one optional apply on an ACCOUNT spec at +1 page, to prove the builder's
+second vertical. The operator took it on 2026-08-12.
+
+**Gate budget: 9 search pages + 9 page loads** — up to 6 LEAD applies (D463, still no borrowing),
+1 ACCOUNT apply, and `salesnav.leads.list` at its default 2 pages. The iteration budget itself is
+unchanged; the accounts apply is not an iteration and never becomes one, so a loop that has not
+converged at 6 still stops at 6.
+
+The full accounts handoff is **not** run: leads is the venture's consumer, and
+`salesnav.accounts.list` was already gated in M5. This single apply exists to measure ACCOUNT echo
+fidelity, which no run has yet done — Task 42's probe and Task 44's gate were both LEAD.
+
+The ACCOUNT spec is composed from ACCOUNT-vertical registry rows only, since vocabulary is keyed
+per vertical (D445) and a LEAD row is not evidence about an ACCOUNT facet. It is built and
+verified offline at zero cost before the session, like every other spec here.
+
+**Convergence bands stand as proposed at D461: 300–2,000 on `paging.total`**, confirmed by the
+operator at the same review rather than amended.
