@@ -11,6 +11,7 @@ import {
   mergeVocabularyRegistries,
   rawUrlParam,
   readVocabularyFile,
+  validateVocabularyRegistry,
   type FilterSpec,
   type VocabularyRegistry,
   type VocabularyRow,
@@ -37,6 +38,7 @@ function syntheticRow(vertical: "LEAD" | "ACCOUNT", facet: string, id: string, t
       locator: "query.filters[0].values[0]",
     }],
     textOmissionProvenance: [],
+    requestTextProvenance: [],
   };
   row.rowId = rowId(row);
   return row;
@@ -168,5 +170,41 @@ describe("Sales Navigator filter builder", () => {
     expectBuildCode({ vertical: "LEAD", filters: [{ kind: "raw-text", type: "CURRENT_TITLE", text: "CEO", selectionType: "INCLUDED" }] }, vocabulary, "FILTER_RAW_TEXT_GRAMMAR_UNMEASURED");
     expectBuildCode({ vertical: "ACCOUNT", keywords: "software", filters: [{ kind: "range", type: "COMPANY_HEADCOUNT_GROWTH", min: "1" }] }, vocabulary, "FILTER_KEYWORDS_GRAMMAR_UNMEASURED");
     expect(filterSpecSchema.safeParse({ vertical: "ACCOUNT", recentSearch: { doLogHistory: false }, filters: [{ kind: "range", type: "COMPANY_HEADCOUNT_GROWTH", min: "1" }] }).success).toBe(false);
+  });
+
+  it("accepts a value's measured request spelling when it differs from its typeahead label (D476)", async () => {
+    const vocabulary = await measuredVocabulary();
+    const california = vocabulary.rows.find(
+      (row) => row.vertical === "LEAD" && row.facet === "REGION" && row.id === "102095887",
+    )!;
+    // The typeahead calls it one thing and the search request calls it another;
+    // both are measured, and the row carries both.
+    expect(california.text).toBe("California, United States");
+    expect(california.requestText).toBe("California");
+    expect(california.requestTextProvenance.every((source) => source.kind === "request-url")).toBe(true);
+
+    const spec = (text: string): FilterSpec => ({
+      vertical: "LEAD",
+      filters: [{ kind: "values", type: "REGION", values: [{ id: "102095887", text, selectionType: "INCLUDED", emitText: true }] }],
+    });
+    const catalog = loadPinnedFilterCatalog();
+    // Either spelling builds, and each emits exactly what it was given -- the
+    // builder never silently substitutes one for the other.
+    expect(buildFilterUrl(spec("California"), catalog, vocabulary).query).toContain("text:California,");
+    expect(buildFilterUrl(spec("California, United States"), catalog, vocabulary).query).toContain("text:California%2C%20United%20States,");
+    // A third spelling is still a refusal; requestText is a measured alternate,
+    // not an invitation to retitle.
+    expectBuildCode(spec("Calif."), vocabulary, "FILTER_VOCABULARY_MISMATCH");
+  });
+
+  it("refuses a request spelling that has no request-url provenance", async () => {
+    const vocabulary = await measuredVocabulary();
+    const row = vocabulary.rows.find((candidate) => candidate.vertical === "LEAD" && candidate.facet === "REGION" && candidate.id === "102095887")!;
+    expect(() => validateVocabularyRegistry({ version: 1, rows: [{ ...row, requestText: "California", requestTextProvenance: [] }] }))
+      .toThrowError(expect.objectContaining({ code: "VOCAB_ROW_INVALID" }));
+    expect(() => validateVocabularyRegistry({
+      version: 1,
+      rows: [{ ...row, requestText: "California", requestTextProvenance: [{ ...row.provenance[0]!, kind: "archive-body" }] }],
+    })).toThrowError(expect.objectContaining({ code: "VOCAB_PROVENANCE_INVALID" }));
   });
 });

@@ -217,3 +217,26 @@ the operator's call for everything live (42, 43, 45, and 44's gate).
 
 Every gate verified independently of receipts — archives, ledger, Supabase. Nothing after
 M6 starts before this gate.
+
+### M6 gate result — PASSED, 2026-08-12 (D477)
+
+Checked item by item, each verified independently of receipts:
+
+- [x] **`salesnav.filters.build` offline** — round-trips every archived measured URL, refuses the
+      invalid specs named above, builds only from provenance-bearing rows. 0 LinkedIn requests.
+      Suite 1,863/1,863, `tsc --noEmit` clean.
+- [x] **`salesnav.filters.apply` on default flags** — five runs, exit 0 each. Verdicts read from the
+      captured request and response bodies; archive holds the named search body; ledger holds
+      exactly 1 page load + 1 search page per run; the `searches` row matches.
+- [x] **The loop, once, for real** — typed intent → 4 applies (one halted on a rewrite, D476) →
+      converged at 1,285 inside the 300–2,000 band → `leads.list` default flags on the converged
+      URL → 50 provenance-tagged rows. No operator-supplied URL anywhere in the chain.
+- [x] **Vocabulary provenance** — every id in the converged spec resolves to a row naming a captured
+      body or archived request URL. The one row added this session (`requestText` on LEAD/REGION
+      `102095887`) names its request-url archive and is request-url-only by validation.
+- [x] **No new DOM exception; click inventory unchanged at two** — the gate's only click was
+      `leads.list`'s `Next` pager control under the existing D400 grant. No D470+ interaction grant
+      was needed or taken.
+
+Spend: **7 search pages / 7 page loads against 9 planned.** Ran under D475, a temporary operator
+grant overriding D466; both raised numbers restored and verified immediately after.

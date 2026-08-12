@@ -352,10 +352,10 @@
       "kind": "search-response-body",
       "sourceSha256": "6e40e372c2ba74778e152b0d1b4490ffd0dfe1cb8245299efcffdf334e203b1c",
       "fixture": "01KZSZF6MXC6HHP9Z4RQBHXP19/raw/0016-5e81b94c63cd41b8.json.gz",
-      "fixtureSha256": "c21361d19437783881ffda4825bd9d894a282763a7e7b210542652cdd615e8b9",
+      "fixtureSha256": "bbe647b30a5d19ea9201c4ee9985af4ba9e808e5d3e7b37859886218c41ca9f3",
       "scrubbed": [
         "$.elements",
-        "$.metadata.* except filters",
+        "$.metadata.* except filters and tracking.sessionId",
         "$.metadata.filters[0] (CURRENT_COMPANY entity suggestions)",
         "$.metadata.filters[17].singleFilterMetadata.values[0].id/displayValue",
         "$.metadata.filters[18].singleFilterMetadata.disabledValues",
@@ -364,7 +364,8 @@
         "$.metadata.filters[2].singleFilterMetadata.disabledValues",
         "$.metadata.filters[5] (SCHOOL entity suggestions)",
         "$.metadata.filters[6] (non-single metadata)",
-        "$.metadata.filters[7].singleFilterMetadata.disabledValues"
+        "$.metadata.filters[7].singleFilterMetadata.disabledValues",
+        "$.metadata.tracking.sessionId"
       ]
     },
     {

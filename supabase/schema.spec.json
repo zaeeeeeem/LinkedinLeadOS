@@ -65,6 +65,10 @@
     "parse_drift": {
       "columns": ["id", "ts", "capability", "field", "shape_hash", "n"],
       "primary_key": ["id"]
+    },
+    "lead_pipeline": {
+      "columns": ["person_urn", "status", "note", "new_at", "enriched_at", "contacted_at", "replied_at", "closed_at", "updated_at"],
+      "primary_key": ["person_urn"]
     }
   }
 }

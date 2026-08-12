@@ -42,6 +42,11 @@ export const DEFAULT_BUDGET_LIMITS: BudgetLimits = {
   // Was temporarily 75 for the single Task 42 CXO probe under D470 and was
   // restored immediately after its one approved invocation. A later raise
   // needs a new dated operator grant; no approval carries over.
+  // Was temporarily 60 for the one Task 45 toggle-harvest session under D472
+  // and was restored immediately after it (run 01KZTA1C6VPNYDW3VYY4XRP93Q).
+  // Was temporarily 76 for the one Task 45 M6 gate session under D475 and was
+  // restored immediately after it (runs 01KZTC5CZ… through 01KZTD8S8…). D475 is
+  // exhausted; a later raise needs a new dated operator grant.
   searchPagesPerDay: 50,
   distinctProfilesPerDay: 120,
 };
@@ -181,6 +186,18 @@ export const CAPABILITY_SUB_CAPS: Readonly<Record<string, CapabilitySubCaps>> = 
   // cross-session ceiling of six pages of each kind. It is separate from the
   // M5 surface probe so neither capability can consume the other's retry room.
   "salesnav.filters.probe": { pageLoadsPerDay: 6, searchPagesPerDay: 6, distinctProfilesPerDay: 0 },
+  // Task 44's apply is the loop's only spender: one page load + one search page
+  // per invocation, page 1 only, no pager. 10/10 is a convergence loop of about
+  // six iterations plus headroom, and 20% of the global 50/day — the same
+  // fraction salesnav.probe carries. It is deliberately above the probe's 6 and
+  // well below leads.list's 20: apply is run repeatedly by an agent, so its cap
+  // is what stops a loop that fails to converge, but it reads one page per run,
+  // so it can never be the capability that drains the day. Zero profile opens is
+  // an assertion, not an allowance (D455).
+  // Was temporarily 20/20 for the one M6 gate session under D475 and was
+  // restored immediately after it. The gate used 5 of the 20; 10 would have
+  // sufficed but for the apply already spent earlier that day.
+  "salesnav.filters.apply": { pageLoadsPerDay: 10, searchPagesPerDay: 10, distinctProfilesPerDay: 0 },
   // Saved searches are a list the operator owns; reading it is a page load, not
   // a metered search. Zero search pages until Task 37 measures otherwise — if
   // that page turns out to be metered, the measurement raises this number
@@ -192,6 +209,9 @@ export const CAPABILITY_SUB_CAPS: Readonly<Record<string, CapabilitySubCaps>> = 
   // Was briefly 50 on 2026-08-11 so both declared 25-page allowances fit in one
   // day (D443). Restored: both taxonomy sessions are done and the archives they
   // produced are the whole point of the raise, so the ceiling has no further job.
+  // searchPagesPerDay was temporarily 56 under D472 for the one approved Task 45
+  // toggle session and was restored to 25 immediately after it (run
+  // 01KZTA1C6VPNYDW3VYY4XRP93Q). D472 is exhausted; a retry needs a new grant.
   "salesnav.filters.harvest": { pageLoadsPerDay: 4, searchPagesPerDay: 25, distinctProfilesPerDay: 0 },
 };
 

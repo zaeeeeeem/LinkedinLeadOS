@@ -27,17 +27,22 @@ describe.skipIf(!up)(up ? "search store against local Supabase" : `search store 
   beforeEach(async () => { client = getStore(); await cleanup(); });
   afterAll(cleanup);
   it("appends across searches, skips a resumed page, and leaves entity tables untouched", async () => {
-    const personBefore = await client.from(TABLES.persons).select("urn", { count: "exact", head: true });
-    const companyBefore = await client.from(TABLES.companies).select("urn", { count: "exact", head: true });
     const a = `${PREFIX}${++n}-a`; const b = `${PREFIX}${++n}-b`; const person = "urn:li:member:999999999999";
+    const company = "urn:li:organization:999999999999";
     await insertSearch({ search_id: a, kind: "sn_leads", filter_url: null, filter_json: null }, { client });
     await insertSearch({ search_id: b, kind: "sn_leads", filter_url: null, filter_json: null }, { client });
+    // One row of each provenance kind — a search result carries a person urn or a company
+    // urn, never both (`validate` in store/searches.ts) — so both entity tables are covered.
     await insertSearchResults([{ search_id: a, page: 1, position: 1, person_urn: person }], { client });
-    await insertSearchResults([{ search_id: b, page: 1, position: 1, person_urn: person }], { client });
+    await insertSearchResults([{ search_id: b, page: 1, position: 1, company_urn: company }], { client });
     expect(await insertSearchResults([{ search_id: a, page: 1, position: 1, person_urn: person }], { client })).toEqual({ rows: 0, skipped: 1 });
     const observations = await client.from(TABLES.searchResults).select("search_id").in("search_id", [a, b]);
     expect(observations.data).toHaveLength(2);
-    expect((await client.from(TABLES.persons).select("urn", { count: "exact", head: true })).count).toBe(personBefore.count);
-    expect((await client.from(TABLES.companies).select("urn", { count: "exact", head: true })).count).toBe(companyBefore.count);
+    // Scoped to this test's own urns, never a global row count: `store-persons.integration`
+    // inserts into `persons` in parallel, so a table-wide count races it and fails ~60% of
+    // runs. Asserting the exact urns this search referenced is both race-free and a stronger
+    // statement of the rule — search rows never mint the entities they point at.
+    expect((await client.from(TABLES.persons).select("urn").eq("urn", person)).data).toHaveLength(0);
+    expect((await client.from(TABLES.companies).select("urn").eq("urn", company)).data).toHaveLength(0);
   });
 });

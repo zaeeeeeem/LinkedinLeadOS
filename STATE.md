@@ -1,5 +1,262 @@
 # STATE
 
+## Complete — agent skills: five use-case skills under `.claude/skills/` (2026-08-12)
+
+`linkedin-session` (foundation) · `build-lead-list` · `research-lead` · `monitor-account` ·
+`recover-session`. Enabling-not-prescriptive framing (D479); spec at
+`docs/specs/2026-08-12-agent-skills-design.md`; cold-read acceptance passed, reader-flagged
+gaps fixed same session. Capability READMEs remain the authority on flags.
+
+## Complete — Task 45, the M6 gate: intent to stored leads, live (2026-08-12)
+
+**The M6 gate passed.** Starting from a typed audience intent and the harvested vocabulary, with no
+operator-supplied URL anywhere, the agent converged on an audience of the right size and
+`salesnav.leads.list` read it into provenance-tagged rows. Branch `task-45-selftest-loop`.
+
+**Spend: 7 search pages / 7 page loads against the 9 planned** — four applies, two leads pages, one
+ACCOUNT apply. Ledger agrees in three places: 14 lines across the six runs, `n=1` each, matching
+both receipts and the archive.
+
+| # | knob turned | `paging.total` | verdict |
+|---|---|---|---|
+| 1 | step-0 intent, 5 filters | 5,886 | audience_clean, 5/5 honored |
+| 2 | +`CURRENT_TITLE` CEO/Founder/Co-Founder | 4,078 | audience_clean, 6/6 honored |
+| 3 | `REGION` US → California, US | 1,285 | REGION rewritten — halted (D464) |
+| 4 | same spec, measured request spelling | 1,285 | audience_clean, 6/6 honored — converged |
+
+Converged audience: California · Software Development · 11-50 headcount · CXO · CEO/Founder/
+Co-Founder · posted on LinkedIn recently = **1,285**, inside D461's 300–2,000 band.
+
+**The halt at iteration 3 was the system working, and it cost one round trip to fix (D476).**
+LinkedIn's typeahead label and its search-request spelling for the same value can differ —
+`102095887` is "California, United States" in the typeahead and "California" in the request. The
+harvest was correct; both surfaces were. Rows now carry an optional `requestText` with request-url-
+only provenance, the builder resolves by either measured spelling and emits exactly what it was
+given, and a third spelling is still a refusal. Only LEAD/REGION `102095887` is measured; other
+state rows are untouched.
+
+**Handoff, no new code (D465).** Rebuilt url byte-identical to the stored `filter_url`, compared by
+direct Supabase query. `leads.list` at default flags: 50 rows, 25 per page, 50 distinct
+`(page, position)`, 50 distinct person urns, one `Next` click (D400). `persons` / `companies` /
+`jobs` all 0 — search rows mint no entities.
+
+**ACCOUNT vertical proven (D469):** 3/3 honored, 20,552 accounts, and `clean:true` with identical
+query hashes — the first exact match recorded. `recentSearchParam` injection appears to be
+LEAD-specific; one observation, to be re-measured, not relied on.
+
+**Budget.** The gate ran under D475, an operator grant overriding D466 with the window at 58/50:
+global `searchPagesPerDay` 50 → 76 and the apply sub-cap 10/10 → 20/20. **Both restored, verified by
+reading the file back, before any other work.** D475 is exhausted. The window ended at 65 rolling
+search pages — above the standing 50, a cost the operator accepted knowingly and which the next
+session must recompute before spending.
+
+**Verification:** 1,863/1,863 across 128 files, `tsc --noEmit` clean. During the raise, the two
+tests that pin the global 50 failed by design and went green on restore — the guard worked.
+
+### Incident, same session — `runs/` was destroyed and the ledger rebuilt (D478)
+
+A `git add -A` in the worktree committed its `runs` symlink; the merge then replaced main's real
+`runs/` with a self-referential link. **Every raw archive, event log and run summary is gone** — no
+snapshot, no backup. `.gitignore`'s `/runs/` matched only the directory, so the symlink slipped
+through; it is now `/runs/` and `/runs`, and the symlink is untracked.
+
+Most of the corpus survived in git: the cited archives live in
+`src/core/salesnav-query/test-fixtures/archive/`, **1,311 of 1,315 registry rows still resolve**,
+and the suite is green with an empty `runs/`. Five provenance sources dangle — the four D472 toggle
+rows and D476's `requestText` — measured and quoted, but no longer archived. Re-measurable at one
+search page each.
+
+The ledger is reconstructed and marked `reconstructed` on every line. Totals are exact (65 search
+pages, 12 page loads rolling) and enforcement is verified live. Twelve timestamps are approximate,
+pinned in the conservative direction.
+
+### Next
+
+- `PAST_COLLEAGUE` (`PCOLL`) is still id-measured, text-unmeasured; finishing it costs one search.
+- Other state-level REGION rows likely share the truncation and are unmeasured. Measure before use.
+
+## Built — Task 45 step 1 of 2: the toggle harvest is done (2026-08-12)
+
+**The vocabulary gap the operator chose to buy is bought. The gate loop itself has not run — it is
+blocked on the ledger, not on anything unknown.** Branch `task-45-selftest-loop`, worktree
+`../LinkedinLeadsOS-task45`.
+
+Run `01KZTA1C6VPNYDW3VYY4XRP93Q`, exit 0 in 179,132 ms, `stop: operator-stop`. Under D472 the
+operator granted a two-part temporary raise — global `searchPagesPerDay` 50 → 60 **and** the
+`salesnav.filters.harvest` sub-cap 25 → 56, because the window already held 50 harvest pages and a
+global raise alone would still have been refused. **Both were restored to 50 / 25 immediately after
+the session, before any other work, and verified by reading the file back. D472 is exhausted.**
+
+**Four of five toggles landed, and the fifth taught us the rule (D473).** A flip's search carries
+the filter **id-only**; its display text arrives on the **next** search. So harvesting N toggles
+costs **N+1** searches. The sixth never fired, so `PAST_COLLEAGUE`'s id `PCOLL` is measured but its
+text is not — and it is therefore **not** in the registry, because inventing LinkedIn's wording is
+exactly what the vocabulary rule forbids (D424). Finishing it costs one search on a future session.
+
+In the registry now, all with `request-url` provenance: `POSTED_ON_LINKEDIN` **RPOL** "Posted on
+LinkedIn" · `RECENTLY_CHANGED_JOBS` **RPC** "Changed jobs" · `VIEWED_YOUR_PROFILE` **VYP** "Viewed
+your profile recently" · `FOLLOWS_YOUR_COMPANY` **CF** "Following your company". Public rows
+**1,311 → 1,315**.
+
+**The gate intent is now the task file's full sentence**, "posted on LinkedIn recently" included —
+LEAD · REGION `103644278` · INDUSTRY `4` · COMPANY_HEADCOUNT `C` · SENIORITY_LEVEL `310` ·
+POSTED_ON_LINKEDIN `RPOL`. Five filters, builds offline clean, 0 warnings, 0 cost. D460's cut is
+spent rather than standing.
+
+**Three-place spend agreement, read independently (D474).** Receipt: 1 page load, 6 charged, **5**
+observed searches, and the capability's own zero-interaction claim — 0 clicks, 0 keystrokes, 0
+wheel events. Ledger: exactly **2 lines** for the run, `page_load n=1` and `search_page n=6` — 6
+charged against 5 observed is D440's deliberate over-count. Archive: **188 files** (94 bodies + 94
+sidecars) holding exactly **5** `salesApiLeadSearch` metas, all HTTP 200. One
+`RESPONSE_STATUS_UNRECOGNIZED` warning is recorded unexplained rather than diagnosed from a single
+instance.
+
+The five toggle ids were read from the **captured request URLs**, not from the operator's
+address-bar pastes, which agreed with them exactly but are not evidence on this surface (D413).
+
+### Blocked, and by what — the gate's 9 pages
+
+**Ledger after the session: 58 rolling-24h search pages against the restored ceiling of 50.** The
+window drains to **8** at roughly **2026-08-12T12:25Z (17:25 PKT)**, leaving 42 of headroom — the
+gate's 9 fit with **no further grant, and none is requested.** Recompute before acting.
+
+### To resume cold
+
+1. Recompute the rolling window from `runs/budget.ndjson`.
+2. Fresh operator approval immediately before **each** apply; none carries over, and a failed
+   attempt is not retried under the approval that failed. Local CLI, spec in a shell variable,
+   never `npm run cap` (D432).
+3. Iterate the five-filter intent against D461's 300–2,000 band using D462's fixed knob ladders,
+   one knob per iteration, ≤6 applies with no borrowing (D463). Halt on any verdict that is not
+   `audience_clean` (D464).
+4. Record each iteration row — spec delta, built query, archive id, per-filter verdict,
+   `paging.total`, running spend — **before** choosing the next knob.
+5. Then the ACCOUNT apply (D469, spec already built and verified offline), and the handoff: re-run
+   `filters.build` on the converged spec for the url, check it against the `searches.filter_url`
+   apply wrote, then `salesnav.leads.list --url` at default flags.
+6. Verify entity minting **per-urn**, never by table-wide count (D467).
+
+
+## Built — Task 44 `salesnav.filters.apply`, offline (2026-08-12)
+
+**Checkpoint: the whole capability is built, tested and committed offline. The live gate has
+not run and no LinkedIn request has been made this session.** Branch
+`task-44-filters-apply`, worktree `../LinkedinLeadsOS-task44`, branched from `17bec3f`.
+
+`salesnav.filters.apply` takes a typed `FilterSpec` (never a url, D450), builds through Task
+41's provenance-backed builder before any budget call, spends 1 page load + 1 search page,
+navigates once, and reports the per-filter verdict from the **captured request query** and the
+count from the response's own `paging`. Both verticals: LEAD to `/sales/search/people` +
+`salesApiLeadSearch` + `sn_leads`, ACCOUNT to `/sales/search/company` + `salesApiAccountSearch`
++ `sn_accounts`. Page 1 only, zero clicks, keystrokes and wheel events.
+
+Decisions taken: D450 (spec not url) · D451 (session id from `$.metadata.tracking.sessionId`) ·
+D452 (comparator promoted to `src/core/salesnav-query/echo.ts`, probe codes preserved) · D453
+(one measured echo fixture; the rewritten/dropped/raw-text/zero shapes the task file asked for
+have never been observed, so they are comparator unit tests, not fixtures) · D454 (one
+`searches` row, zero `search_results`, operator's decision) · D455 (sub-cap 10/10/0) · D471
+(operator granted a ten-page temporary raise for the gate).
+
+**Verification, independently read.** Full suite **1,857/1,857 across 128 files, 0 skips**
+(main was 1,836; +21 from apply) with `fixtures/` and `runs/` linked from the main worktree —
+without those links 33 measured-fixture tests self-skip, which is a worktree setup fact, not a
+code change. `tsc --noEmit` clean. Focused `salesnav.filters.*` suite 49/49.
+
+Four required mutations, each observed failing its named test and then reverted:
+
+- verdict computed from the built query instead of the captured request — "reads the verdict
+  from the captured request, so a dropped filter is loud" fails;
+- `dropped` forced to 0 — that test plus "classifies an absent built type as dropped" fail;
+- both `spend` calls moved after `navigate` — the ordering test fails;
+- `--no-store` bypassed — "writes nothing under --no-store" fails.
+
+**Fixture change.** The promoted Task 42 search-response fixture now retains
+`$.metadata.tracking.sessionId`, scrubbed to `SCRUBBED_SESSION`, so the one measured path Task
+44 reads outside paging is pinned in a committed artifact. The promoter **refuses** a source
+body lacking that field rather than promoting quietly. Promotion re-run is idempotent at 34
+sources; the fixture body moved 1,320 → 1,344 bytes and the manifest hash with it.
+
+## Built — Task 44 live gate PASSED (2026-08-12)
+
+Run `01KZT4AJWX4G59KMHZM2R2JGP4`, exit 0 in 14,910 ms, default flags. The operator approved
+exactly one invocation and granted D471's ten-page raise; `searchPagesPerDay` went 50 → 60 for
+the run and was **restored to 50 immediately after**. D471 is exhausted.
+
+Two earlier attempts spent **nothing**: one argument error (0/0) and one `BUDGET_EXCEEDED` at
+62 rolling-24h search pages against the raised 60 (0/0). Neither was retried under a widened
+ceiling — the window was allowed to drain to 59 on its own, which is waiting, not new authority.
+
+**Spec (all-public vocabulary, no operator-scoped id):** LEAD · REGION 103644278 United States ·
+INDUSTRY 4 Software Development · SENIORITY_LEVEL 310 CXO. Three filters, chosen over Task 42's
+single PERSONA so the echo evidence covers a multi-filter query.
+
+Built query:
+
+    (filters:List((type:REGION,values:List((id:103644278,text:United%20States,selectionType:INCLUDED))),(type:INDUSTRY,values:List((id:4,text:Software%20Development,selectionType:INCLUDED))),(type:SENIORITY_LEVEL,values:List((id:310,text:CXO,selectionType:INCLUDED)))))
+
+Captured request query from `0021-81a2c38499a53f21.meta.json`, HTTP 200:
+
+    (recentSearchParam:(doLogHistory:true),filters:List((type:REGION,…),(type:INDUSTRY,…),(type:SENIORITY_LEVEL,…)))
+
+**Verdict: all three filters honored, nothing rewritten, dropped or injected.**
+`audience_clean: true`, `clean: false`, `exact: false` — the difference is exactly one prefix
+LinkedIn added, `recentSearchParam:(doLogHistory:true)` (D457). Proved, not asserted: deleting
+that prefix from the captured query yields the built query **exactly**. `paging.total=76,621`,
+`count=25`, `start=0`. Session `KY1zVgqrQeGjdkhc5Pxc0A==` from `$.metadata.tracking.sessionId`.
+Catalog hash matched the pinned fixture (`0015-3ff85d03efb79a26`). Zero clicks, keystrokes,
+wheel events.
+
+That finding produced D456: the loop reads `audience_clean`, not `clean`, because a single flag
+would have made this healthy run report "LinkedIn did not search the audience the spec
+described".
+
+**Three-place spend agreement, read independently.** Receipt: 1 page load + 1 search page.
+`runs/budget.ndjson`: exactly **2 lines** for the run id, one of each kind. Archive: **72 files
+(36 bodies + 36 sidecars)**, exactly **1** named `salesApiLeadSearch` meta among them. Supabase,
+queried directly: **1** `searches` row for this run (`kind=sn_leads`, `filter_url` present,
+`filter_json` carrying the verdict, paging, session id and archive id) and **0** `search_results`
+for it; the table total stayed at **197**.
+
+**Offline reproduction.** Re-running `applyVerdict`, `parseApplyPaging` and `parseApplySessionId`
+on the archived request/response pair reproduces the receipt's verdict, paging and session id
+field-for-field, with zero LinkedIn requests.
+
+**Suite:** 1,861/1,861 across 128 files, **0 skips**, typecheck clean, on three consecutive
+runs. One caveat recorded rather than smoothed over: the first full run after the live gate
+reported **1 failure out of 1,861 and did not name the test before the reporter cleared**; three
+subsequent full runs are green and the failure has not recurred. It is unexplained. The most
+likely cause is a Supabase integration test racing the gate's own row write, but that is a
+hypothesis, not a finding — the scoped-prefix cleanup in `store-searches.integration.test.ts`
+argues against it.
+
+## Next — Task 45, the M6 gate
+
+Task 44 is complete: acceptance criteria met, gate passed, decisions D450–D457 and D471
+recorded. Branch `task-44-filters-apply` (worktree `../LinkedinLeadsOS-task44`), unmerged.
+
+Task 45 is the end-to-end loop: intent → spec → build → apply → count → iterate → hand the
+converged URL to `salesnav.leads.list`. It needs written convergence bands, an iteration budget,
+and its own fresh approval per live step. Note for its planner: the ledger is tight — the
+rolling-24h search-page count sat in the low 60s against a ceiling of 50 for most of
+2026-08-12, so a multi-iteration loop needs the window to drain first or its own operator grant.
+
+## Superseded — the pre-gate blocker note
+
+The gate is one default-flags apply of a spec the operator picks: exit 0, all filters honored,
+plausible nonzero count, verified against archives, ledger and Supabase.
+
+**Ledger state at this checkpoint, read directly from `runs/budget.ndjson`: 64 search pages and
+16 page loads in the rolling 24h, against a global ceiling of 50.** Any apply would be refused
+before it navigated. D471 raises `searchPagesPerDay` 50 → 60 for the gate and restores it
+immediately after; Task 44's own hard bound stays 4/4 with a 1/1 target, and the constant in
+`src/core/budget/constants.ts` is **still 50** — the raise is applied at gate time, not now.
+
+To resume cold: check the rolling window again before anything else, ask the operator for fresh
+approval immediately before the invocation, apply the D471 raise, run the single apply with the
+spec held in a shell variable through the local CLI (never `npm run cap`, D432), restore the
+constant, then verify three numbers from three places — receipt, `runs/budget.ndjson` lines for
+the run, and a direct Supabase query for the one `searches` row with zero `search_results`.
+
 ## Built — Task 42 CXO built-URL apply probe (2026-08-12)
 
 The operator approved exactly one immediate CXO invocation and a D470-shaped temporary global

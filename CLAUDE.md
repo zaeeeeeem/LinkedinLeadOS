@@ -233,10 +233,26 @@ debugging via `chrome://inspect`. They work normally on the launch-flag profile.
 Claude Code's Bash sandbox blocks loopback TCP — probing CDP from Bash needs the sandbox
 disabled for that call.
 
+## Phase
+
+**M6 complete (2026-08-12, D477).** The toolkit targets autonomously: from a typed audience intent
+and the harvested vocabulary, with no operator-supplied URL anywhere, it converges on an audience
+and reads it into provenance-tagged rows. M1–M3 core, M4 L1 readers and M5 L2 Sales Navigator all
+preceded it.
+
+The **filters family** is the M6 addition: `salesnav.filters.build` (pure, offline, 0 cost) ·
+`salesnav.filters.apply` (1 page load + 1 search page, page 1 only, reports which filters LinkedIn
+actually searched on) · `salesnav.filters.vocab` / `.harvest` / `.probe` (the measured vocabulary
+and its provenance). The convergence loop lives in the **agent driving the CLI**, never inside a
+capability — so a runaway loop is structurally impossible rather than merely capped.
+
+Scope is unchanged: L3 writes and everything above stay out.
+
 ## Index
 
 - Approved design → `docs/specs/2026-08-07-linkedin-toolkit-l0-l2-design.md`
+- The M6 plan and its gate result → `docs/plans/m6-salesnav-autonomy/README.md`
 - What's built → `STATE.md`
 - Why we did something → `DECISIONS.md`
 - Deferred with a known approach → `BACKLOG.md`
-- Capability contracts → `docs/capabilities/`
+- Capability contracts → `src/capabilities/<name>/README.md` (`docs/capabilities/` is retired, D339)

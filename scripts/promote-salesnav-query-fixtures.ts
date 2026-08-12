@@ -205,7 +205,22 @@ function scrubSearchResponseBody(body: string): { body: string; scrubbed: string
       throw new Error(`search response paging.${key} is not a non-negative integer`);
     }
   }
-  const scrubbed = new Set<string>(["$.elements", "$.metadata.* except filters"]);
+  // The executed session id is the one field Task 44 reads outside paging, and
+  // it is measured only here: `$.metadata.tracking.sessionId` (D451). The value
+  // is an ephemeral handle to the operator's own search execution, so the
+  // fixture keeps the *path* and replaces the value — enough to pin the shape a
+  // parser depends on, without committing a live id. Absence is refused rather
+  // than promoted quietly: a fixture that lost the field would let the parser
+  // pass while the evidence for it disappeared.
+  const trackedSession = record(record(root?.["metadata"])?.["tracking"])?.["sessionId"];
+  if (typeof trackedSession !== "string" || trackedSession === "") {
+    throw new Error("search response lacks metadata.tracking.sessionId");
+  }
+  const scrubbed = new Set<string>([
+    "$.elements",
+    "$.metadata.* except filters and tracking.sessionId",
+    "$.metadata.tracking.sessionId",
+  ]);
   const canonicalFilters: unknown[] = [];
   filters.forEach((wrapperCandidate, filterIndex) => {
     const metadata = record(record(wrapperCandidate)?.["singleFilterMetadata"]);
@@ -245,7 +260,7 @@ function scrubSearchResponseBody(body: string): { body: string; scrubbed: string
   });
   const sanitized = `${JSON.stringify({
     paging: { total: paging["total"], count: paging["count"], start: paging["start"] },
-    metadata: { filters: canonicalFilters },
+    metadata: { filters: canonicalFilters, tracking: { sessionId: "SCRUBBED_SESSION" } },
   }, null, 2)}\n`;
   if (/urn:li:|\b[^\s@]+@[^\s@]+\.[^\s@]+\b/i.test(sanitized)) {
     throw new Error("search response fixture still contains an identity marker");
