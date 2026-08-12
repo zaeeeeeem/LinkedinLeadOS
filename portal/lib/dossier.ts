@@ -45,9 +45,11 @@ function headerBlock(d: DossierData): string {
     lines.push(`LinkedIn: https://linkedin.com/in/${d.person.vanity}`);
   }
   lines.push(`Status: ${d.status} · Depth: ${depthLabel(d.depth)}`);
-  if (d.foundBy !== null) {
-    lines.push(`Found by: ${d.foundBy.label} (captured ${d.foundBy.capturedAt})`);
-  }
+  lines.push(
+    d.foundBy === null
+      ? "Found by: not captured"
+      : `Found by: ${d.foundBy.label} (captured ${d.foundBy.capturedAt})`,
+  );
   return lines.join("\n");
 }
 

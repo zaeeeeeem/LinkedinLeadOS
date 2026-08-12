@@ -37,6 +37,10 @@ describe("buildDossier full", () => {
     const noVanity = { ...full, person: { ...full.person, vanity: null } };
     expect(buildDossier(noVanity, "full")).not.toContain("linkedin.com/in/");
   });
+  it("states 'Found by: not captured' rather than omitting the line when foundBy is null", () => {
+    const noFoundBy = { ...full, foundBy: null };
+    expect(buildDossier(noFoundBy, "full")).toContain("Found by: not captured");
+  });
 });
 
 describe("buildDossier short", () => {

@@ -101,12 +101,6 @@ export interface RunRow {
   exitCode: number | null;
 }
 
-export interface LedgerRow {
-  capability: string;
-  pageLoads: number;
-  searchCredits: number;
-}
-
 export interface DriftRow {
   id: number;
   ts: string;
@@ -118,8 +112,30 @@ export interface DriftRow {
 
 export interface MachineRaw {
   runs: RunRow[];
-  ledger: LedgerRow[];
+  spend24h: { pageLoads: number; searchCredits: number };
   drift: DriftRow[];
+}
+
+// supabase/config.toml sets max_rows = 1000 — any select that can plausibly exceed that
+// must be paged explicitly, or rows silently vanish past the cap. Pages until a short
+// page (fewer than pageSize rows) comes back.
+const PAGE_SIZE = 1000;
+
+async function fetchAllRows<T>(
+  build: (from: number, to: number) => PromiseLike<{ data: T[] | null; error: unknown }>,
+): Promise<T[]> {
+  const out: T[] = [];
+  let from = 0;
+  for (;;) {
+    const to = from + PAGE_SIZE - 1;
+    const { data, error } = await build(from, to);
+    if (error) throw error;
+    const page = data ?? [];
+    out.push(...page);
+    if (page.length < PAGE_SIZE) break;
+    from += PAGE_SIZE;
+  }
+  return out;
 }
 
 function searchLabel(filterJson: unknown, searchId: string): string {
@@ -137,60 +153,88 @@ function searchLabel(filterJson: unknown, searchId: string): string {
 export async function fetchLeadRows(): Promise<LeadRowRaw[]> {
   const db = getDb();
 
-  const { data: results, error: resultsErr } = await db
-    .from("search_results")
-    .select("person_urn, search_id, captured_at")
-    .not("person_urn", "is", null);
-  if (resultsErr) throw resultsErr;
-
-  const rows = (results ?? []) as { person_urn: string; search_id: string; captured_at: string }[];
+  const rows = await fetchAllRows<{ person_urn: string; search_id: string; captured_at: string }>(
+    (from, to) =>
+      db
+        .from("search_results")
+        .select("person_urn, search_id, captured_at")
+        .not("person_urn", "is", null)
+        .order("captured_at", { ascending: true })
+        .range(from, to),
+  );
   if (rows.length === 0) return [];
 
   const personUrns = [...new Set(rows.map((r) => r.person_urn))];
   const searchIds = [...new Set(rows.map((r) => r.search_id))];
 
-  const [personsRes, searchesRes, pipelineRes, expRes, postsRes] = await Promise.all([
-    db.from("persons").select("urn, name, headline, location, current_company_urn, last_seen").in("urn", personUrns),
-    db.from("searches").select("search_id, filter_json").in("search_id", searchIds),
-    db.from("lead_pipeline").select("person_urn, status, contacted_at").in("person_urn", personUrns),
-    db.from("person_experience").select("person_urn").in("person_urn", personUrns),
-    db.from("person_posts").select("person_urn").in("person_urn", personUrns),
-  ]);
-  if (personsRes.error) throw personsRes.error;
-  if (searchesRes.error) throw searchesRes.error;
-  if (pipelineRes.error) throw pipelineRes.error;
-  if (expRes.error) throw expRes.error;
-  if (postsRes.error) throw postsRes.error;
+  type PersonRow = {
+    urn: string; name: string | null; headline: string | null; location: string | null;
+    current_company_urn: string | null; last_seen: string | null;
+  };
+  type SearchRow = { search_id: string; filter_json: unknown };
+  type PipelineRow = { person_urn: string; status: string | null; contacted_at: string | null };
+  type PersonUrnRow = { person_urn: string };
 
-  const persons = personsRes.data ?? [];
+  const [persons, searches, pipelineRows, expRows, postsRows] = await Promise.all([
+    fetchAllRows<PersonRow>((from, to) =>
+      db
+        .from("persons")
+        .select("urn, name, headline, location, current_company_urn, last_seen")
+        .in("urn", personUrns)
+        .order("urn", { ascending: true })
+        .range(from, to),
+    ),
+    fetchAllRows<SearchRow>((from, to) =>
+      db.from("searches").select("search_id, filter_json").in("search_id", searchIds).order("search_id", { ascending: true }).range(from, to),
+    ),
+    fetchAllRows<PipelineRow>((from, to) =>
+      db
+        .from("lead_pipeline")
+        .select("person_urn, status, contacted_at")
+        .in("person_urn", personUrns)
+        .order("person_urn", { ascending: true })
+        .range(from, to),
+    ),
+    fetchAllRows<PersonUrnRow>((from, to) =>
+      db.from("person_experience").select("person_urn").in("person_urn", personUrns).order("person_urn", { ascending: true }).range(from, to),
+    ),
+    fetchAllRows<PersonUrnRow>((from, to) =>
+      db.from("person_posts").select("person_urn").in("person_urn", personUrns).order("person_urn", { ascending: true }).range(from, to),
+    ),
+  ]);
+
   const companyUrns = [...new Set(persons.map((p) => p.current_company_urn).filter((u): u is string => u !== null))];
 
-  const companiesRes = companyUrns.length === 0
-    ? { data: [] as { urn: string; name: string | null }[], error: null }
-    : await db.from("companies").select("urn, name").in("urn", companyUrns);
-  if (companiesRes.error) throw companiesRes.error;
+  const companies =
+    companyUrns.length === 0
+      ? []
+      : await fetchAllRows<{ urn: string; name: string | null }>((from, to) =>
+          db.from("companies").select("urn, name").in("urn", companyUrns).order("urn", { ascending: true }).range(from, to),
+        );
 
-  const personByUrn = new Map(persons.map((p) => [p.urn as string, p]));
-  const searchById = new Map((searchesRes.data ?? []).map((s) => [s.search_id as string, s]));
-  const companyNameByUrn = new Map((companiesRes.data ?? []).map((c) => [c.urn as string, c.name as string | null]));
-  const pipelineByUrn = new Map((pipelineRes.data ?? []).map((p) => [p.person_urn as string, p]));
-  const hasExperienceSet = new Set((expRes.data ?? []).map((r) => r.person_urn as string));
-  const hasPostsSet = new Set((postsRes.data ?? []).map((r) => r.person_urn as string));
+  const personByUrn = new Map(persons.map((p) => [p.urn, p]));
+  const searchById = new Map(searches.map((s) => [s.search_id, s]));
+  const companyNameByUrn = new Map(companies.map((c) => [c.urn, c.name]));
+  const pipelineByUrn = new Map(pipelineRows.map((p) => [p.person_urn, p]));
+  const hasExperienceSet = new Set(expRows.map((r) => r.person_urn));
+  const hasPostsSet = new Set(postsRows.map((r) => r.person_urn));
 
   const out: LeadRowRaw[] = [];
   for (const r of rows) {
+    // A search_results row with no matching persons entity yet is a freshly harvested
+    // lead that profile.get hasn't enriched — exactly the "needs research" queue. Keep
+    // it, with null person fields, rather than dropping it.
     const person = personByUrn.get(r.person_urn);
-    if (!person) continue; // search_results row with no matching persons entity yet — skip
     const search = searchById.get(r.search_id);
     const label = searchLabel(search?.filter_json, r.search_id);
     const pipelineRow = pipelineByUrn.get(r.person_urn);
     out.push({
       personUrn: r.person_urn,
-      name: person.name,
-      headline: person.headline,
-      location: person.location,
-      companyUrn: person.current_company_urn,
-      companyName: person.current_company_urn
+      name: person?.name ?? null,
+      headline: person?.headline ?? null,
+      location: person?.location ?? null,
+      companyUrn: person?.current_company_urn ?? null,
+      companyName: person?.current_company_urn
         ? companyNameByUrn.get(person.current_company_urn) ?? null
         : null,
       hasExperience: hasExperienceSet.has(r.person_urn),
@@ -199,7 +243,7 @@ export async function fetchLeadRows(): Promise<LeadRowRaw[]> {
       contactedAt: pipelineRow?.contacted_at ?? null,
       searchLabel: label,
       searchCapturedAt: r.captured_at,
-      lastActivity: person.last_seen,
+      lastActivity: person?.last_seen ?? null,
     });
   }
   return out;
@@ -375,23 +419,30 @@ export async function fetchLeadDetail(urn: string): Promise<LeadDetailRaw | null
 export async function fetchSearchSummaries(): Promise<SearchSummaryRaw[]> {
   const db = getDb();
 
-  const { data: searches, error } = await db
-    .from("searches")
-    .select("search_id, kind, filter_url, filter_json, created_at")
-    .order("created_at", { ascending: false });
-  if (error) throw error;
-
-  const rows = searches ?? [];
+  type SearchRow = { search_id: string; kind: string; filter_url: string | null; filter_json: unknown; created_at: string };
+  const rows = await fetchAllRows<SearchRow>((from, to) =>
+    db
+      .from("searches")
+      .select("search_id, kind, filter_url, filter_json, created_at")
+      .order("created_at", { ascending: false })
+      .range(from, to),
+  );
   if (rows.length === 0) return [];
 
-  const { data: resultRows, error: resultErr } = await db.from("search_results").select("search_id");
-  if (resultErr) throw resultErr;
-
-  const counts = new Map<string, number>();
-  for (const r of resultRows ?? []) {
-    const id = r.search_id as string;
-    counts.set(id, (counts.get(id) ?? 0) + 1);
-  }
+  // Result counts must be exact, not a count of a possibly-capped fetch (max_rows = 1000
+  // in supabase/config.toml). head:true issues a HEAD request and reads the count from the
+  // Content-Range header — no rows are transferred or capped.
+  const counts = await Promise.all(
+    rows.map(async (s) => {
+      const { count, error } = await db
+        .from("search_results")
+        .select("search_id", { count: "exact", head: true })
+        .eq("search_id", s.search_id);
+      if (error) throw error;
+      return [s.search_id, count ?? 0] as const;
+    }),
+  );
+  const countBySearchId = new Map(counts);
 
   return rows.map((s) => ({
     searchId: s.search_id,
@@ -399,7 +450,7 @@ export async function fetchSearchSummaries(): Promise<SearchSummaryRaw[]> {
     label: searchLabel(s.filter_json, s.search_id),
     filterUrl: s.filter_url,
     createdAt: s.created_at,
-    resultCount: counts.get(s.search_id) ?? 0,
+    resultCount: countBySearchId.get(s.search_id) ?? 0,
   }));
 }
 
@@ -417,21 +468,24 @@ export async function fetchMachine(): Promise<MachineRaw> {
     .limit(50);
   if (runsErr) throw runsErr;
 
-  const todayStart = new Date();
-  todayStart.setHours(0, 0, 0, 0);
-  const { data: ledgerRows, error: ledgerErr } = await db
-    .from("budget_ledger")
-    .select("capability, page_loads, search_credits")
-    .gte("ts", todayStart.toISOString());
-  if (ledgerErr) throw ledgerErr;
-
-  const sums = new Map<string, { pageLoads: number; searchCredits: number }>();
-  for (const r of ledgerRows ?? []) {
-    const cur = sums.get(r.capability) ?? { pageLoads: 0, searchCredits: 0 };
-    cur.pageLoads += r.page_loads;
-    cur.searchCredits += r.search_credits;
-    sums.set(r.capability, cur);
-  }
+  // budget_ledger is never written by anything in this repo — the ledger of record is
+  // runs/budget.ndjson, and its populated DB mirror is runs.page_loads / runs.search_credits.
+  // The window is a rolling last-24-hours, not calendar midnight, to match the budget
+  // enforcer's own rolling DAY_MS window (src/core/budget/ledger.ts).
+  const windowStart = new Date(Date.now() - 24 * 60 * 60 * 1000);
+  type SpendRow = { page_loads: number; search_credits: number };
+  const spendRows = await fetchAllRows<SpendRow>((from, to) =>
+    db
+      .from("runs")
+      .select("page_loads, search_credits")
+      .gte("started_at", windowStart.toISOString())
+      .order("started_at", { ascending: false })
+      .range(from, to),
+  );
+  const spend24h = spendRows.reduce(
+    (acc, r) => ({ pageLoads: acc.pageLoads + r.page_loads, searchCredits: acc.searchCredits + r.search_credits }),
+    { pageLoads: 0, searchCredits: 0 },
+  );
 
   const { data: driftRows, error: driftErr } = await db
     .from("parse_drift")
@@ -452,11 +506,7 @@ export async function fetchMachine(): Promise<MachineRaw> {
       endedAt: r.ended_at,
       exitCode: r.exit_code,
     })),
-    ledger: [...sums.entries()].map(([capability, v]) => ({
-      capability,
-      pageLoads: v.pageLoads,
-      searchCredits: v.searchCredits,
-    })),
+    spend24h,
     drift: (driftRows ?? []).map((d) => ({
       id: d.id,
       ts: d.ts,

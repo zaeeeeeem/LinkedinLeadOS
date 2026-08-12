@@ -30,6 +30,28 @@ describe("assembleLeadList", () => {
     expect(item.needsResearch).toBe(true);
   });
 
+  it("a raw row with no matching persons entity (fetchLeadRows' unenriched shape: null person fields) assembles to depth 1, status new, needsResearch true, name null", () => {
+    const [item] = assembleLeadList(
+      [
+        row({
+          name: null,
+          headline: null,
+          location: null,
+          companyUrn: null,
+          companyName: null,
+          hasExperience: false,
+          hasPosts: false,
+          lastActivity: null,
+        }),
+      ],
+      new Date("2026-08-12T00:00:00Z"),
+    );
+    expect(item.depth).toBe(1);
+    expect(item.status).toBe("new");
+    expect(item.needsResearch).toBe(true);
+    expect(item.name).toBeNull();
+  });
+
   it("a lead with experience rows and stored status new is effective enriched, needsResearch false", () => {
     const [item] = assembleLeadList(
       [row({ hasExperience: true, status: "new" })],
