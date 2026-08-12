@@ -6,6 +6,7 @@ node_modules/
 # importing files a fresh clone does not have. The captured-data directories
 # these exist to keep out of git are both at the root.
 /runs/
+/runs
 /fixtures/
 # The operator's own correspondence never reaches the shared fixture library
 # (D118) and never reaches git either. D327: capabilities built for private
