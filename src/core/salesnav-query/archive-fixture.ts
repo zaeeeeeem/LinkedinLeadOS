@@ -9,7 +9,7 @@ export const SALESNAV_QUERY_ARCHIVE_MANIFEST = new URL("./test-fixtures/archive/
 export type SalesNavArchiveFixtureSource = {
   runId: string;
   archiveId: string;
-  kind: "request-meta" | "saved-search-body" | "typeahead-body";
+  kind: "request-meta" | "saved-search-body" | "typeahead-body" | "search-response-body";
   sourceSha256: string;
   fixture: string;
   fixtureSha256: string;

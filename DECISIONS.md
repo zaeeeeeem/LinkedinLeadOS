@@ -5662,3 +5662,121 @@ edited after the fact (D442). The classifier is where it stops.
 Rejected: scrubbing entity values into placeholder rows to keep the shape. A row whose id is
 real and whose text is `SCRUBBED` is still an entity observation, and it would occupy a
 vocabulary slot that means nothing to the builder.
+
+## D430 — A built-url probe is a one-page sibling, not a mode on the M5 surface probe (2026-08-12)
+
+Task 42 uses `salesnav.filters.probe`, a separate capability that accepts only a typed LEAD
+spec and invokes Task 41's provenance-backed builder internally. It has no URL argument, loads
+page 1 once, archives the named request/response evidence, stores zero rows and reports only
+counts, hashes, archive ids and paging. Its daily sub-cap is the task's hard 6 page loads / 6
+search pages / 0 profile opens.
+
+Extending `salesnav.probe` lost because that capability's measured M5 contract explicitly
+refuses built URLs, spans four surfaces, may scroll and snapshot, and owns a separate 10/10
+retry allowance. Adding a built-url mode would make one name mean two budgets and two evidence
+contracts, and would change an interface Tasks 39/40 already consume. A sibling reuses the
+same tap, challenge and budget modules without forking their contracts.
+
+## D431 — Raw-text and invalid-id loads are unanswerable under the measured builder contract (2026-08-12)
+
+Task 42's acceptance criteria allow a question to be recorded as unanswerable with what was
+measured and why. That branch applies to two planned loads:
+
+- D421 remains current after both Task 43 sessions: `CURRENT_TITLE` vocabulary ids were
+  harvested, but no UI request measured the raw-text value envelope. The builder therefore
+  still refuses `FILTER_RAW_TEXT_GRAMMAR_UNMEASURED`; Task 42 does not invent the envelope.
+- A deliberately corrupted REGION id has no vocabulary provenance by construction. M6 CONTEXT
+  rule 1 and Task 41 require the builder to refuse it, and the Task 42 probe has no URL input
+  that could bypass that refusal. A test proves the refusal happens before budget or navigation.
+
+Mutating a URL after the builder returns lost because it would no longer be a URL built from
+provenance-backed rows, contradicting both Task 42's preamble and the milestone's truthfulness
+rule. Weakening the builder for a live experiment lost for the same reason. Task 42 continued
+with the valid CXO echo/free-rider load; D435 records the later zero-result boundary. These two
+refused experiments consume zero of the 6/6 budget.
+
+## D470 — The global search ceiling is temporarily 75 for one Task 42 CXO probe (operator grant, 2026-08-12)
+
+The operator explicitly approved one immediate `salesnav.filters.probe` invocation and raised
+global `searchPagesPerDay` from 50 to 75 for it, using D443's temporary-grant shape. Direct
+pre-run ledger inspection found 65 rolling-24h search pages, so the spec default of 50 correctly
+refused the load; 75 admits exactly the approved one-page probe while Task 42's independent 6/6
+sub-cap remains unchanged.
+
+This grant covers one CXO page load and one search page only. The constant returns to 50 after
+the invocation whether it succeeds, challenges, faults or is refused after spend. A retry needs
+new approval and a new budget decision; neither this approval nor the raised constant carries
+over. Rejected: a command-line budget override, because the ledger cannot be widened by a flag.
+
+The approved invocation completed exit 0 as run `01KZSZF6MXC6HHP9Z4RQBHXP19`; the constant
+was then restored to 50 before any further action. D470 is exhausted.
+
+## D432 — Private specs must not be launched through npm's echoing script wrapper (2026-08-12)
+
+The D470 invocation passed its operator-scoped CXO spec as the CLI `--spec` argument through
+`npm run cap`. Before the fixed-size receipt, npm echoed the expanded command line, including
+the private filter id and label. The capability receipt itself contained only hashes/counts as
+designed, but the npm prelude is stdout too, so the launch violated the rule that filter values
+stay out of stdout.
+
+No retry is taken and the archived evidence remains valid. Future private-spec invocations must
+invoke the local `tsx src/cli/index.ts` executable directly with the spec held in a shell variable,
+so no wrapper prints argv; public examples may keep `npm run cap`. Rejected: weakening receipt
+redaction—the leak happened before the receipt existed and changing it would fix the wrong layer.
+
+## D433 — Apply verification is an exact captured-query subtree verdict (2026-08-12)
+
+Task 44's filter verdict is computed from the builder query and the raw `query` parameter in the
+named captured `salesApiLeadSearch` request metadata. For each built filter type:
+
+- **honored** means the captured query contains exactly one filter of that type and its parsed
+  subtree is field-for-field and order-for-order identical, including ids, text presence or
+  omission, selection types, range fields and selected sub-filter;
+- **rewritten** means exactly one filter of that type remains but its subtree differs at all;
+- **dropped** means the built type is absent from the captured query.
+
+Captured types that were not built are reported separately as injected. `recentSearchParam` is
+reported separately as honored, rewritten, dropped, injected or absent. A malformed query or a
+duplicate filter type is parse drift, not a guessed verdict. Reordering counts as rewritten:
+semantic equivalence is not inferred from undocumented LinkedIn behavior.
+
+The named response still has to clear both challenge gates, be HTTP 200, identify page 1 and
+carry integer `paging.total/count/start`; those facts make the echo usable evidence. Response
+filter metadata may corroborate a selected value, as it did in
+`01KZSZF6MXC6HHP9Z4RQBHXP19/0016-5e81b94c63cd41b8`, but it does not override a captured-wire
+rewrite or drop. This deliberately names the verdict **captured-wire honor**, not universal
+backend semantics: the invalid-id behavior that could distinguish silent server rejection is
+unanswerable without violating the provenance-only builder contract (D431).
+
+## D434 — Passive search-response options are corroboration, not a vocabulary harvest (2026-08-12)
+
+The Task 42 CXO response's `metadata.filters` passively returned 95 value rows across 17
+non-empty lists, including the selected operator-scoped value, 30 entity suggestions and 64
+public taxonomy/toggle/suggestion rows. Several lists cap at 10, even where Task 43 measured a
+larger complete enum, and entity-bearing types sit beside taxonomy in the same envelope.
+
+Therefore Task 43's registry and provenance rules do not consume this response automatically.
+It is evidence that selected filters and option values can arrive without interaction, and can
+corroborate known rows, but cannot establish completeness. The committed Task 42 fixture drops
+result rows and entity suggestions, scrubs the operator value, and retains only paging plus the
+privacy-safe filter metadata projection. Rejected: adding all 95 rows to vocabulary, which
+would both downgrade provenance quality and commit third-party entity observations.
+
+## D435 — A filtered zero-result shape is unanswerable from the one approved archive (2026-08-12)
+
+The approved CXO archive is not an empty state: its named response reports
+`paging.total=8,380,089`. Task 43's provenance registry contains measured ids for real title,
+region and taxonomy values, but it contains no measured combination known to yield zero. Calling
+an arbitrary conjunction “plausibly zero” would be a guess, and the intended absurd-title route
+still depends on the unmeasured raw-text envelope refused by D421/D431.
+
+Therefore Task 42 records question 4 as unanswerable from what was measured, as its acceptance
+criteria permit. It does not reinterpret the broad CXO response as empty-state evidence and
+does not synthesize an impossible filter. A future provenance-valid narrow load could answer the
+question empirically, but it is a separate live invocation: the D470 approval is exhausted, the
+global ceiling is restored to 50 with 66 rolling-24h search pages currently recorded, and both a
+new budget admission and fresh operator approval are required immediately before it.
+
+Rejected: spending “one more page” under the old approval. The operator authorized exactly the
+CXO page, and Task 42's pacing rule makes the missing zero-result evidence a recorded checkpoint,
+not authority to load another page.

@@ -201,3 +201,42 @@ session, which is the second independent confirmation that its seed is the compl
 
 `ACCOUNT_LIST` (3 rows) and `SAVED_ACCOUNTS` (1 row) are in the archive and are operator-scoped
 under D442.
+
+## Apply-side echo — measured 2026-08-12, run `01KZSZF6MXC6HHP9Z4RQBHXP19`
+
+Task 42 cold-loaded one provenance-built LEAD URL for the operator's CXO persona. The private
+id stays in the raw archive and private vocabulary overlay; the committed request fixture uses
+`SCRUBBED_OPERATOR_FILTER_ID`.
+
+The named `salesApiLeadSearch` request/response pair is archive
+`0016-5e81b94c63cd41b8`. The builder query and the request metadata's raw `query` parameter have
+the same SHA-256, `9fef90211a515f26f58e291b83837fdb8b3e705d262e116c4d5c45efa66e769a`,
+and compare byte-for-byte equal. Structurally, both are:
+
+    (recentSearchParam:(doLogHistory:true),filters:List((type:PERSONA,values:List((id:SCRUBBED_OPERATOR_FILTER_ID,selectionType:INCLUDED)))))
+
+Nothing was reordered, injected, rewritten or dropped. In particular, the builder's omitted
+`text` stayed omitted and LinkedIn did not synthesize one into the request; the sole
+`recentSearchParam.doLogHistory:true` field stayed exact and gained no id. Per D433, that makes
+PERSONA **honored** at the captured-wire layer. It is not a claim that every unmeasured filter
+type has the same behavior.
+
+The 200 response is page 1 (`start=0`, `count=25`) with `paging.total=8,380,089`. Its
+`metadata.filters` has 20 blocks and 95 value rows across 17 non-empty lists. One row carries a
+selection marker under PERSONA, independently corroborating which filter was applied. The
+other rows are passive option/suggestion values: 30 are entity-bearing CURRENT_COMPANY,
+PAST_COMPANY or SCHOOL suggestions; 64 are public taxonomy/toggle/suggestion rows. Many lists
+stop at 10, so this body is useful corroboration but **not** a completeness source and does not
+replace Task 43's typeahead harvest. No `salesApiFacetTypeahead` body fired.
+
+The filter-layout body arrived as `0012-3ff85d03efb79a26`; its uncompressed SHA-256 is
+`50e5d2a45dd23b20dc10368ef198431329ba0bf0cdc403b507b8adf14e52cfba`, exactly the pinned
+catalog fixture. The promoted response fixture keeps paging and filter metadata, scrubs the
+operator-scoped value, and removes result rows, the 30 entity suggestions, disabled-value
+payloads and non-single metadata. Its test pins 16 retained filter blocks and 65 retained rows
+(64 public plus one scrubbed operator-scoped row).
+
+The invalid-id and raw-text experiments remain unanswerable under the measured builder
+contract (D431): one lacks provenance by construction and the other still lacks a captured raw
+text request envelope. Neither is synthesized. A filtered zero-result body is not in this
+archive; measuring it requires a separate provenance-valid narrow load and fresh approval.

@@ -32,6 +32,7 @@ const META_SOURCES = [
   ["01KZP693DEWVP0S90K7C7XQ997", "0018-f371faaa3af8763b"],
   ["01KZQNM34D61NTBDQNDVSZ45AV", "0015-bb6d235df6f31471"],
   ["01KZQNM34D61NTBDQNDVSZ45AV", "0041-7da00af0f64d100c"],
+  ["01KZSZF6MXC6HHP9Z4RQBHXP19", "0016-5e81b94c63cd41b8"],
 ] as const;
 
 /** Closed-enum typeahead bodies from the Task 43 operator-driven harvests.
@@ -57,11 +58,17 @@ const BODY_SOURCES = [
   ["01KZQCS8XZDDYSDGMT5SB81YBS", "0039-93b72711dc6cac2e"],
 ] as const;
 
+const SEARCH_RESPONSE_SOURCES = [
+  ["01KZSZF6MXC6HHP9Z4RQBHXP19", "0016-5e81b94c63cd41b8"],
+] as const;
+
+const ENTITY_BEARING_RESPONSE_FILTERS = new Set(["CURRENT_COMPANY", "PAST_COMPANY", "SCHOOL"]);
+
 type Json = Record<string, unknown>;
 type ManifestRow = {
   runId: string;
   archiveId: string;
-  kind: "request-meta" | "saved-search-body" | "typeahead-body";
+  kind: "request-meta" | "saved-search-body" | "typeahead-body" | "search-response-body";
   sourceSha256: string;
   fixture: string;
   fixtureSha256: string;
@@ -188,8 +195,76 @@ function scrubSavedSearchBody(body: string): { body: string; scrubbed: string[] 
   return { body: sanitized, scrubbed: [...scrubbed].sort() };
 }
 
+function scrubSearchResponseBody(body: string): { body: string; scrubbed: string[] } {
+  const root = record(JSON.parse(body));
+  const paging = record(root?.["paging"]);
+  const filters = record(root?.["metadata"])?.["filters"];
+  if (paging === null || !Array.isArray(filters)) throw new Error("search response lacks paging or metadata.filters");
+  for (const key of ["total", "count", "start"] as const) {
+    if (typeof paging[key] !== "number" || !Number.isInteger(paging[key]) || (paging[key] as number) < 0) {
+      throw new Error(`search response paging.${key} is not a non-negative integer`);
+    }
+  }
+  const scrubbed = new Set<string>(["$.elements", "$.metadata.* except filters"]);
+  const canonicalFilters: unknown[] = [];
+  filters.forEach((wrapperCandidate, filterIndex) => {
+    const metadata = record(record(wrapperCandidate)?.["singleFilterMetadata"]);
+    const type = metadata?.["type"];
+    if (metadata === null || typeof type !== "string") {
+      scrubbed.add(`$.metadata.filters[${filterIndex}] (non-single metadata)`);
+      return;
+    }
+    if (ENTITY_BEARING_RESPONSE_FILTERS.has(type)) {
+      scrubbed.add(`$.metadata.filters[${filterIndex}] (${type} entity suggestions)`);
+      return;
+    }
+    const values = metadata["values"];
+    const canonicalValues = Array.isArray(values) ? values.map((candidate, valueIndex) => {
+      const value = record(candidate);
+      const keys = value === null ? [] : Object.keys(value).sort();
+      if (value === null || keys.some((key) => !["displayCount", "displayValue", "id", "selectionType"].includes(key))) {
+        throw new Error(`${type} response value ${valueIndex} has unexpected keys ${keys.join(",")}`);
+      }
+      const sanitized: { displayCount?: number; displayValue?: string; selectionType?: string; id?: string } = {
+        ...(typeof value["displayCount"] === "number" ? { displayCount: value["displayCount"] } : {}),
+        ...(typeof value["displayValue"] === "string" ? { displayValue: value["displayValue"] } : {}),
+        ...(typeof value["selectionType"] === "string" ? { selectionType: value["selectionType"] } : {}),
+        ...(typeof value["id"] === "string" ? { id: value["id"] } : {}),
+      };
+      if (OPERATOR_SCOPED_FACETS.has(type)) {
+        if ("id" in sanitized) sanitized.id = "SCRUBBED_OPERATOR_FILTER_ID";
+        if ("displayValue" in sanitized) sanitized.displayValue = "Scrubbed operator filter";
+        scrubbed.add(`$.metadata.filters[${filterIndex}].singleFilterMetadata.values[${valueIndex}].id/displayValue`);
+      }
+      return sanitized;
+    }) : [];
+    if ("disabledValues" in metadata) {
+      scrubbed.add(`$.metadata.filters[${filterIndex}].singleFilterMetadata.disabledValues`);
+    }
+    canonicalFilters.push({ singleFilterMetadata: { type, values: canonicalValues } });
+  });
+  const sanitized = `${JSON.stringify({
+    paging: { total: paging["total"], count: paging["count"], start: paging["start"] },
+    metadata: { filters: canonicalFilters },
+  }, null, 2)}\n`;
+  if (/urn:li:|\b[^\s@]+@[^\s@]+\.[^\s@]+\b/i.test(sanitized)) {
+    throw new Error("search response fixture still contains an identity marker");
+  }
+  return { body: sanitized, scrubbed: [...scrubbed].sort() };
+}
+
 async function writeFixture(path: string, bytes: Uint8Array | string): Promise<void> {
   await mkdir(dirname(path), { recursive: true });
+  try {
+    const existing = await readFile(path);
+    const candidate = typeof bytes === "string" ? Buffer.from(bytes) : Buffer.from(bytes);
+    const same = path.endsWith(".json.gz")
+      ? gunzipSync(existing).equals(gunzipSync(candidate))
+      : existing.equals(candidate);
+    if (same) return;
+  } catch {
+    // Missing or unreadable destinations are written below.
+  }
   await writeFile(path, bytes);
 }
 
@@ -279,6 +354,23 @@ for (const [runId, archiveId, typeaheadType] of TYPEAHEAD_SOURCES) {
   });
 }
 
+for (const [runId, archiveId] of SEARCH_RESPONSE_SOURCES) {
+  const source = join(RUNS_ROOT, runId, "raw", `${archiveId}.json.gz`);
+  const sourceBytes = await readFile(source);
+  const sanitized = scrubSearchResponseBody(gunzipSync(sourceBytes).toString("utf8"));
+  const fixtureBytes = gzipSync(sanitized.body, { level: 9 });
+  const target = join(FIXTURE_ROOT, runId, "raw", `${archiveId}.json.gz`);
+  await writeFixture(target, fixtureBytes);
+  manifest.push({
+    runId, archiveId, kind: "search-response-body", sourceSha256: sha256(sourceBytes),
+    fixture: relative(FIXTURE_ROOT, target), fixtureSha256: sha256(fixtureBytes), scrubbed: sanitized.scrubbed,
+  });
+}
+
+for (const source of manifest) {
+  source.fixtureSha256 = sha256(await readFile(join(FIXTURE_ROOT, source.fixture)));
+}
+
 const manifestBody = `${JSON.stringify({
   version: 1,
   policy: [
@@ -287,6 +379,7 @@ const manifestBody = `${JSON.stringify({
     "operator-scoped filter ids and display text",
     "per-execution session values",
     "typeahead bodies are promoted only for public taxonomy types, canonicalized to (id, displayValue)",
+    "search responses retain paging and filter metadata only; result rows and entity suggestions are removed",
   ],
   sources: manifest.sort((a, b) => a.fixture.localeCompare(b.fixture)),
 }, null, 2)}\n`;

@@ -39,9 +39,9 @@ export type BudgetLimits = {
 export const DEFAULT_BUDGET_LIMITS: BudgetLimits = {
   pageLoadsPerHour: 60,
   pageLoadsPerDay: 400,
-  // Was briefly 75 on 2026-08-11 for the Task 43 harvest day (D443) and is back
-  // at the spec default now that both sessions have run. Do not raise it again
-  // without a dated operator grant of its own.
+  // Was temporarily 75 for the single Task 42 CXO probe under D470 and was
+  // restored immediately after its one approved invocation. A later raise
+  // needs a new dated operator grant; no approval carries over.
   searchPagesPerDay: 50,
   distinctProfilesPerDay: 120,
 };
@@ -177,6 +177,10 @@ export const CAPABILITY_SUB_CAPS: Readonly<Record<string, CapabilitySubCaps>> = 
   // accounts search unmeasured, which blocks Tasks 38/40 on a field nobody has
   // seen. 10 is one full probe run plus a retry, and 20% of the global 50/day.
   "salesnav.probe": { pageLoadsPerDay: 10, searchPagesPerDay: 10, distinctProfilesPerDay: 0 },
+  // Task 42's built-url probe is one page per invocation and has a hard
+  // cross-session ceiling of six pages of each kind. It is separate from the
+  // M5 surface probe so neither capability can consume the other's retry room.
+  "salesnav.filters.probe": { pageLoadsPerDay: 6, searchPagesPerDay: 6, distinctProfilesPerDay: 0 },
   // Saved searches are a list the operator owns; reading it is a page load, not
   // a metered search. Zero search pages until Task 37 measures otherwise — if
   // that page turns out to be metered, the measurement raises this number

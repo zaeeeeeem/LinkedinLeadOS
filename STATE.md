@@ -1,5 +1,74 @@
 # STATE
 
+## Built — Task 42 CXO built-URL apply probe (2026-08-12)
+
+The operator approved exactly one immediate CXO invocation and a D470-shaped temporary global
+`searchPagesPerDay` raise from 50 to 75. Run `01KZSZF6MXC6HHP9Z4RQBHXP19` completed exit 0 in
+33,640 ms. The constant was restored to **50 immediately after the run**; D470 is exhausted and
+no retry was attempted or is authorized. Task 42 spend is now **1 / 6 page loads, 1 / 6 search
+pages, 0 profile opens**.
+
+Three-place spend agreement, independently read: the receipt says **1 page load + 1 search
+page**; `runs/budget.ndjson` has exactly **2 lines** for the run, one unit of each kind; the raw
+archive has exactly **1 named `salesApiLeadSearch` body/page** (`0016-5e81b94c63cd41b8.json.gz`)
+among 36 bodies and 36 sidecars. Direct Supabase queries find **0 runs rows and 0 search_results
+for this run** (`run_ref`), while the database remains at 197 search_results, 0 persons and 0
+companies. This archive-only capability intentionally mirrors nothing to the store.
+
+Built query (private id scrubbed):
+
+    (recentSearchParam:(doLogHistory:true),filters:List((type:PERSONA,values:List((id:SCRUBBED_OPERATOR_FILTER_ID,selectionType:INCLUDED)))))
+
+Captured request query from `0016-5e81b94c63cd41b8.meta.json` (private id scrubbed):
+
+    (recentSearchParam:(doLogHistory:true),filters:List((type:PERSONA,values:List((id:SCRUBBED_OPERATOR_FILTER_ID,selectionType:INCLUDED)))))
+
+Both raw strings independently hash to
+`9fef90211a515f26f58e291b83837fdb8b3e705d262e116c4d5c45efa66e769a` and are
+byte-identical. Per D433 the PERSONA verdict is **honored**: no field reordered, rewritten,
+injected or dropped; omitted `text` stayed omitted; `recentSearchParam.doLogHistory:true` stayed
+exact. The response is page 1 with `paging.total=8,380,089`, `count=25`, `start=0`.
+
+Question 5 also answered from named bodies. Layout archive `0012-3ff85d03efb79a26.json.gz`
+hashes exactly to the pinned catalog. The search body itself passively carries 20 filter-metadata
+blocks, 95 value rows across 17 non-empty lists and one selected PERSONA row; no typeahead body
+fired. Thirty passive rows are entity suggestions and 64 are public option/suggestion rows, so
+the body corroborates options but is not a completeness source (D434). The committed
+subject-scoped fixture pair scrubs the operator value and removes all result rows, entity
+suggestions, disabled-value payloads and non-single metadata; fixture tests pin its source hashes
+and retained 16-block/65-row projection.
+
+`salesnav.filters.probe` remains a one-page archive-only sibling (D430), with strict
+provenance-first build, 1/1 cost, challenge gates, page-1 enforcement, exact per-filter echo
+verdicts, privacy-safe passive-metadata counts, and zero clicks/keystrokes/wheel events. D431
+records why the invalid-id and raw-text loads are unanswerable without contradicting the builder
+contract; both spent zero. D432 records a launch-layer bug: npm printed the expanded private
+spec before the receipt. The archive and redacted receipt remain valid, no retry was taken, and
+the README now requires direct local-CLI invocation for private specs.
+
+Final verification: the focused probe suite is **19/19**; the full serial suite is
+**1,836/1,836 across 126 files with 0 skips** against local Supabase; typecheck is clean; fixture
+promotion is idempotent at 34 sources; `git diff --check` passes.
+
+Task 42 acceptance, item by item:
+
+- Q1 echo fidelity — answered from `0016-5e81b94c63cd41b8`: exact captured-wire honor.
+- Q2 invalid id — unanswerable under provenance-only construction, D431; refusal is tested
+  before spend/navigation, so no archive or screenshot was fabricated.
+- Q3 raw text — unanswerable because no captured request proves its envelope, D421/D431.
+- Q4 filtered zero — unanswerable from the one approved archive, whose total is nonzero; no
+  measured valid combination is known to be zero, D435.
+- Q5 free riders — answered from `0012-3ff85d03efb79a26` and
+  `0016-5e81b94c63cd41b8`: exact catalog body, selected-filter/options metadata, zero typeahead.
+- Promoted subject-scoped request/response pair, FILTER-MAP echo rules and Task 44's exact
+  honored/rewritten/dropped contract are in the worktree; full suite/typecheck are green;
+  receipt/ledger/archive spend agrees 1/1/1.
+
+Cold resume: Task 42 is ready for review on `codex/task-42-apply-probe`, based on main
+`0139745`. The global cap is 50, Task 42 spend is 1/6 + 1/6, D470 is exhausted, and there is no
+authorized retry. A future empirical zero-result follow-up is optional and requires a new
+budget decision plus fresh approval; it is not an unfinished invocation.
+
 ## Typeahead vocabulary is parsed, tested and written — Task 43 (2026-08-11)
 
 The offline classifier is built and the registry is populated. **1,326 rows harvested from the

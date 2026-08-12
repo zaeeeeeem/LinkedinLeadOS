@@ -5,7 +5,8 @@
     "seat data and operator-authored keywords",
     "operator-scoped filter ids and display text",
     "per-execution session values",
-    "typeahead bodies are promoted only for public taxonomy types, canonicalized to (id, displayValue)"
+    "typeahead bodies are promoted only for public taxonomy types, canonicalized to (id, displayValue)",
+    "search responses retain paging and filter metadata only; result rows and entity suggestions are removed"
   ],
   "sources": [
     {
@@ -343,6 +344,38 @@
       "fixtureSha256": "f076e42314e8d7b753c566c1391d8385de5380df43f54211e73409e47de56519",
       "scrubbed": [
         "requestId"
+      ]
+    },
+    {
+      "runId": "01KZSZF6MXC6HHP9Z4RQBHXP19",
+      "archiveId": "0016-5e81b94c63cd41b8",
+      "kind": "search-response-body",
+      "sourceSha256": "6e40e372c2ba74778e152b0d1b4490ffd0dfe1cb8245299efcffdf334e203b1c",
+      "fixture": "01KZSZF6MXC6HHP9Z4RQBHXP19/raw/0016-5e81b94c63cd41b8.json.gz",
+      "fixtureSha256": "c21361d19437783881ffda4825bd9d894a282763a7e7b210542652cdd615e8b9",
+      "scrubbed": [
+        "$.elements",
+        "$.metadata.* except filters",
+        "$.metadata.filters[0] (CURRENT_COMPANY entity suggestions)",
+        "$.metadata.filters[17].singleFilterMetadata.values[0].id/displayValue",
+        "$.metadata.filters[18].singleFilterMetadata.disabledValues",
+        "$.metadata.filters[19].singleFilterMetadata.disabledValues",
+        "$.metadata.filters[1] (PAST_COMPANY entity suggestions)",
+        "$.metadata.filters[2].singleFilterMetadata.disabledValues",
+        "$.metadata.filters[5] (SCHOOL entity suggestions)",
+        "$.metadata.filters[6] (non-single metadata)",
+        "$.metadata.filters[7].singleFilterMetadata.disabledValues"
+      ]
+    },
+    {
+      "runId": "01KZSZF6MXC6HHP9Z4RQBHXP19",
+      "archiveId": "0016-5e81b94c63cd41b8",
+      "kind": "request-meta",
+      "sourceSha256": "0f318e7ffab4487e68adb7bf16db8d578fd99216c6c53a2774b3183c191fdaf2",
+      "fixture": "01KZSZF6MXC6HHP9Z4RQBHXP19/raw/0016-5e81b94c63cd41b8.meta.json",
+      "fixtureSha256": "f75c91f03ce6bb06d1abe5aa32f331c984c947241ae14893e011e1b8e3bcfee5",
+      "scrubbed": [
+        "query.filters[].operatorScoped.values[].id/text"
       ]
     }
   ]
